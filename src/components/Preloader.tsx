@@ -1,39 +1,45 @@
 import { useEffect, useState } from 'react'
 import { prefersReducedMotion } from '../lib/motion'
 
-/** preload.gif's final frame (the slash/impact beat) starts at 2880ms — the
- *  gif never gets a chance to loop back to its calm opening frame. */
-const SLICE_AT_MS = 2880
+/** Safety net in case autoplay is blocked and the video's 'ended' event never fires. */
+const FALLBACK_MS = 4000
 
 /**
  * App-root overlay — deliberately outside the hero's `.nr-hero-surface`
  * (which sets `isolation: isolate`), so it can sit above the fixed header
- * (z-70) without fighting that stacking context. At the slice beat, swaps
- * the animated gif for a static freeze-frame of that exact moment (so the
- * hold is pixel-perfect regardless of any timer/decode drift) and starts
- * fading straight into the hero — it never waits on the hero video.
+ * (z-70) without fighting that stacking context. Plays preload.mp4 once;
+ * the video naturally holds on its final frame (the slash/impact beat)
+ * once 'ended' fires, then fades straight into the hero from there.
  */
 export default function Preloader() {
-  const [sliced, setSliced] = useState(() => prefersReducedMotion())
+  const reduced = prefersReducedMotion()
+  const [done, setDone] = useState(reduced)
 
   useEffect(() => {
-    if (prefersReducedMotion()) return
-    const t = window.setTimeout(() => setSliced(true), SLICE_AT_MS)
+    if (reduced || done) return
+    const t = window.setTimeout(() => setDone(true), FALLBACK_MS)
     return () => window.clearTimeout(t)
-  }, [])
+  }, [reduced, done])
 
   return (
     <div
       aria-hidden="true"
       className={`fixed inset-0 z-[100] bg-deep transition-opacity duration-700 ${
-        sliced ? 'pointer-events-none opacity-0' : 'opacity-100'
+        done ? 'pointer-events-none opacity-0' : 'opacity-100'
       }`}
     >
-      <img
-        src={sliced ? '/preload-slice.png' : '/preload.gif'}
-        alt=""
-        className="absolute inset-0 h-full w-full object-cover"
-      />
+      {!reduced && (
+        <video
+          autoPlay
+          muted
+          playsInline
+          preload="auto"
+          src="/preload.mp4"
+          onEnded={() => setDone(true)}
+          onError={() => setDone(true)}
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+      )}
     </div>
   )
 }
