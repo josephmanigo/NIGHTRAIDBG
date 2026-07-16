@@ -81,9 +81,9 @@ export default function Members() {
 
         <div ref={ref}>
           {single ? (
-            <div data-reveal className="mx-auto flex h-[26rem] items-center justify-center sm:h-[30rem]">
-              {/* Matches CircularGallery's own card frame size (220x320 compact / 300x400 default). */}
-              <div className="group relative h-[320px] w-[220px] overflow-hidden rounded-2xl border border-line bg-paper-deep/60 shadow-2xl backdrop-blur-lg sm:h-[400px] sm:w-[300px]">
+            <div data-reveal className="mx-auto flex h-[28rem] items-center justify-center sm:h-[32rem]">
+              {/* Slightly larger than CircularGallery's own card frame (220x320 compact / 300x400 default). */}
+              <div className="group relative h-[350px] w-[240px] overflow-hidden rounded-2xl border border-line bg-paper-deep/60 shadow-2xl backdrop-blur-lg sm:h-[440px] sm:w-[330px]">
                 <img
                   src={teams[0].image}
                   alt={teams[0].imageAlt}
