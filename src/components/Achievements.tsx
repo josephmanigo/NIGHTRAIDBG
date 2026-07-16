@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { gsap, ScrollTrigger, prefersReducedMotion } from '../lib/motion'
 import SectionHeader from './SectionHeader'
 import InfiniteGallery from '@/components/ui/3d-gallery-photography'
@@ -53,6 +53,32 @@ export default function Achievements() {
   const wrapperRef = useRef<HTMLDivElement>(null)
   const progressRef = useRef(0)
   const reduced = prefersReducedMotion()
+  const [shouldMountGallery, setShouldMountGallery] = useState(false)
+
+  /* Defer mounting the WebGL gallery (42 textures) until this section is
+   * within reach. Mounting it eagerly at page load competes with the
+   * preloader and the hero background video for the main thread and
+   * network right when that matters most, causing a stutter on the
+   * preloader-to-hero handoff. */
+  useEffect(() => {
+    const el = wrapperRef.current
+    if (!el) return
+    if (typeof IntersectionObserver === 'undefined') {
+      setShouldMountGallery(true)
+      return
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setShouldMountGallery(true)
+          observer.disconnect()
+        }
+      },
+      { rootMargin: '150% 0px' },
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
 
   /* Progress is tied 1:1 to the sticky panel's pinned scroll range — it hits
    * 1 exactly when the wrapper's bottom reaches the viewport bottom, which is
@@ -85,14 +111,16 @@ export default function Achievements() {
         data-theme="dark"
         className={`overflow-hidden text-white ${reduced ? 'relative h-[95svh] md:h-[110svh]' : 'sticky top-0 h-screen'}`}
       >
-        <InfiniteGallery
-          images={ACHIEVEMENT_IMAGES}
-          progressRef={progressRef}
-          zSpacing={6}
-          fadeSettings={{ fadeIn: { start: 0.0, end: 0.15 }, fadeOut: { start: 0.85, end: 1.0 } }}
-          blurSettings={{ blurIn: { start: 0.0, end: 0.12 }, blurOut: { start: 0.88, end: 1.0 }, maxBlur: 3.0 }}
-          className="absolute inset-0 h-full w-full"
-        />
+        {shouldMountGallery && (
+          <InfiniteGallery
+            images={ACHIEVEMENT_IMAGES}
+            progressRef={progressRef}
+            zSpacing={6}
+            fadeSettings={{ fadeIn: { start: 0.0, end: 0.15 }, fadeOut: { start: 0.85, end: 1.0 } }}
+            blurSettings={{ blurIn: { start: 0.0, end: 0.12 }, blurOut: { start: 0.88, end: 1.0 }, maxBlur: 3.0 }}
+            className="absolute inset-0 h-full w-full"
+          />
+        )}
 
         {/* Header overlay (floating, centered on top) */}
         <div className="pointer-events-none absolute inset-0 z-10 flex items-center">

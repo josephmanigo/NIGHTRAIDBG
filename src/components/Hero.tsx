@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { gsap, ScrollTrigger, prefersReducedMotion } from '../lib/motion'
+import { gsap, ScrollTrigger, prefersReducedMotion, isFinePointer } from '../lib/motion'
 
 const VIDEO_SRC = '/hero-bg-scrub.mp4'
 const POSTER_SRC = '/hero.webp'
@@ -22,11 +22,25 @@ export default function Hero() {
   const [booted, setBooted] = useState(false) // loader dismissed
   const [initScrollTrigger, setInitScrollTrigger] = useState(false)
   const reduced = prefersReducedMotion()
+  /* Touch/coarse-pointer devices skip the blob prefetch below — computed
+   * once on mount, not reactive to resize. */
+  const [mobile] = useState(() => !isFinePointer())
 
-  /* Fetch the video fully so playback can loop without buffering. */
+  /* Desktop: fetch the video fully so the ping-pong reverse-scrub loop can
+   * seek backward instantly without buffering waits. Mobile: skip the
+   * upfront ~12MB blob fetch entirely — it competes with the preloader for
+   * bandwidth and blob-URL video sources are unreliable for autoplay on
+   * mobile browsers. A plain looping <video src> streams progressively and
+   * autoplays far more reliably there (see the `loop` attribute below,
+   * which also makes the reverse-scrub effect a no-op: a looping video
+   * never fires 'ended'). */
   useEffect(() => {
     if (reduced) {
       setBooted(true)
+      return
+    }
+    if (mobile) {
+      setBlobUrl(VIDEO_SRC)
       return
     }
     let url: string | null = null
@@ -43,7 +57,7 @@ export default function Hero() {
       cancelled = true
       if (url) URL.revokeObjectURL(url)
     }
-  }, [reduced])
+  }, [reduced, mobile])
 
   /* Dismiss the loading state after one playthrough of preload.gif (37 frames
    * @ 80ms = ~2.96s) — the hero video keeps loading behind it and crossfades
@@ -312,6 +326,7 @@ export default function Hero() {
               autoPlay
               muted
               playsInline
+              loop={mobile}
               preload="auto"
               poster={POSTER_SRC}
               src={blobUrl ?? undefined}
