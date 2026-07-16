@@ -31,7 +31,6 @@ export default function Members() {
   )
 
   const single = teams.length === 1
-
   /* Keep the on-screen gap between adjacent cards constant regardless of how
    * many teams a filter leaves — the gallery spaces items evenly around a
    * fixed-radius circle, so fewer items (a wider angle apart) would
@@ -41,7 +40,7 @@ export default function Members() {
   const BASE_RADIUS = 350
   const BASE_COUNT = 5
   const referenceGap = 2 * BASE_RADIUS * Math.sin(Math.PI / BASE_COUNT)
-  const radius =
+  const galleryRadius =
     teams.length > 1 ? referenceGap / (2 * Math.sin(Math.PI / teams.length)) : BASE_RADIUS
 
   return (
@@ -81,29 +80,32 @@ export default function Members() {
         </p>
 
         <div ref={ref}>
-          <div data-reveal className="relative -mx-5 sm:-mx-8 lg:-mx-12">
-            {single ? (
+          {single ? (
+            <div data-reveal className="mx-auto flex h-[38rem] items-center justify-center sm:h-[46rem] lg:h-[54rem]">
+              <div className="w-full max-w-[22rem] sm:max-w-[30rem] lg:max-w-[36rem]">
+                <div className="group relative aspect-[4/5] w-full overflow-hidden rounded-2xl border border-line bg-paper-deep/60 shadow-2xl backdrop-blur-lg">
+                  <img
+                    src={teams[0].image}
+                    alt={teams[0].imageAlt}
+                    className="absolute inset-0 h-full w-full object-cover object-[center_top]"
+                  />
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div data-reveal className="relative -mx-5 sm:-mx-8 lg:-mx-12">
               <CircularGallery
                 items={galleryItems}
-                radius={radius}
-                interactive={false}
+                radius={galleryRadius}
+                autoRotateSpeed={0.035}
                 className="h-[34rem] -translate-y-12 sm:h-[42rem] sm:-translate-y-[4.5rem] lg:h-[48rem]"
               />
-            ) : (
-              <>
-                <CircularGallery
-                  items={galleryItems}
-                  radius={radius}
-                  autoRotateSpeed={0.035}
-                  className="h-[34rem] -translate-y-12 sm:h-[42rem] sm:-translate-y-[4.5rem] lg:h-[48rem]"
-                />
 
-                <p className="ln-label absolute inset-x-0 bottom-0 text-center text-bone/35 sm:hidden">
-                  Swipe to rotate
-                </p>
-              </>
-            )}
-          </div>
+              <p className="ln-label absolute inset-x-0 bottom-0 text-center text-bone/35 sm:hidden">
+                Swipe to rotate
+              </p>
+            </div>
+          )}
 
           <div data-reveal className="relative -mt-8 overflow-hidden rounded-3xl border border-line bg-paper-deep/50 py-8 sm:-mt-12">
             <Marquee

@@ -21,28 +21,11 @@ interface CircularGalleryProps extends HTMLAttributes<HTMLDivElement> {
   radius?: number
   /** Controls the speed of the free rotation. */
   autoRotateSpeed?: number
-  /** When false, disables auto-rotation, dragging and keyboard rotation —
-   *  the card(s) still render with the same 3D perspective, just frozen. */
-  interactive?: boolean
-  /** Starting rotation angle in degrees — useful with a single item to give
-   *  a static card a slight 3D tilt instead of facing the camera flat-on. */
-  initialRotation?: number
 }
 
 const CircularGallery = React.forwardRef<HTMLDivElement, CircularGalleryProps>(
-  (
-    {
-      items,
-      className,
-      radius = 600,
-      autoRotateSpeed = 0.02,
-      interactive = true,
-      initialRotation = 0,
-      ...props
-    },
-    ref,
-  ) => {
-    const [rotation, setRotation] = useState(initialRotation)
+  ({ items, className, radius = 600, autoRotateSpeed = 0.02, ...props }, ref) => {
+    const [rotation, setRotation] = useState(0)
     const [isDragging, setIsDragging] = useState(false)
     const [containerWidth, setContainerWidth] = useState(0)
     const containerRef = useRef<HTMLDivElement | null>(null)
@@ -63,7 +46,6 @@ const CircularGallery = React.forwardRef<HTMLDivElement, CircularGalleryProps>(
 
     // Free rotation loop; after a drag the release velocity eases back into it.
     useEffect(() => {
-      if (!interactive) return
       const tick = () => {
         if (!isDragging) {
           dragRef.current.velocity *= 0.95
@@ -82,10 +64,9 @@ const CircularGallery = React.forwardRef<HTMLDivElement, CircularGalleryProps>(
           cancelAnimationFrame(animationFrameRef.current)
         }
       }
-    }, [isDragging, autoRotateSpeed, reduced, interactive])
+    }, [isDragging, autoRotateSpeed, reduced])
 
     const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-      if (!interactive) return
       setIsDragging(true)
       dragRef.current.lastX = e.clientX
       dragRef.current.velocity = 0
@@ -93,7 +74,7 @@ const CircularGallery = React.forwardRef<HTMLDivElement, CircularGalleryProps>(
     }
 
     const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-      if (!interactive || !isDragging) return
+      if (!isDragging) return
       const dx = e.clientX - dragRef.current.lastX
       dragRef.current.lastX = e.clientX
       const delta = dx * 0.25
@@ -119,13 +100,12 @@ const CircularGallery = React.forwardRef<HTMLDivElement, CircularGalleryProps>(
           else if (ref) ref.current = node
         }}
         role="region"
-        aria-label={interactive ? 'Circular 3D gallery — drag to rotate' : 'Team card'}
+        aria-label="Circular 3D gallery — drag to rotate"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
         onKeyDown={(event) => {
-          if (!interactive) return
           if (event.key === 'ArrowRight') {
             event.preventDefault()
             setRotation((current) => current - anglePerItem)
@@ -135,10 +115,10 @@ const CircularGallery = React.forwardRef<HTMLDivElement, CircularGalleryProps>(
             setRotation((current) => current + anglePerItem)
           }
         }}
-        tabIndex={interactive ? 0 : -1}
+        tabIndex={0}
         className={cn(
           'relative flex h-full w-full select-none items-center justify-center',
-          interactive ? (isDragging ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-default',
+          isDragging ? 'cursor-grabbing' : 'cursor-grab',
           className,
         )}
         style={{ perspective: '2000px', touchAction: 'pan-y' }}
