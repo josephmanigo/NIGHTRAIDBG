@@ -1,0 +1,351 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ------------------------------------------------------------------ */
+/* Design tokens — NIGHTRAID: bone paper, warm black ink, blood red    */
+/* ------------------------------------------------------------------ */
+:root {
+  --ln-paper: #0a0a0a;
+  --ln-ink: #ffffff;
+  --ln-wine: #0c0607;
+  --ln-deep: #000000;
+  --ln-blood: #e3262e;
+  --ln-blood-deep: #a81b21;
+  --ln-bone: #ffffff;
+  --ln-ease: cubic-bezier(0.65, 0.05, 0, 1);
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+  }
+  html.lenis,
+  html.lenis body {
+    height: auto;
+  }
+  .lenis.lenis-smooth {
+    scroll-behavior: auto !important;
+  }
+  .lenis.lenis-stopped {
+    overflow: hidden;
+  }
+
+  body {
+    @apply bg-paper font-body text-ink antialiased;
+    overflow-x: clip;
+  }
+
+  ::selection {
+    background: var(--ln-blood);
+    color: var(--ln-bone);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ln-blood-deep);
+    outline-offset: 3px;
+  }
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  img {
+    @apply max-w-full;
+  }
+}
+
+@layer components {
+  /* Small bold uppercase label */
+  .ln-label {
+    @apply font-body text-[0.65rem] font-bold uppercase tracking-label;
+  }
+
+  /* Serif italic accent word inside display headlines */
+  .ln-serif {
+    @apply font-serif italic font-normal;
+    letter-spacing: 0.01em;
+  }
+
+  /* Rounded pill CTAs */
+  .ln-pill {
+    @apply inline-flex h-12 items-center justify-center gap-2 rounded-full bg-blood px-7 font-body text-[0.7rem] font-extrabold uppercase tracking-[0.12em] text-bone transition-colors duration-300;
+  }
+  .ln-pill:hover {
+    @apply bg-blood-deep;
+  }
+  .ln-pill-ghost {
+    @apply inline-flex h-12 items-center justify-center gap-2 rounded-full border border-ink/25 bg-transparent px-7 font-body text-[0.7rem] font-extrabold uppercase tracking-[0.12em] text-ink transition-colors duration-300;
+  }
+  .ln-pill-ghost:hover {
+    @apply border-ink bg-ink text-paper;
+  }
+  .ln-pill-paper {
+    @apply inline-flex h-12 items-center justify-center gap-2 rounded-full bg-paper px-7 font-body text-[0.7rem] font-extrabold uppercase tracking-[0.12em] text-ink transition-colors duration-300;
+  }
+  .ln-pill-paper:hover {
+    @apply bg-blood text-bone;
+  }
+
+  /* Filter chips — light sections */
+  .ln-chip {
+    @apply h-10 rounded-full border border-ink/25 px-5 font-body text-[0.62rem] font-bold uppercase tracking-[0.14em] text-ink/55 transition-colors duration-300;
+  }
+  .ln-chip:hover {
+    @apply border-ink/60 text-ink;
+  }
+  .ln-chip-active {
+    @apply border-ink bg-ink text-paper;
+  }
+  .ln-chip-active:hover {
+    @apply text-paper;
+  }
+
+  /* Filter chips — dark sections */
+  .ln-chip-dark {
+    @apply h-10 rounded-full border border-bone/25 px-5 font-body text-[0.62rem] font-bold uppercase tracking-[0.14em] text-bone/55 transition-colors duration-300;
+  }
+  .ln-chip-dark:hover {
+    @apply border-bone/60 text-bone;
+  }
+  .ln-chip-dark-active {
+    @apply border-blood bg-blood text-bone;
+  }
+  .ln-chip-dark-active:hover {
+    @apply border-blood text-bone;
+  }
+
+  /* Round carousel / lightbox controls */
+  .ln-ctrl {
+    @apply inline-flex h-11 w-11 items-center justify-center rounded-full border border-ink/20 bg-transparent font-body text-sm font-semibold text-ink transition-colors duration-300;
+  }
+  .ln-ctrl:hover:not(:disabled) {
+    @apply border-ink bg-ink text-paper;
+  }
+  .ln-ctrl:disabled {
+    @apply cursor-default opacity-30;
+  }
+  .ln-ctrl-dark {
+    @apply inline-flex h-11 w-11 items-center justify-center rounded-full border border-bone/25 bg-transparent font-body text-sm font-semibold text-bone transition-colors duration-300;
+  }
+  .ln-ctrl-dark:hover:not(:disabled) {
+    @apply border-blood bg-blood text-bone;
+  }
+  .ln-ctrl-dark:disabled {
+    @apply cursor-default opacity-30;
+  }
+
+  /* Skip link */
+  .skip-link {
+    @apply fixed left-4 top-4 z-[100] -translate-y-24 rounded-full bg-ink px-6 py-3 font-body text-xs font-bold uppercase tracking-label text-paper transition-transform;
+  }
+  .skip-link:focus-visible {
+    transform: translateY(0);
+  }
+
+  /* Notched label chip — diagonal cut on the top-left corner */
+  .ln-notch {
+    clip-path: polygon(18px 0, 100% 0, 100% 100%, 0 100%);
+  }
+}
+
+@layer utilities {
+  /* Topographic contour tile — dark strokes for cream sections */
+  .bg-topo {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='900' height='900' viewBox='0 0 900 900' fill='none' stroke='%23F4F1EA' stroke-opacity='0.05' stroke-width='1.1'%3E%3Cpath d='M120 210c30-90 150-140 250-110s150 130 110 220-160 130-250 90S90 300 120 210z'/%3E%3Cpath d='M170 220c25-65 110-100 180-78s110 95 80 160-115 95-180 65-105-82-80-147z'/%3E%3Cpath d='M220 232c18-45 75-68 122-53s75 65 55 110-78 65-122 44-73-56-55-101z'/%3E%3Cpath d='M266 246c11-27 45-40 73-31s45 39 33 66-47 39-73 26-44-34-33-61z'/%3E%3Cpath d='M640 780c-90 0-160-60-160-140s80-150 170-150 150 70 150 150-70 140-160 140z'/%3E%3Cpath d='M645 740c-65 0-115-45-115-105s58-110 122-110 108 52 108 110-50 105-115 105z'/%3E%3Cpath d='M650 700c-42 0-75-30-75-68s38-72 80-72 70 34 70 72-33 68-75 68z'/%3E%3Cpath d='M760 160c60-40 140-20 140 40v20c0 60-80 90-140 60s-60-80 0-120z'/%3E%3Cpath d='M150 760c20-50 90-70 140-45s60 95 15 130-115 25-145-15-30-20-10-70z'/%3E%3Cpath d='M0 520c120-40 260-10 380 30s260 60 420 20'/%3E%3Cpath d='M0 560c140-40 280-5 400 35s240 50 400 15'/%3E%3C/svg%3E");
+    background-size: 900px auto;
+  }
+
+  /* Topographic contour tile — light strokes for wine sections */
+  .bg-topo-dark {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='900' height='900' viewBox='0 0 900 900' fill='none' stroke='%23F4F1EA' stroke-opacity='0.06' stroke-width='1.1'%3E%3Cpath d='M120 210c30-90 150-140 250-110s150 130 110 220-160 130-250 90S90 300 120 210z'/%3E%3Cpath d='M170 220c25-65 110-100 180-78s110 95 80 160-115 95-180 65-105-82-80-147z'/%3E%3Cpath d='M220 232c18-45 75-68 122-53s75 65 55 110-78 65-122 44-73-56-55-101z'/%3E%3Cpath d='M266 246c11-27 45-40 73-31s45 39 33 66-47 39-73 26-44-34-33-61z'/%3E%3Cpath d='M640 780c-90 0-160-60-160-140s80-150 170-150 150 70 150 150-70 140-160 140z'/%3E%3Cpath d='M645 740c-65 0-115-45-115-105s58-110 122-110 108 52 108 110-50 105-115 105z'/%3E%3Cpath d='M650 700c-42 0-75-30-75-68s38-72 80-72 70 34 70 72-33 68-75 68z'/%3E%3Cpath d='M760 160c60-40 140-20 140 40v20c0 60-80 90-140 60s-60-80 0-120z'/%3E%3Cpath d='M150 760c20-50 90-70 140-45s60 95 15 130-115 25-145-15-30-20-10-70z'/%3E%3Cpath d='M0 520c120-40 260-10 380 30s260 60 420 20'/%3E%3Cpath d='M0 560c140-40 280-5 400 35s240 50 400 15'/%3E%3C/svg%3E");
+    background-size: 900px auto;
+  }
+
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Headline line reveal mask */
+  .clip-line {
+    display: block;
+    overflow: hidden;
+  }
+  .clip-line > span {
+    display: block;
+    will-change: transform;
+  }
+
+  @keyframes nr-marquee {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(-50%);
+    }
+  }
+  .animate-nr-marquee {
+    animation: nr-marquee 40s linear infinite;
+  }
+
+  /* Carousel: blood transition line sweeping the frame on slide change */
+  @keyframes nr-sweep {
+    0% {
+      transform: scaleX(0);
+      transform-origin: left;
+      opacity: 1;
+    }
+    55% {
+      transform: scaleX(1);
+      transform-origin: left;
+      opacity: 1;
+    }
+    56% {
+      transform-origin: right;
+    }
+    100% {
+      transform: scaleX(0);
+      transform-origin: right;
+      opacity: 0.6;
+    }
+  }
+  .animate-nr-sweep {
+    animation: nr-sweep 0.7s var(--ln-ease) both;
+  }
+
+  /* Carousel: clipped caption reveal */
+  @keyframes nr-caption-in {
+    from {
+      transform: translateY(110%);
+    }
+    to {
+      transform: translateY(0);
+    }
+  }
+  .animate-nr-caption-in {
+    animation: nr-caption-in 0.6s 0.18s var(--ln-ease) both;
+  }
+
+  /* Hero loading line */
+  @keyframes nr-loader {
+    from {
+      transform: translateX(-120%);
+    }
+    to {
+      transform: translateX(460%);
+    }
+  }
+  .nr-loader-line {
+    animation: nr-loader 1.1s ease-in-out infinite;
+  }
+}
+
+/* One contour canvas shared by the hero and every section below it. */
+.nr-site-surface {
+  background-color: #0a0a0a;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='960' height='720' viewBox='0 0 960 720' fill='none' stroke='%23E3262E' stroke-opacity='.21' stroke-width='1.2'%3E%3Cpath d='M-70 173C54 63 150 60 239 125s159 59 245-27S715-22 874 70s168 214 51 274-256 22-332 117-31 206 74 285'/%3E%3Cpath d='M-54 220C66 117 148 116 225 172s151 55 231-20 214-105 354-24 155 184 46 240-235 22-302 108-29 184 66 256'/%3E%3Cpath d='M-28 271c110-88 179-88 245-41s141 49 213-16 196-91 319-23 140 158 43 209-211 22-270 99-27 159 57 223'/%3E%3Cpath d='M66 679c42-93 113-151 202-145s130 70 219 63 126-78 218-83 175 62 219 153'/%3E%3Cpath d='M89 711c35-74 96-120 172-115s111 57 187 51 108-64 186-68 149 50 187 123'/%3E%3C/svg%3E");
+  background-position: center top;
+  background-repeat: repeat;
+  background-size: 960px 720px;
+  background-attachment: fixed;
+}
+
+/* Hero scroll composition: the hero itself is transparent to the shared canvas. */
+.nr-hero-surface {
+  isolation: isolate;
+  background: transparent;
+}
+.nr-hero-surface::before {
+  content: none;
+  position: absolute;
+  inset: -8%;
+  z-index: -1;
+  opacity: 0.58;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='960' height='720' viewBox='0 0 960 720' fill='none' stroke='%23E3262E' stroke-opacity='.21' stroke-width='1.2'%3E%3Cpath d='M-70 173C54 63 150 60 239 125s159 59 245-27S715-22 874 70s168 214 51 274-256 22-332 117-31 206 74 285'/%3E%3Cpath d='M-54 220C66 117 148 116 225 172s151 55 231-20 214-105 354-24 155 184 46 240-235 22-302 108-29 184 66 256'/%3E%3Cpath d='M-28 271c110-88 179-88 245-41s141 49 213-16 196-91 319-23 140 158 43 209-211 22-270 99-27 159 57 223'/%3E%3Cpath d='M66 679c42-93 113-151 202-145s130 70 219 63 126-78 218-83 175 62 219 153'/%3E%3Cpath d='M89 711c35-74 96-120 172-115s111 57 187 51 108-64 186-68 149 50 187 123'/%3E%3C/svg%3E");
+  background-position: center;
+  background-size: cover;
+  transform: rotate(-2deg) scale(1.08);
+}
+
+.nr-signature {
+  width: clamp(20rem, 45vw, 53rem);
+  transform: translate(-50%, -50%) rotate(-8deg);
+  color: var(--ln-blood);
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.28));
+  text-align: center;
+  white-space: nowrap;
+}
+.nr-signature-word {
+  position: relative;
+  z-index: 1;
+  display: block;
+  font-family: 'Segoe Script', 'Brush Script MT', cursive;
+  font-size: clamp(4.8rem, 10.5vw, 12rem);
+  font-weight: 700;
+  letter-spacing: -0.12em;
+  line-height: 0.75;
+}
+.nr-signature-swoop,
+.nr-signature-swoop::after {
+  position: absolute;
+  display: block;
+  content: '';
+  height: clamp(5px, 0.5vw, 9px);
+  border-radius: 999px;
+  background: currentColor;
+}
+.nr-signature-swoop {
+  left: 7%;
+  right: 3%;
+  top: 58%;
+  transform: rotate(-11deg);
+}
+.nr-signature-swoop::after {
+  left: 49%;
+  top: -1.55rem;
+  width: 45%;
+  transform: rotate(-44deg);
+  transform-origin: left center;
+}
+
+@media (max-width: 639px) {
+  .nr-signature {
+    width: 25rem;
+  }
+  .nr-signature-word {
+    font-size: 5.4rem;
+  }
+}
+
+/* Mobile menu: staggered link entrance driven by the .is-open class */
+.nr-mobile-menu .nr-mobile-link {
+  opacity: 0;
+  transform: translateY(22px);
+  transition:
+    opacity 0.5s var(--ln-ease),
+    transform 0.5s var(--ln-ease);
+}
+.nr-mobile-menu.is-open .nr-mobile-link {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Reduced motion: kill loops, un-pin the hero, show poster state */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  [data-hero-pin] {
+    height: 100svh !important;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
