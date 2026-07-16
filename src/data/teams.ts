@@ -11,11 +11,15 @@ export interface Player {
   role: string
 }
 
+export type TeamStatus = 'current' | 'former'
+
 export interface Team {
   id: string
   name: string
   game: string
   division: Division
+  /** 'current' = active competitive lineup, 'former' = past roster. */
+  status: TeamStatus
   image: string
   imageAlt: string
   /** Landscape alternate lineup graphic, when one exists */
@@ -31,6 +35,7 @@ export const TEAMS: Team[] = [
     name: 'ABYSS',
     game: 'Blood Strike',
     division: 'PC',
+    status: 'former',
     image: '/images/roster-abyss.png',
     imageAlt: 'NIGHTRAID Abyss lineup at the Blood Strike Masters SEA tournament',
     altImage: '/images/team-adyoo.png',
@@ -48,6 +53,7 @@ export const TEAMS: Team[] = [
     name: 'DESO',
     game: 'Blood Strike',
     division: 'PC',
+    status: 'former',
     image: '/images/roster-deso.png',
     imageAlt: 'NIGHTRAID Deso lineup at the Blood Strike Masters SEA tournament',
     altImage: '/images/team-deso.png',
@@ -65,6 +71,7 @@ export const TEAMS: Team[] = [
     name: 'MANTAS',
     game: 'Blood Strike',
     division: 'PC',
+    status: 'former',
     image: '/images/roster-mantas.png',
     imageAlt: 'NIGHTRAID Mantas lineup at the Blood Strike Masters SEA tournament',
     players: [
@@ -83,6 +90,7 @@ export const TEAMS: Team[] = [
     name: 'STARKS',
     game: 'Blood Strike',
     division: 'Mobile',
+    status: 'former',
     image: '/images/roster-starks.png',
     imageAlt: 'NIGHTRAID Starks lineup at the Blood Strike Masters SEA tournament',
     players: [
@@ -100,6 +108,7 @@ export const TEAMS: Team[] = [
     name: 'SHADOW',
     game: 'Blood Strike',
     division: 'PC',
+    status: 'current',
     image: '/images/roster-shadow.png',
     imageAlt: 'NIGHTRAID Shadow lineup at the Blood Strike Masters Asia S2 tournament',
     players: [
@@ -116,6 +125,7 @@ export const TEAMS: Team[] = [
     name: 'MODERN',
     game: 'Blood Strike',
     division: 'PC',
+    status: 'former',
     image: '/images/roster-modern.png',
     imageAlt: 'NIGHTRAID Modern lineup at the Blood Strike Masters Asia S2 tournament',
     players: [
@@ -131,6 +141,9 @@ export const TEAMS: Team[] = [
 
 export const DIVISION_FILTERS = ['All', 'PC', 'Mobile'] as const
 export type DivisionFilter = (typeof DIVISION_FILTERS)[number]
+
+export const TEAM_STATUS_FILTERS = ['All', 'Current', 'Former'] as const
+export type TeamStatusFilter = (typeof TEAM_STATUS_FILTERS)[number]
 
 /** Full community roster — transcribed from the official members list graphic. */
 export const COMMUNITY_IMAGE = '/images/nightraid-members.png'
