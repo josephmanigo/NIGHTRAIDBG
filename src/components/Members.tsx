@@ -81,15 +81,14 @@ export default function Members() {
 
         <div ref={ref}>
           {single ? (
-            <div data-reveal className="mx-auto flex h-[30rem] items-center justify-center sm:h-[34rem] lg:h-[38rem]">
-              <div className="w-full max-w-[16rem] sm:max-w-[19rem] lg:max-w-[22rem]">
-                <div className="group relative aspect-[4/5] w-full overflow-hidden rounded-2xl border border-line bg-paper-deep/60 shadow-2xl backdrop-blur-lg">
-                  <img
-                    src={teams[0].image}
-                    alt={teams[0].imageAlt}
-                    className="absolute inset-0 h-full w-full object-cover object-[center_top]"
-                  />
-                </div>
+            <div data-reveal className="mx-auto flex h-[26rem] items-center justify-center sm:h-[30rem]">
+              {/* Matches CircularGallery's own card frame size (220x320 compact / 300x400 default). */}
+              <div className="group relative h-[320px] w-[220px] overflow-hidden rounded-2xl border border-line bg-paper-deep/60 shadow-2xl backdrop-blur-lg sm:h-[400px] sm:w-[300px]">
+                <img
+                  src={teams[0].image}
+                  alt={teams[0].imageAlt}
+                  className="absolute inset-0 h-full w-full object-cover object-[center_top]"
+                />
               </div>
             </div>
           ) : (
