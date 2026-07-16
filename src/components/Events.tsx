@@ -1,4 +1,4 @@
-import { useMemo, useState, MouseEvent } from 'react'
+﻿import { useMemo, useState, MouseEvent } from 'react'
 import { EVENTS, EVENT_FILTERS, type EventFilter, type RaidEvent } from '../data/events'
 import { useReveal } from '../hooks/useReveal'
 import SectionHeader from './SectionHeader'
@@ -105,11 +105,11 @@ export default function Events() {
             </p>
           </div>
         ) : (
-          /* Events table */
-          <div className="w-full overflow-x-auto no-scrollbar" ref={gridRef}>
-            <div className="min-w-[850px] md:min-w-0 w-full">
-              {/* Table Headers */}
-              <div className="grid grid-cols-12 gap-4 pb-4 border-b border-white/10 text-[0.65rem] font-bold uppercase tracking-[0.2em] text-white/40 px-4 mb-2">
+          /* Events table (stacked cards below lg, table rows on lg+) */
+          <div className="w-full" ref={gridRef}>
+            <div className="w-full">
+              {/* Table Headers — desktop only */}
+              <div className="hidden lg:grid grid-cols-12 gap-4 pb-4 border-b border-white/10 text-[0.65rem] font-bold uppercase tracking-[0.2em] text-white/40 px-4 mb-2">
                 <div className="col-span-3 pl-4">Series</div>
                 <div className="col-span-3">Name</div>
                 <div className="col-span-2">When</div>
@@ -129,37 +129,37 @@ export default function Events() {
                       onMouseLeave={handleMouseLeave}
                       className="border-b border-white/5 py-1.5 group relative"
                     >
-                      {/* Entire Row Static Container */}
+                      {/* Entire Row Static Container — stacked card below lg, 12-col row on lg+ */}
                       <div
-                        className="grid grid-cols-12 items-center rounded-lg py-4 px-4 bg-transparent transition-all duration-300 group-hover:bg-blood group-hover:text-white text-left w-full"
+                        className="flex flex-col gap-2 rounded-lg py-4 px-4 bg-transparent transition-all duration-300 group-hover:bg-blood group-hover:text-white text-left w-full lg:grid lg:grid-cols-12 lg:items-center lg:gap-4"
                       >
                         {/* Column 1: Series */}
-                        <span className="col-span-3 font-body text-xs font-semibold tracking-wider text-white/40 group-hover:text-white transition-colors duration-300 pl-2 uppercase truncate pr-4">
+                        <span className="font-body text-xs font-semibold tracking-wider text-white/40 group-hover:text-white transition-colors duration-300 uppercase lg:col-span-3 lg:truncate lg:pl-2 lg:pr-4">
                           {event.series}
                         </span>
 
                         {/* Name (Tournament + Game Tags) */}
-                        <span className="col-span-3 font-display text-2xl uppercase tracking-tight flex flex-col justify-center text-white transition-colors duration-300 pr-4">
-                          <span className="truncate">{event.title}</span>
+                        <span className="font-display text-2xl uppercase tracking-tight flex flex-col justify-center text-white transition-colors duration-300 lg:col-span-3 lg:pr-4">
+                          <span className="lg:truncate">{event.title}</span>
                           <span className="font-body text-[0.6rem] font-bold tracking-wider text-white/45 group-hover:text-white/80 mt-1 uppercase">
                             {event.games.join(' / ')}
                           </span>
                         </span>
 
                         {/* When (Date) */}
-                        <span className="col-span-2 font-body text-xs text-white/60 group-hover:text-white transition-colors duration-300 uppercase">
+                        <span className="font-body text-xs text-white/60 group-hover:text-white transition-colors duration-300 uppercase lg:col-span-2">
                           {event.dateLabel}
                         </span>
 
-                        {/* Status (Icon + text) */}
-                        <span className="col-span-2 font-display text-xl uppercase tracking-tight flex items-center gap-2.5 text-white transition-colors duration-300">
-                          {getStatusIcon(status)}
-                          <span>{status}</span>
-                        </span>
-
-                        {/* Prize */}
-                        <span className="col-span-2 font-display text-xl uppercase tracking-tight text-right text-white transition-colors duration-300 pr-2 truncate w-full">
-                          {event.prize}
+                        {/* Status + Prize — share one line below lg, separate grid cells on lg+ */}
+                        <span className="flex items-center justify-between gap-4 lg:contents">
+                          <span className="font-display text-xl uppercase tracking-tight flex items-center gap-2.5 text-white transition-colors duration-300 lg:col-span-2">
+                            {getStatusIcon(status)}
+                            <span>{status}</span>
+                          </span>
+                          <span className="font-display text-xl uppercase tracking-tight text-right text-white transition-colors duration-300 lg:col-span-2 lg:w-full lg:truncate lg:pr-2">
+                            {event.prize}
+                          </span>
                         </span>
                       </div>
                     </div>
@@ -172,7 +172,7 @@ export default function Events() {
 
         {/* Dynamic Floating Image Overlay outside of scroll container */}
         <div
-          className={`absolute pointer-events-none z-50 w-[24rem] h-[28rem] lg:w-[28rem] lg:h-[32rem] transition-all duration-500 ease-cine hidden md:block ${
+          className={`absolute pointer-events-none z-50 w-[24rem] h-[28rem] lg:w-[28rem] lg:h-[32rem] transition-all duration-500 ease-cine hidden lg:block ${
             hoveredIndex !== null ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
           }`}
           style={{

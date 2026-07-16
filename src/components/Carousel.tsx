@@ -198,8 +198,8 @@ export default function Carousel({
         {announcement ?? `Slide ${index + 1} of ${count}`}
       </p>
 
-      {/* Control bar */}
-      <div className="mt-5 flex items-center gap-4">
+      {/* Control bar — wraps on narrow screens so thumbnails never push the arrows off-canvas */}
+      <div className="mt-5 flex flex-wrap items-center gap-4">
         {footerExtra}
         <div className="ml-auto flex items-center gap-4">
           <span className="ln-label text-ink/50" aria-hidden="true">

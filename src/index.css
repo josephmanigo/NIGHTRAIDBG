@@ -313,10 +313,10 @@
 
 @media (max-width: 639px) {
   .nr-signature {
-    width: 25rem;
+    width: min(25rem, 94vw);
   }
   .nr-signature-word {
-    font-size: 5.4rem;
+    font-size: clamp(3rem, 17vw, 5.4rem);
   }
 }
 

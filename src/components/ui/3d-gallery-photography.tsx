@@ -1,5 +1,5 @@
 import { useRef, useMemo, useState, useEffect, type CSSProperties, type MutableRefObject } from 'react'
-import { Canvas, useFrame } from '@react-three/fiber'
+import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { useTexture } from '@react-three/drei'
 import * as THREE from 'three'
 
@@ -265,6 +265,25 @@ function GalleryScene({
 	)
 }
 
+/** Widen the FOV on narrow/portrait viewports so the flythrough images are not
+ *  cropped by the reduced horizontal field of view. */
+function ResponsiveCamera() {
+	const camera = useThree((state) => state.camera)
+	const size = useThree((state) => state.size)
+
+	useEffect(() => {
+		if (!(camera instanceof THREE.PerspectiveCamera)) return
+		const aspect = size.width / Math.max(size.height, 1)
+		const fov = aspect < 0.75 ? 78 : aspect < 1 ? 68 : 55
+		if (camera.fov !== fov) {
+			camera.fov = fov
+			camera.updateProjectionMatrix()
+		}
+	}, [camera, size])
+
+	return null
+}
+
 // Fallback component for when WebGL is not available
 function FallbackGallery({ images }: { images: ImageItem[] }) {
 	const normalizedImages = useMemo(
@@ -324,6 +343,7 @@ export default function InfiniteGallery({
 	return (
 		<div className={className} style={style}>
 			<Canvas camera={{ position: [0, 0, 0], fov: 55 }} gl={{ antialias: true, alpha: true }}>
+				<ResponsiveCamera />
 				<GalleryScene
 					images={images}
 					zSpacing={zSpacing}

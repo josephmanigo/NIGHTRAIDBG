@@ -59,7 +59,7 @@ export default function Merch() {
               footerExtra={
                 /* Thumbnails */
                 product.images.length > 1 ? (
-                  <div className="flex gap-2" role="group" aria-label={`${product.name} thumbnails`}>
+                  <div className="flex flex-wrap gap-2" role="group" aria-label={`${product.name} thumbnails`}>
                     {product.images.map((img, i) => (
                       <button
                         key={img.src}
@@ -67,7 +67,7 @@ export default function Merch() {
                         onClick={() => setSlide(i)}
                         aria-label={`Show image ${i + 1}`}
                         aria-current={i === index}
-                        className={`h-14 w-14 overflow-hidden rounded-xl border transition-colors duration-300 ${
+                        className={`h-12 w-12 overflow-hidden rounded-xl border transition-colors duration-300 sm:h-14 sm:w-14 ${
                           i === index ? 'border-ink' : 'border-line opacity-60 hover:opacity-100'
                         }`}
                       >

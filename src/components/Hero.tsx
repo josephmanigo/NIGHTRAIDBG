@@ -278,13 +278,13 @@ export default function Hero() {
         >
           <div
             data-hero-line="1"
-            className="block overflow-visible whitespace-nowrap font-serif text-[clamp(7rem,17vw,18rem)] font-normal uppercase leading-[0.84] tracking-[-0.055em] text-blood will-change-transform"
+            className="block overflow-visible whitespace-nowrap font-serif text-[clamp(2.9rem,17vw,18rem)] font-normal uppercase leading-[0.84] tracking-[-0.055em] text-blood will-change-transform"
           >
             <span className="block">Raid the night</span>
           </div>
           <div
             data-hero-line="2"
-            className="block overflow-visible whitespace-nowrap font-display text-[clamp(6.4rem,14.5vw,16rem)] uppercase leading-[0.8] tracking-[-0.035em] text-bone will-change-transform"
+            className="block overflow-visible whitespace-nowrap font-display text-[clamp(2.6rem,14.5vw,16rem)] uppercase leading-[0.8] tracking-[-0.035em] text-bone will-change-transform"
           >
             <span className="block">Rule, the game.</span>
           </div>
