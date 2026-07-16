@@ -204,7 +204,11 @@ export default function Hero() {
         <div
           data-hero-kicker
           aria-hidden="true"
-          className="pointer-events-none absolute left-1/2 top-[11vh] z-30 -translate-x-1/2 text-center opacity-0 sm:top-[9vh]"
+          /* Mobile: the card only shrinks to 0.78, putting its top edge at
+           * ~11svh — the mark must sit in the strip above it or it straddles
+           * the card edge and looks cut. Desktop cards are far smaller, so
+           * sm+ keeps the roomier 9vh drop. */
+          className="pointer-events-none absolute left-1/2 top-[3svh] z-30 -translate-x-1/2 text-center opacity-0 sm:top-[9vh]"
         >
           <span className="mx-auto block font-display text-3xl italic leading-none tracking-[-0.1em] text-blood sm:text-4xl">
             NR
