@@ -140,9 +140,10 @@ export default function Merch() {
             )}
 
             <div className="mt-10 flex flex-wrap items-center gap-4">
-              {/* [PLACEHOLDER] orderUrl is the future commerce integration point */}
               <motion.a
                 href={product.orderUrl}
+                target="_blank"
+                rel="noreferrer"
                 data-magnetic
                 className="ln-pill overflow-hidden flex items-center justify-center gap-1.5"
                 initial="initial"
@@ -152,7 +153,7 @@ export default function Merch() {
                 <span aria-hidden="true">→</span>
               </motion.a>
               <span className="ln-label text-[0.58rem] text-ink/40">
-                Orders run via community DMs for now
+                Orders run via our Discord for now
               </span>
             </div>
           </div>

@@ -1,8 +1,8 @@
 /**
  * Merch catalog — product names transcribed from the official NIGHTRAID
  * merch cards. Prices and stock are [PLACEHOLDER] integration points:
- * orders currently run through community DMs, so each product exposes an
- * `orderUrl` to wire up when a shop/checkout exists.
+ * orders currently run through the NIGHTRAID Discord, so `orderUrl` points
+ * there until a shop/checkout exists.
  */
 
 export interface ProductImage {
@@ -43,7 +43,7 @@ export const PRODUCTS: Product[] = [
       { src: '/images/newjerseyred.jpg', alt: 'NIGHTRAID Jersey V2 2026 Crimson Red — front and back details', fit: 'contain' },
       { src: '/images/newjerseypink.jpg', alt: 'NIGHTRAID Jersey V2 2026 Sakura Pink — front and back details', fit: 'contain' },
     ],
-    orderUrl: '#',
+    orderUrl: 'https://discord.gg/8DD8HHhUTH',
   },
   {
     id: 'compe-jersey',
@@ -60,7 +60,7 @@ export const PRODUCTS: Product[] = [
       { src: '/images/merch-4.png', alt: 'NIGHTRAID compe jersey — front view on dark stage', fit: 'contain' },
       { src: '/images/merch-9.png', alt: 'NIGHTRAID competitive player jersey — alternate colorway view', fit: 'contain' },
     ],
-    orderUrl: '#',
+    orderUrl: 'https://discord.gg/8DD8HHhUTH',
   },
   {
     id: 'casual-jersey',
@@ -75,7 +75,7 @@ export const PRODUCTS: Product[] = [
     images: [
       { src: '/images/merch-8.png', alt: 'NIGHTRAID casual jersey — V-neck front view', fit: 'contain' },
     ],
-    orderUrl: '#',
+    orderUrl: 'https://discord.gg/8DD8HHhUTH',
   },
   {
     id: 'tumbler',
@@ -90,7 +90,7 @@ export const PRODUCTS: Product[] = [
     images: [
       { src: '/images/merch-3.png', alt: 'Four NIGHTRAID red tumblers with slogan print', fit: 'contain' },
     ],
-    orderUrl: '#',
+    orderUrl: 'https://discord.gg/8DD8HHhUTH',
   },
   {
     id: 'mousepad',
@@ -105,7 +105,7 @@ export const PRODUCTS: Product[] = [
     images: [
       { src: '/images/merch-1.png', alt: 'NIGHTRAID mousepad on a desk with mouse and keyboard', fit: 'cover' },
     ],
-    orderUrl: '#',
+    orderUrl: 'https://discord.gg/8DD8HHhUTH',
   },
   {
     id: 'lanyard',
@@ -120,7 +120,7 @@ export const PRODUCTS: Product[] = [
     images: [
       { src: '/images/merch-5.png', alt: 'NIGHTRAID lanyards with red flame print worn around a neck', fit: 'cover' },
     ],
-    orderUrl: '#',
+    orderUrl: 'https://discord.gg/8DD8HHhUTH',
   },
   {
     id: 'neck-pillow',
@@ -135,7 +135,7 @@ export const PRODUCTS: Product[] = [
     images: [
       { src: '/images/merch-6.png', alt: 'Red NIGHTRAID neck pillow with crest embroidery', fit: 'contain' },
     ],
-    orderUrl: '#',
+    orderUrl: 'https://discord.gg/8DD8HHhUTH',
   },
   {
     id: 'sticker-pack',
@@ -150,7 +150,7 @@ export const PRODUCTS: Product[] = [
     images: [
       { src: '/images/merch-7.png', alt: 'NIGHTRAID sticker pack in packaging with die-cut stickers', fit: 'cover' },
     ],
-    orderUrl: '#',
+    orderUrl: 'https://discord.gg/8DD8HHhUTH',
   },
   {
     id: 'merch-box',
@@ -165,6 +165,6 @@ export const PRODUCTS: Product[] = [
     images: [
       { src: '/images/merch-2.png', alt: 'Open NIGHTRAID merch box with jersey, cap, tumbler and sticker pack', fit: 'cover' },
     ],
-    orderUrl: '#',
+    orderUrl: 'https://discord.gg/8DD8HHhUTH',
   },
 ]
