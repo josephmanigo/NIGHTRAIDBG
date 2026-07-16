@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { gsap, ScrollTrigger, prefersReducedMotion, isFinePointer } from '../lib/motion'
+import { gsap, ScrollTrigger, prefersReducedMotion } from '../lib/motion'
 
 const VIDEO_SRC = '/hero-bg-pingpong.mp4'
 const POSTER_SRC = '/hero.webp'
@@ -23,11 +23,6 @@ export default function Hero() {
   const [booted, setBooted] = useState(false) // loader dismissed
   const [initScrollTrigger, setInitScrollTrigger] = useState(false)
   const reduced = prefersReducedMotion()
-  /* Touch devices skip the scroll-linked grayscale: animating a CSS filter
-   * over a playing 1080p video is expensive on phones, and iOS Safari has a
-   * WebKit bug where a filter on a <video>'s ancestor breaks object-fit,
-   * rendering the video letterboxed instead of cover-cropped. */
-  const [finePointer] = useState(() => isFinePointer())
 
   useEffect(() => {
     if (reduced) setBooted(true)
@@ -147,13 +142,14 @@ export default function Hero() {
           scrollTrigger: frameScrub,
         },
       )
-      if (finePointer) {
-        gsap.fromTo(
-          '[data-hero-media]',
-          { filter: 'grayscale(0) contrast(1) brightness(1)' },
-          { filter: 'grayscale(1) contrast(1.05) brightness(1)', ease: 'none', scrollTrigger: frameScrub },
-        )
-      }
+      /* Safe on iOS only because the video is cover-cropped with explicit
+       * geometry — WebKit letterboxes object-fit'd videos under an ancestor
+       * filter, so if object-fit ever returns here, this must be gated. */
+      gsap.fromTo(
+        '[data-hero-media]',
+        { filter: 'grayscale(0) contrast(1) brightness(1)' },
+        { filter: 'grayscale(1) contrast(1.05) brightness(1)', ease: 'none', scrollTrigger: frameScrub },
+      )
       gsap.fromTo(
         '[data-hero-signature]',
         { autoAlpha: 0, scale: 0.76, rotate: -13 },
@@ -168,7 +164,7 @@ export default function Hero() {
     return () => {
       ctx.revert()
     }
-  }, [reduced, initScrollTrigger, finePointer])
+  }, [reduced, initScrollTrigger])
 
   /* Crossfade the poster out once frames are actually rendering. */
   useEffect(() => {
@@ -210,7 +206,10 @@ export default function Hero() {
            * sm+ keeps the roomier 9vh drop. */
           className="pointer-events-none absolute left-1/2 top-[3svh] z-30 -translate-x-1/2 text-center opacity-0 sm:top-[9vh]"
         >
-          <span className="mx-auto block font-display text-3xl italic leading-none tracking-[-0.1em] text-blood sm:text-4xl">
+          {/* px keeps the synthesized-oblique glyph overhang inside the
+            * composited layer's bounds — iOS clips paint at the border box
+            * while GSAP animates this element, slicing the R otherwise. */}
+          <span className="mx-auto block px-2 font-display text-3xl italic leading-none tracking-[-0.1em] text-blood sm:text-4xl">
             NR
           </span>
         </div>
@@ -242,7 +241,7 @@ export default function Hero() {
           data-theme="dark"
           className="absolute inset-0 z-10 overflow-hidden bg-deep will-change-transform rounded-none"
         >
-          <div data-hero-media className={`absolute inset-0 ${finePointer ? 'will-change-[filter]' : ''}`}>
+          <div data-hero-media className="absolute inset-0 will-change-[filter]">
           {/* Poster: loading state, reduced-motion state and video fallback */}
           <img
             src={POSTER_SRC}

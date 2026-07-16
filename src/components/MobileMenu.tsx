@@ -44,7 +44,7 @@ export default function MobileMenu({ open, onClose, activeSection }: MobileMenuP
       role="dialog"
       aria-modal="true"
       aria-label="Site navigation"
-      className="nr-mobile-menu bg-topo-dark fixed inset-0 z-80 flex flex-col bg-deep/[0.98] backdrop-blur-sm"
+      className="nr-mobile-menu nr-site-surface fixed inset-0 z-80 flex flex-col"
     >
       <div className="flex items-center justify-between px-5 py-5 sm:px-8">
         <span aria-hidden="true">
