@@ -170,9 +170,9 @@ export default function Events() {
           </div>
         )}
 
-        {/* Dynamic Floating Image Overlay outside of scroll container */}
+        {/* Dynamic Floating Image Overlay outside of scroll container — scaled down on phone/tablet so it still shows on hover, full size on desktop */}
         <div
-          className={`absolute pointer-events-none z-50 w-[24rem] h-[28rem] lg:w-[28rem] lg:h-[32rem] transition-all duration-500 ease-cine hidden lg:block ${
+          className={`absolute pointer-events-none z-50 w-32 h-40 sm:w-48 sm:h-56 md:w-56 md:h-64 lg:w-[28rem] lg:h-[32rem] transition-all duration-500 ease-cine ${
             hoveredIndex !== null ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
           }`}
           style={{
