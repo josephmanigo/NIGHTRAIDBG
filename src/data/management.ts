@@ -74,8 +74,8 @@ export const LEADERS: Leader[] = [
     bio: 'Match operations and tournament logistics.', // [PLACEHOLDER]
   },
   {
-    id: 'rarad',
-    name: 'RARAD',
+    id: 'mushy',
+    name: 'MUSHY',
     role: 'Admin',
     tier: 'admin',
     bio: 'Recruitment and tryout pipelines.', // [PLACEHOLDER]

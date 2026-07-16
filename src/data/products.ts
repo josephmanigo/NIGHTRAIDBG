@@ -78,6 +78,22 @@ export const PRODUCTS: Product[] = [
     orderUrl: 'https://discord.gg/8DD8HHhUTH',
   },
   {
+    id: 'premium-tee',
+    name: 'PREMIUM TEE',
+    category: 'Apparel',
+    tagline: 'Oversized cut, full raid graphic on the back.',
+    description:
+      'Heavyweight oversized tee in NIGHTRAID black — small wordmark hit on the chest, full "Raid the Night, Rule the Game" back graphic with the crest lockup. Streetwear cut for everyday wear off the server.',
+    price: null,
+    sizes: ['S', 'M', 'L', 'XL', '2XL', '3XL'], // [PLACEHOLDER] size run
+    availability: 'Made per batch — order through the club',
+    images: [
+      { src: '/images/premium-tee-model.png', alt: 'NIGHTRAID premium tee worn on-model — chest wordmark hit and full back "Raid the Night, Rule the Game" graphic', fit: 'cover' },
+      { src: '/images/premium-tee-flat.png', alt: 'NIGHTRAID premium tee — front and back flat lay', fit: 'contain' },
+    ],
+    orderUrl: 'https://discord.gg/8DD8HHhUTH',
+  },
+  {
     id: 'tumbler',
     name: 'RAID TUMBLER',
     category: 'Accessories',
