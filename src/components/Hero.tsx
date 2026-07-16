@@ -1,65 +1,32 @@
 import { useEffect, useRef, useState } from 'react'
-import { gsap, ScrollTrigger, prefersReducedMotion, isFinePointer } from '../lib/motion'
+import { gsap, ScrollTrigger, prefersReducedMotion } from '../lib/motion'
 
-const VIDEO_SRC = '/hero-bg-scrub.mp4'
+const VIDEO_SRC = '/hero-bg-pingpong.mp4'
 const POSTER_SRC = '/hero.webp'
 
 /**
  * Paddock-editorial hero: cream paper with topographic contours, a giant
  * two-line headline sliding behind a centered media frame.
  *
- * hero-bg-scrub.mp4 is an all-keyframe (intra-only) encode: every frame is
- * independently decodable. The file is fetched fully up front as a blob so
- * the background can loop without waiting on the network after preload.
+ * hero-bg-pingpong.mp4 has the reverse pass baked in (forward + reversed
+ * concatenated, turnaround frame deduplicated), so the native `loop`
+ * attribute produces a seamless back-and-forth with zero JS seeking —
+ * backward currentTime scrubbing is slow and janky on real mobile
+ * browsers, so it must never be reintroduced here.
  */
 export default function Hero() {
   const rootRef = useRef<HTMLElement>(null)
   const pinRef = useRef<HTMLDivElement>(null)
   const frameRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
-  const [blobUrl, setBlobUrl] = useState<string | null>(null)
   const [videoReady, setVideoReady] = useState(false)
   const [booted, setBooted] = useState(false) // loader dismissed
   const [initScrollTrigger, setInitScrollTrigger] = useState(false)
   const reduced = prefersReducedMotion()
-  /* Touch/coarse-pointer devices skip the blob prefetch below — computed
-   * once on mount, not reactive to resize. */
-  const [mobile] = useState(() => !isFinePointer())
 
-  /* Desktop: fetch the video fully so the ping-pong reverse-scrub loop can
-   * seek backward instantly without buffering waits. Mobile: skip the
-   * upfront ~12MB blob fetch entirely — it competes with the preloader for
-   * bandwidth and blob-URL video sources are unreliable for autoplay on
-   * mobile browsers. A plain progressively-streamed <video src> autoplays
-   * far more reliably there; by the time the forward playthrough reaches
-   * 'ended' the browser has already buffered the whole (just-streamed)
-   * range, so the same JS-driven reverse scrub used on desktop still seeks
-   * smoothly on mobile — it must NOT get the `loop` attribute, or 'ended'
-   * never fires and the reverse half of the loop never runs. */
   useEffect(() => {
-    if (reduced) {
-      setBooted(true)
-      return
-    }
-    if (mobile) {
-      setBlobUrl(VIDEO_SRC)
-      return
-    }
-    let url: string | null = null
-    let cancelled = false
-    fetch(VIDEO_SRC)
-      .then((res) => res.blob())
-      .then((blob) => {
-        if (cancelled) return
-        url = URL.createObjectURL(blob)
-        setBlobUrl(url)
-      })
-      .catch(() => setBooted(true)) // network failure → poster fallback
-    return () => {
-      cancelled = true
-      if (url) URL.revokeObjectURL(url)
-    }
-  }, [reduced, mobile])
+    if (reduced) setBooted(true)
+  }, [reduced])
 
   /* Dismiss the loading state after one playthrough of preload.gif (37 frames
    * @ 80ms = ~2.96s) — the hero video keeps loading behind it and crossfades
@@ -196,81 +163,26 @@ export default function Hero() {
     }
   }, [reduced, initScrollTrigger])
 
-  /* Play continuously in a forward/reverse ping-pong loop. */
+  /* Crossfade the poster out once frames are actually rendering. */
   useEffect(() => {
-    if (reduced || !blobUrl) return
+    if (reduced) return
     const video = videoRef.current
     if (!video) return
 
     let cancelled = false
-    let reverseRaf = 0
-    let lastStepAt = 0
-
     const markPlaying = () => {
       if (!cancelled) setVideoReady(true)
     }
-    const playForward = () => {
-      lastStepAt = 0
-      cancelAnimationFrame(reverseRaf)
-      video.dataset.playbackDirection = 'forward'
-      void video.play().catch(() => {
-        // The loading timeout reveals the poster if autoplay is blocked.
-      })
-    }
-    /* Each backward step waits for the previous seek to finish before
-     * issuing the next one. Mobile browsers seek asynchronously and slowly —
-     * a wall-clock scrub that writes currentTime every frame gets its writes
-     * coalesced/dropped mid-seek there, leaving the video frozen on the end
-     * frame. Pacing on completed seeks reverses at whatever rate the device
-     * can actually decode; on desktop (in-memory blob, all-keyframe) seeks
-     * finish within a frame, so this plays back at true 1x speed. */
-    const stepReverse = (now: number) => {
-      if (cancelled) return
-      if (video.seeking) {
-        reverseRaf = requestAnimationFrame(stepReverse)
-        return
-      }
-      if (lastStepAt === 0) lastStepAt = now
-      // Clamp so a slow seek doesn't skip a visible chunk of the reverse.
-      const delta = Math.min((now - lastStepAt) / 1000, 0.1)
-      lastStepAt = now
-      const nextTime = Math.max(video.currentTime - delta, 0)
-      video.currentTime = nextTime
-
-      if (nextTime <= 0.001) {
-        playForward()
-        return
-      }
-      reverseRaf = requestAnimationFrame(stepReverse)
-    }
-    const playReverse = () => {
-      video.pause()
-      lastStepAt = 0
-      video.dataset.playbackDirection = 'reverse'
-      reverseRaf = requestAnimationFrame(stepReverse)
-    }
-    const startPlayback = () => {
-      playForward()
-    }
-
     video.addEventListener('playing', markPlaying)
-    video.addEventListener('ended', playReverse)
-    video.addEventListener('canplay', startPlayback, { once: true })
-
     if (!video.paused) markPlaying()
-    if (video.readyState >= 3) startPlayback()
 
     return () => {
       cancelled = true
-      cancelAnimationFrame(reverseRaf)
-      delete video.dataset.playbackDirection
       video.removeEventListener('playing', markPlaying)
-      video.removeEventListener('ended', playReverse)
-      video.removeEventListener('canplay', startPlayback)
     }
-  }, [blobUrl, reduced])
+  }, [reduced])
 
-  const showVideo = !reduced && blobUrl !== null
+  const showVideo = !reduced
 
   return (
     <section id="home" ref={rootRef} className="relative h-[220vh]" aria-label="NIGHTRAID — raid the night, rule the game">
@@ -335,9 +247,10 @@ export default function Hero() {
               autoPlay
               muted
               playsInline
+              loop
               preload="auto"
               poster={POSTER_SRC}
-              src={blobUrl ?? undefined}
+              src={VIDEO_SRC}
               aria-hidden="true"
               tabIndex={-1}
               className={`absolute inset-0 h-full w-full object-cover object-[68%_center] transition-opacity duration-500 ${
