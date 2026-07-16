@@ -47,7 +47,7 @@ export default function Events() {
     setActiveAlt('')
   }
 
-  const handleMouseEnter = (index: number, event: MouseEvent<HTMLDivElement>) => {
+  const showPreview = (index: number, event: MouseEvent<HTMLDivElement>) => {
     setHoveredIndex(index)
     if (records[index] && records[index].photos?.[0]) {
       setActiveImage(records[index].photos[0].src)
@@ -60,8 +60,21 @@ export default function Events() {
     }
   }
 
+  const handleMouseEnter = (index: number, event: MouseEvent<HTMLDivElement>) => {
+    showPreview(index, event)
+  }
+
   const handleMouseLeave = () => {
     setHoveredIndex(null)
+  }
+
+  /** Touchscreens never fire mouseenter, so tapping a row toggles the preview instead. */
+  const handleRowClick = (index: number, event: MouseEvent<HTMLDivElement>) => {
+    if (hoveredIndex === index) {
+      setHoveredIndex(null)
+      return
+    }
+    showPreview(index, event)
   }
 
   return (
@@ -127,7 +140,8 @@ export default function Events() {
                       data-reveal
                       onMouseEnter={(e) => handleMouseEnter(i, e)}
                       onMouseLeave={handleMouseLeave}
-                      className="border-b border-white/5 py-1.5 group relative"
+                      onClick={(e) => handleRowClick(i, e)}
+                      className="border-b border-white/5 py-1.5 group relative cursor-pointer lg:cursor-default"
                     >
                       {/* Entire Row Static Container — stacked card below lg, 12-col row on lg+ */}
                       <div
