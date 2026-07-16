@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { TEAMS, COMMUNITY_MEMBERS, TEAM_STATUS_FILTERS, type TeamStatusFilter } from '../data/teams'
-import { CircularGallery, type GalleryItem } from './ui/circular-gallery'
+import { CircularGallery, REFERENCE_RADIUS, type GalleryItem } from './ui/circular-gallery'
 import SectionHeader from './SectionHeader'
 import Marquee from './Marquee'
 import { useReveal } from '../hooks/useReveal'
@@ -36,12 +36,14 @@ export default function Members() {
    * fixed-radius circle, so fewer items (a wider angle apart) would
    * otherwise look more spread out than the 5-team "All" view. Radius is
    * solved from the chord-length formula so it shrinks for smaller counts,
-   * calibrated to the existing "All" look (radius 350 @ 5 items). */
-  const BASE_RADIUS = 350
+   * calibrated to the existing "All" look (radius = REFERENCE_RADIUS @ 5
+   * items). CircularGallery corrects each card's perspective-driven size
+   * back to what REFERENCE_RADIUS would produce, so a smaller radius here
+   * only affects spacing, never the card's on-screen size. */
   const BASE_COUNT = 5
-  const referenceGap = 2 * BASE_RADIUS * Math.sin(Math.PI / BASE_COUNT)
+  const referenceGap = 2 * REFERENCE_RADIUS * Math.sin(Math.PI / BASE_COUNT)
   const galleryRadius =
-    teams.length > 1 ? referenceGap / (2 * Math.sin(Math.PI / teams.length)) : BASE_RADIUS
+    teams.length > 1 ? referenceGap / (2 * Math.sin(Math.PI / teams.length)) : REFERENCE_RADIUS
 
   return (
     <section id="members" aria-label="NIGHTRAID members" className="relative overflow-hidden">
@@ -80,40 +82,28 @@ export default function Members() {
         </p>
 
         <div ref={ref}>
-          {single ? (
-            <div data-reveal className="mx-auto flex h-[28rem] items-center justify-center sm:h-[32rem]">
-              {/* Slightly larger than CircularGallery's own card frame (220x320 compact / 300x400 default). */}
-              <div className="group relative h-[350px] w-[240px] overflow-hidden rounded-2xl border border-line bg-paper-deep/60 shadow-2xl backdrop-blur-lg sm:h-[440px] sm:w-[330px]">
-                <img
-                  src={teams[0].image}
-                  alt={teams[0].imageAlt}
-                  className="absolute inset-0 h-full w-full object-cover object-[center_top]"
-                />
-              </div>
-            </div>
-          ) : (
-            <div data-reveal className="relative -mx-5 sm:-mx-8 lg:-mx-12">
-              <CircularGallery
-                items={galleryItems}
-                radius={galleryRadius}
-                autoRotateSpeed={0.035}
-                className="h-[34rem] -translate-y-12 sm:h-[42rem] sm:-translate-y-[4.5rem] lg:h-[48rem]"
-              />
+          <div data-reveal className="relative -mx-5 sm:-mx-8 lg:-mx-12">
+            {/* Reuses CircularGallery even for a single team (interactive=false, frozen at
+             * rotation 0) — guarantees pixel-identical card sizing/perspective math against
+             * All/Former, rather than approximating it with a separate static image. */}
+            <CircularGallery
+              items={galleryItems}
+              radius={galleryRadius}
+              autoRotateSpeed={0.035}
+              interactive={!single}
+              className="h-[34rem] -translate-y-12 sm:h-[42rem] sm:-translate-y-[4.5rem] lg:h-[48rem]"
+            />
 
+            {!single && (
               <p className="ln-label absolute inset-x-0 bottom-0 text-center text-bone/35 sm:hidden">
                 Swipe to rotate
               </p>
-            </div>
-          )}
+            )}
+          </div>
 
-          {/* The gallery view pulls this panel up to tighten its own built-in "air";
-           * the single-card view is already snug, so pulling up the same amount
-           * overlaps the card instead — use normal spacing there. */}
           <div
             data-reveal
-            className={`relative overflow-hidden rounded-3xl border border-line bg-paper-deep/50 py-8 ${
-              single ? 'mt-8 sm:mt-12' : '-mt-8 sm:-mt-12'
-            }`}
+            className="relative -mt-8 overflow-hidden rounded-3xl border border-line bg-paper-deep/50 py-8 sm:-mt-12"
           >
             <Marquee
               text={COMMUNITY_MEMBERS.slice(0, 33).join(' · ')}
