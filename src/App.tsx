@@ -4,6 +4,7 @@ import { useSmoothScroll } from './hooks/useSmoothScroll'
 import { useSectionSpy } from './hooks/useSectionSpy'
 import { useMagnetic } from './hooks/useMagnetic'
 import { NAV_ITEMS } from './data/site'
+import Preloader from './components/Preloader'
 import Header from './components/Header'
 import Hero from './components/Hero'
 import About from './components/About'
@@ -40,6 +41,7 @@ export default function App() {
       <a href="#main" className="skip-link">
         Skip to content
       </a>
+      <Preloader />
       <Header activeSection={activeSection} />
       {/* One continuous surface — sections are transparent so the color and
        * topo pattern flow unbroken from hero to footer, no visible seams. */}

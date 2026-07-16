@@ -45,15 +45,14 @@ export default function Hero() {
     }
   }, [reduced])
 
-  /* Dismiss the loading state once the video can seek (or after a grace timeout). */
+  /* Dismiss the loading state after one playthrough of preload.gif (37 frames
+   * @ 80ms = ~2.96s) — the hero video keeps loading behind it and crossfades
+   * in over the poster whenever it becomes ready, so the veil never waits on it. */
   useEffect(() => {
-    const t = window.setTimeout(() => setBooted(true), 4000)
-    if (videoReady) {
-      window.clearTimeout(t)
-      setBooted(true)
-    }
+    if (reduced) return
+    const t = window.setTimeout(() => setBooted(true), 2960)
     return () => window.clearTimeout(t)
-  }, [videoReady])
+  }, [reduced])
 
   /* Entrance timeline — runs once, when the loader clears. */
   useEffect(() => {
@@ -323,20 +322,6 @@ export default function Hero() {
               }`}
             />
           )}
-          </div>
-
-          {/* ---- Loading veil ---- */}
-          <div
-            aria-hidden="true"
-            className={`absolute inset-0 z-20 bg-deep transition-opacity duration-700 ${
-              booted ? 'pointer-events-none opacity-0' : 'opacity-100'
-            }`}
-          >
-            <img
-              src="/preload.gif"
-              alt=""
-              className="absolute inset-0 h-full w-full object-cover"
-            />
           </div>
         </div>
 
