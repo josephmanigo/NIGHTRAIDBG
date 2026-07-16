@@ -81,8 +81,8 @@ export default function Members() {
 
         <div ref={ref}>
           {single ? (
-            <div data-reveal className="mx-auto flex h-[38rem] items-center justify-center sm:h-[46rem] lg:h-[54rem]">
-              <div className="w-full max-w-[22rem] sm:max-w-[30rem] lg:max-w-[36rem]">
+            <div data-reveal className="mx-auto flex h-[30rem] items-center justify-center sm:h-[34rem] lg:h-[38rem]">
+              <div className="w-full max-w-[16rem] sm:max-w-[19rem] lg:max-w-[22rem]">
                 <div className="group relative aspect-[4/5] w-full overflow-hidden rounded-2xl border border-line bg-paper-deep/60 shadow-2xl backdrop-blur-lg">
                   <img
                     src={teams[0].image}
