@@ -328,19 +328,15 @@ export default function Hero() {
           {/* ---- Loading veil ---- */}
           <div
             aria-hidden="true"
-            className={`absolute inset-0 z-20 flex flex-col items-center justify-center gap-6 bg-deep transition-opacity duration-700 ${
+            className={`absolute inset-0 z-20 bg-deep transition-opacity duration-700 ${
               booted ? 'pointer-events-none opacity-0' : 'opacity-100'
             }`}
           >
             <img
               src="/preload.gif"
               alt=""
-              className="w-56 max-w-[60vw] sm:w-72"
+              className="absolute inset-0 h-full w-full object-cover"
             />
-            <span className="relative block h-px w-40 overflow-hidden bg-bone/15">
-              <span className="nr-loader-line absolute inset-y-0 left-0 w-1/3 bg-blood-deep" />
-            </span>
-            <span className="ln-label text-bone/50">Loading the night</span>
           </div>
         </div>
 
