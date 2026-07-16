@@ -89,7 +89,6 @@ export const PRODUCTS: Product[] = [
     availability: 'Made per batch — order through the club',
     images: [
       { src: '/images/premium-tee-model.png', alt: 'NIGHTRAID premium tee worn on-model — chest wordmark hit and full back "Raid the Night, Rule the Game" graphic', fit: 'cover' },
-      { src: '/images/premium-tee-flat.png', alt: 'NIGHTRAID premium tee — front and back flat lay', fit: 'contain' },
     ],
     orderUrl: 'https://discord.gg/8DD8HHhUTH',
   },
