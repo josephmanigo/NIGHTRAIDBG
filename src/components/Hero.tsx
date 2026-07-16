@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { gsap, ScrollTrigger, prefersReducedMotion } from '../lib/motion'
+import { gsap, ScrollTrigger, prefersReducedMotion, isFinePointer } from '../lib/motion'
 
 const VIDEO_SRC = '/hero-bg-pingpong.mp4'
 const POSTER_SRC = '/hero.webp'
@@ -23,6 +23,11 @@ export default function Hero() {
   const [booted, setBooted] = useState(false) // loader dismissed
   const [initScrollTrigger, setInitScrollTrigger] = useState(false)
   const reduced = prefersReducedMotion()
+  /* Touch devices skip the scroll-linked grayscale: animating a CSS filter
+   * over a playing 1080p video is expensive on phones, and iOS Safari has a
+   * WebKit bug where a filter on a <video>'s ancestor breaks object-fit,
+   * rendering the video letterboxed instead of cover-cropped. */
+  const [finePointer] = useState(() => isFinePointer())
 
   useEffect(() => {
     if (reduced) setBooted(true)
@@ -142,11 +147,13 @@ export default function Hero() {
           scrollTrigger: frameScrub,
         },
       )
-      gsap.fromTo(
-        '[data-hero-media]',
-        { filter: 'grayscale(0) contrast(1) brightness(1)' },
-        { filter: 'grayscale(1) contrast(1.05) brightness(1)', ease: 'none', scrollTrigger: frameScrub },
-      )
+      if (finePointer) {
+        gsap.fromTo(
+          '[data-hero-media]',
+          { filter: 'grayscale(0) contrast(1) brightness(1)' },
+          { filter: 'grayscale(1) contrast(1.05) brightness(1)', ease: 'none', scrollTrigger: frameScrub },
+        )
+      }
       gsap.fromTo(
         '[data-hero-signature]',
         { autoAlpha: 0, scale: 0.76, rotate: -13 },
@@ -161,7 +168,7 @@ export default function Hero() {
     return () => {
       ctx.revert()
     }
-  }, [reduced, initScrollTrigger])
+  }, [reduced, initScrollTrigger, finePointer])
 
   /* Crossfade the poster out once frames are actually rendering. */
   useEffect(() => {
@@ -231,7 +238,7 @@ export default function Hero() {
           data-theme="dark"
           className="absolute inset-0 z-10 overflow-hidden bg-deep will-change-transform rounded-none"
         >
-          <div data-hero-media className="absolute inset-0 will-change-[filter]">
+          <div data-hero-media className={`absolute inset-0 ${finePointer ? 'will-change-[filter]' : ''}`}>
           {/* Poster: loading state, reduced-motion state and video fallback */}
           <img
             src={POSTER_SRC}
@@ -253,7 +260,14 @@ export default function Hero() {
               src={VIDEO_SRC}
               aria-hidden="true"
               tabIndex={-1}
-              className={`absolute inset-0 h-full w-full object-cover object-[68%_center] transition-opacity duration-500 ${
+              /* Cover-crop via explicit geometry instead of object-fit: the
+               * media box always spans the viewport (transform scale on the
+               * frame doesn't change layout), so max(100vw, 16/9 of 100svh)
+               * + aspect-ratio covers both axes, the frame's overflow-hidden
+               * crops the spill, and the translate reproduces the 68%-center
+               * focal point. iOS Safari letterboxes object-fit'd videos when
+               * filters are in play, so don't reintroduce object-cover here. */
+              className={`absolute left-[68%] top-1/2 aspect-video w-[max(100vw,177.78svh)] max-w-none -translate-x-[68%] -translate-y-1/2 transition-opacity duration-500 ${
                 videoReady ? 'opacity-100' : 'opacity-0'
               }`}
             />
