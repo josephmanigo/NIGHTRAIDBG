@@ -106,7 +106,15 @@ export default function Members() {
             </div>
           )}
 
-          <div data-reveal className="relative -mt-8 overflow-hidden rounded-3xl border border-line bg-paper-deep/50 py-8 sm:-mt-12">
+          {/* The gallery view pulls this panel up to tighten its own built-in "air";
+           * the single-card view is already snug, so pulling up the same amount
+           * overlaps the card instead — use normal spacing there. */}
+          <div
+            data-reveal
+            className={`relative overflow-hidden rounded-3xl border border-line bg-paper-deep/50 py-8 ${
+              single ? 'mt-8 sm:mt-12' : '-mt-8 sm:-mt-12'
+            }`}
+          >
             <Marquee
               text={COMMUNITY_MEMBERS.slice(0, 33).join(' · ')}
               repeat={2}
