@@ -204,33 +204,40 @@ export default function Hero() {
 
     let cancelled = false
     let reverseRaf = 0
-    let reverseStartedAt = 0
-    let reverseStartTime = 0
+    let lastStepAt = 0
 
     const markPlaying = () => {
       if (!cancelled) setVideoReady(true)
     }
     const playForward = () => {
-      reverseStartedAt = 0
+      lastStepAt = 0
       cancelAnimationFrame(reverseRaf)
       video.dataset.playbackDirection = 'forward'
       void video.play().catch(() => {
         // The loading timeout reveals the poster if autoplay is blocked.
       })
     }
+    /* Each backward step waits for the previous seek to finish before
+     * issuing the next one. Mobile browsers seek asynchronously and slowly —
+     * a wall-clock scrub that writes currentTime every frame gets its writes
+     * coalesced/dropped mid-seek there, leaving the video frozen on the end
+     * frame. Pacing on completed seeks reverses at whatever rate the device
+     * can actually decode; on desktop (in-memory blob, all-keyframe) seeks
+     * finish within a frame, so this plays back at true 1x speed. */
     const stepReverse = (now: number) => {
       if (cancelled) return
-      if (reverseStartedAt === 0) {
-        reverseStartedAt = now
-        reverseStartTime = video.currentTime
+      if (video.seeking) {
+        reverseRaf = requestAnimationFrame(stepReverse)
+        return
       }
-
-      const elapsed = (now - reverseStartedAt) / 1000
-      const nextTime = Math.max(reverseStartTime - elapsed, 0)
+      if (lastStepAt === 0) lastStepAt = now
+      // Clamp so a slow seek doesn't skip a visible chunk of the reverse.
+      const delta = Math.min((now - lastStepAt) / 1000, 0.1)
+      lastStepAt = now
+      const nextTime = Math.max(video.currentTime - delta, 0)
       video.currentTime = nextTime
 
       if (nextTime <= 0.001) {
-        video.currentTime = 0
         playForward()
         return
       }
@@ -238,7 +245,7 @@ export default function Hero() {
     }
     const playReverse = () => {
       video.pause()
-      reverseStartedAt = 0
+      lastStepAt = 0
       video.dataset.playbackDirection = 'reverse'
       reverseRaf = requestAnimationFrame(stepReverse)
     }
