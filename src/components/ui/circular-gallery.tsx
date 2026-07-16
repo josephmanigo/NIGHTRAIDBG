@@ -99,8 +99,8 @@ const CircularGallery = React.forwardRef<HTMLDivElement, CircularGalleryProps>(
 
     const anglePerItem = 360 / items.length
     const compact = containerWidth > 0 && containerWidth < 640
-    const itemWidth = compact ? 220 : 300
-    const itemHeight = compact ? 320 : 400
+    const itemWidth = compact ? 240 : 330
+    const itemHeight = compact ? 350 : 440
     const clampRadius = (r: number) =>
       containerWidth ? Math.min(r, Math.max(240, containerWidth * 0.36)) : r
     const effectiveRadius = clampRadius(radius)
@@ -110,6 +110,10 @@ const CircularGallery = React.forwardRef<HTMLDivElement, CircularGalleryProps>(
      * This scales every card back to the size REFERENCE_RADIUS would have produced. */
     const effectiveReference = clampRadius(REFERENCE_RADIUS)
     const sizeCorrection = (PERSPECTIVE - effectiveRadius) / (PERSPECTIVE - effectiveReference)
+    // Non-interactive views (e.g. the single-team card) must render dead-center —
+    // derived synchronously so there's no stale-rotation frame left over from a
+    // previous interactive/auto-rotating view while an effect catches up.
+    const displayRotation = interactive ? rotation : 0
 
     return (
       <div
@@ -147,13 +151,13 @@ const CircularGallery = React.forwardRef<HTMLDivElement, CircularGalleryProps>(
         <div
           className="relative h-full w-full"
           style={{
-            transform: `rotateY(${rotation}deg)`,
+            transform: `rotateY(${displayRotation}deg)`,
             transformStyle: 'preserve-3d',
           }}
         >
           {items.map((item, i) => {
             const itemAngle = i * anglePerItem
-            const totalRotation = rotation % 360
+            const totalRotation = displayRotation % 360
             const relativeAngle = (itemAngle + totalRotation + 360) % 360
             const normalizedAngle = Math.abs(relativeAngle > 180 ? 360 - relativeAngle : relativeAngle)
             const opacity = Math.max(0.68, 1 - normalizedAngle / 180)

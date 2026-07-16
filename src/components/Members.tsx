@@ -91,7 +91,9 @@ export default function Members() {
               radius={galleryRadius}
               autoRotateSpeed={0.035}
               interactive={!single}
-              className="h-[34rem] -translate-y-12 sm:h-[42rem] sm:-translate-y-[4.5rem] lg:h-[48rem]"
+              className={`h-[34rem] sm:h-[42rem] lg:h-[48rem] ${
+                single ? '' : '-translate-y-12 sm:-translate-y-[4.5rem]'
+              }`}
             />
 
             {!single && (
