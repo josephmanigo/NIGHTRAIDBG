@@ -87,7 +87,6 @@ export default function Members() {
                 items={galleryItems}
                 radius={radius}
                 interactive={false}
-                initialRotation={14}
                 className="h-[34rem] -translate-y-12 sm:h-[42rem] sm:-translate-y-[4.5rem] lg:h-[48rem]"
               />
             ) : (
