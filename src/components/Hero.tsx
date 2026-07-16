@@ -30,10 +30,12 @@ export default function Hero() {
    * seek backward instantly without buffering waits. Mobile: skip the
    * upfront ~12MB blob fetch entirely — it competes with the preloader for
    * bandwidth and blob-URL video sources are unreliable for autoplay on
-   * mobile browsers. A plain looping <video src> streams progressively and
-   * autoplays far more reliably there (see the `loop` attribute below,
-   * which also makes the reverse-scrub effect a no-op: a looping video
-   * never fires 'ended'). */
+   * mobile browsers. A plain progressively-streamed <video src> autoplays
+   * far more reliably there; by the time the forward playthrough reaches
+   * 'ended' the browser has already buffered the whole (just-streamed)
+   * range, so the same JS-driven reverse scrub used on desktop still seeks
+   * smoothly on mobile — it must NOT get the `loop` attribute, or 'ended'
+   * never fires and the reverse half of the loop never runs. */
   useEffect(() => {
     if (reduced) {
       setBooted(true)
@@ -326,7 +328,6 @@ export default function Hero() {
               autoPlay
               muted
               playsInline
-              loop={mobile}
               preload="auto"
               poster={POSTER_SRC}
               src={blobUrl ?? undefined}
