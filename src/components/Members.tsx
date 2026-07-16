@@ -32,6 +32,18 @@ export default function Members() {
 
   const single = teams.length === 1
 
+  /* Keep the on-screen gap between adjacent cards constant regardless of how
+   * many teams a filter leaves — the gallery spaces items evenly around a
+   * fixed-radius circle, so fewer items (a wider angle apart) would
+   * otherwise look more spread out than the 5-team "All" view. Radius is
+   * solved from the chord-length formula so it shrinks for smaller counts,
+   * calibrated to the existing "All" look (radius 350 @ 5 items). */
+  const BASE_RADIUS = 350
+  const BASE_COUNT = 5
+  const referenceGap = 2 * BASE_RADIUS * Math.sin(Math.PI / BASE_COUNT)
+  const radius =
+    teams.length > 1 ? referenceGap / (2 * Math.sin(Math.PI / teams.length)) : BASE_RADIUS
+
   return (
     <section id="members" aria-label="NIGHTRAID members" className="relative overflow-hidden">
       <div className="mx-auto w-full max-w-[110rem] px-5 py-24 sm:px-8 sm:py-32 lg:px-12">
@@ -71,22 +83,18 @@ export default function Members() {
         <div ref={ref}>
           <div data-reveal className="relative -mx-5 sm:-mx-8 lg:-mx-12">
             {single ? (
-              <div className="flex h-[34rem] items-center justify-center sm:h-[42rem] lg:h-[48rem]">
-                <div className="w-full max-w-[20rem] sm:max-w-[24rem] lg:max-w-[26rem]">
-                  <div className="group relative aspect-[4/5] w-full overflow-hidden rounded-2xl border border-line bg-paper-deep/60 backdrop-blur-lg">
-                    <img
-                      src={teams[0].image}
-                      alt={teams[0].imageAlt}
-                      className="absolute inset-0 h-full w-full object-cover object-[center_top]"
-                    />
-                  </div>
-                </div>
-              </div>
+              <CircularGallery
+                items={galleryItems}
+                radius={radius}
+                interactive={false}
+                initialRotation={14}
+                className="h-[34rem] -translate-y-12 sm:h-[42rem] sm:-translate-y-[4.5rem] lg:h-[48rem]"
+              />
             ) : (
               <>
                 <CircularGallery
                   items={galleryItems}
-                  radius={350}
+                  radius={radius}
                   autoRotateSpeed={0.035}
                   className="h-[34rem] -translate-y-12 sm:h-[42rem] sm:-translate-y-[4.5rem] lg:h-[48rem]"
                 />
