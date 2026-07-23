@@ -1,7 +1,7 @@
 import type { VercelRequest } from '@vercel/node'
 import { recordAuditEvent } from './audit.js'
 import { acceptedApplicantDiscordMessage, sendDiscordDirectMessage } from './discord.js'
-import { onboardApprovedApplication } from './discord-onboarding.js'
+import { onboardApprovedApplication, type DiscordOnboardingResult } from './discord-onboarding.js'
 import { syncExcelRegister } from './excel-sync.js'
 import { syncApprovedApplicationToGoogleSheet } from './google-sheets-sync.js'
 import { getSupabaseAdmin } from './supabase.js'
@@ -75,23 +75,37 @@ export async function approveApplication(input: {
     decision: 'APPROVED',
     reason: null,
   })
-  const notification = await notifyApplicant(
-    application.discord_user_id,
-    acceptedApplicantDiscordMessage({
-      applicationNumber: application.application_number,
-      inGameName: application.in_game_name,
-      games: application.games,
-      onboardingComplete: false,
-    }),
-  )
-  const onboarding = await onboardApprovedApplication(application.id)
+
+  const sendAcceptanceMessage = () =>
+    notifyApplicant(
+      application.discord_user_id,
+      acceptedApplicantDiscordMessage({
+        applicationNumber: application.application_number,
+        inGameName: application.in_game_name,
+        games: application.games,
+        onboardingComplete: false,
+      }),
+    )
+
+  /* Onboarding sends the welcome DM itself, so the acceptance DM is only a
+   * fallback for when that message did not go out. The applicant receives
+   * exactly one notification either way. */
+  let onboarding: DiscordOnboardingResult
+  try {
+    onboarding = await onboardApprovedApplication(application.id)
+  } catch (reason) {
+    await sendAcceptanceMessage()
+    throw reason
+  }
+  const notification: ApplicantNotificationResult =
+    onboarding.welcomeNotification === 'COMPLETED'
+      ? { applicantNotification: 'COMPLETED' }
+      : await sendAcceptanceMessage()
+
   const [excelSync, googleSheetsSync] = await Promise.all([
     syncExcelRegister([application.id], input.decidedBy),
     syncApprovedApplicationToGoogleSheet(application.id, input.decidedBy),
   ])
-  if (notification.applicantNotification === 'FAILED' && onboarding.welcomeNotification === 'COMPLETED') {
-    return { application, onboarding, excelSync, googleSheetsSync, applicantNotification: 'COMPLETED' as const }
-  }
   return { application, onboarding, excelSync, googleSheetsSync, ...notification }
 }
 
