@@ -4,6 +4,7 @@ import { allowAdminMutation, getAdminSession } from '../../../../server/admin-re
 import { recordAuditEvent } from '../../../../server/audit.js'
 import { onboardApprovedApplication } from '../../../../server/discord-onboarding.js'
 import { syncExcelRegister } from '../../../../server/excel-sync.js'
+import { syncApprovedApplicationToGoogleSheet } from '../../../../server/google-sheets-sync.js'
 import { hasTrustedOrigin, methodNotAllowed, singleQueryValue } from '../../../../server/http.js'
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
@@ -17,7 +18,10 @@ export default async function handler(request: VercelRequest, response: VercelRe
 
   try {
     const onboarding = await onboardApprovedApplication(id)
-    const excelSync = await syncExcelRegister([id], admin.discordUserId)
+    const [excelSync, googleSheetsSync] = await Promise.all([
+      syncExcelRegister([id], admin.discordUserId),
+      syncApprovedApplicationToGoogleSheet(id, admin.discordUserId),
+    ])
     await recordAuditEvent({
       actorType: 'ADMIN', actorId: admin.discordUserId, action: 'DISCORD_ONBOARDING_RETRIED',
       applicationId: id, outcome: onboarding.status === 'COMPLETED' ? 'SUCCESS' : 'FAILED', request,
@@ -25,6 +29,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
     return response.status(200).json({
       onboarding,
       excelSync,
+      googleSheetsSync,
       message:
         onboarding.status === 'COMPLETED'
           ? 'Discord onboarding completed.'

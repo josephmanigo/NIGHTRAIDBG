@@ -20,20 +20,25 @@ export default async function handler(request: VercelRequest, response: VercelRe
       decidedBy: admin.discordUserId,
       request,
     })
-    const { application, onboarding } = result
+    const { application, onboarding, googleSheetsSync } = result
     const notificationNote =
       result.applicantNotification === 'COMPLETED'
         ? ' The applicant was notified through Discord.'
         : ' The Discord DM failed, but the acceptance is visible in the applicant portal.'
+    const sheetNote =
+      googleSheetsSync.status === 'SYNCED'
+        ? ' The accepted-applicant Google Sheet was updated.'
+        : ' Google Sheets synchronization needs configuration or attention.'
     return response.status(200).json({
       application: { ...application, status: onboarding.status },
       onboarding,
+      googleSheetsSync,
       applicantNotification: result.applicantNotification,
       ...('notificationError' in result ? { notificationError: result.notificationError } : {}),
       message:
         onboarding.status === 'COMPLETED'
-          ? `Application approved and Discord onboarding completed.${notificationNote}`
-          : `Application approved, but Discord onboarding needs an administrator retry.${notificationNote}`,
+          ? `Application approved and Discord onboarding completed.${notificationNote}${sheetNote}`
+          : `Application approved, but Discord onboarding needs an administrator retry.${notificationNote}${sheetNote}`,
     })
   } catch (reason) {
     if (reason instanceof DecisionConflictError) return response.status(409).json({ message: reason.message })

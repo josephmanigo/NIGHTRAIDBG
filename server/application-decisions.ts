@@ -3,6 +3,7 @@ import { recordAuditEvent } from './audit.js'
 import { acceptedApplicantDiscordMessage, sendDiscordDirectMessage } from './discord.js'
 import { onboardApprovedApplication } from './discord-onboarding.js'
 import { syncExcelRegister } from './excel-sync.js'
+import { syncApprovedApplicationToGoogleSheet } from './google-sheets-sync.js'
 import { getSupabaseAdmin } from './supabase.js'
 
 export type DecisionSource = 'WEB' | 'MESSENGER'
@@ -84,11 +85,14 @@ export async function approveApplication(input: {
     }),
   )
   const onboarding = await onboardApprovedApplication(application.id)
-  const excelSync = await syncExcelRegister([application.id], input.decidedBy)
+  const [excelSync, googleSheetsSync] = await Promise.all([
+    syncExcelRegister([application.id], input.decidedBy),
+    syncApprovedApplicationToGoogleSheet(application.id, input.decidedBy),
+  ])
   if (notification.applicantNotification === 'FAILED' && onboarding.welcomeNotification === 'COMPLETED') {
-    return { application, onboarding, excelSync, applicantNotification: 'COMPLETED' as const }
+    return { application, onboarding, excelSync, googleSheetsSync, applicantNotification: 'COMPLETED' as const }
   }
-  return { application, onboarding, excelSync, ...notification }
+  return { application, onboarding, excelSync, googleSheetsSync, ...notification }
 }
 
 export async function rejectApplication(input: {

@@ -47,6 +47,11 @@ export const env = {
     return version
   },
   applicationSigningSecret: () => required('APPLICATION_SIGNING_SECRET'),
+  googleServiceAccountEmail: () => optional('GOOGLE_SERVICE_ACCOUNT_EMAIL'),
+  googleServiceAccountPrivateKey: () => optional('GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY'),
+  googleSheetsSpreadsheetId: () =>
+    optional('GOOGLE_SHEETS_SPREADSHEET_ID') || '1DmXuFfwGNfn8AZRXFeCMt6xNWjVJ3HH8NXN9Yf5RZVk',
+  googleSheetsTabName: () => optional('GOOGLE_SHEETS_TAB_NAME') || 'Sheet1',
   appUrl: () => process.env.APP_URL?.trim(),
   adminDiscordIds: () =>
     new Set(
