@@ -8,7 +8,8 @@
     "dev:full": "vercel dev",
     "build": "tsc -b && vite build",
     "typecheck:api": "tsc -p tsconfig.api.json",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "bot:nickname": "node --env-file-if-exists=.env.local --env-file-if-exists=.env bot/nickname-bot.js"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.3.0",
@@ -18,6 +19,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cookie": "^2.0.1",
+    "discord.js": "^14.27.0",
     "exceljs": "^4.4.0",
     "gsap": "^3.15.0",
     "jose": "^6.2.4",
