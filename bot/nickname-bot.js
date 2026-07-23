@@ -10,6 +10,7 @@
  * connection, so this runs as its own long-lived process — it cannot live
  * inside the Vercel serverless functions. See PHASE8_SETUP.md.
  */
+import { createServer } from 'node:http'
 import { Client, Events, GatewayIntentBits } from 'discord.js'
 
 const required = (name) => {
@@ -92,3 +93,13 @@ client.login(BOT_TOKEN).catch((reason) => {
   console.error('Discord login failed:', reason instanceof Error ? reason.message : reason)
   process.exit(1)
 })
+
+/* Hosts that only run web services (for example Render's free tier) set PORT
+ * and expect the process to answer HTTP; uptime pingers keep it awake. */
+const port = Number(process.env.PORT)
+if (port) {
+  createServer((_request, response) => {
+    response.writeHead(200, { 'Content-Type': 'text/plain' })
+    response.end('Nickname bot is running.')
+  }).listen(port, () => console.log(`Health endpoint listening on port ${port}.`))
+}
