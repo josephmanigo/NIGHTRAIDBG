@@ -437,7 +437,7 @@ export default function Application() {
           </div>
 
           <div className="grid grid-cols-[minmax(0,1fr)] lg:grid-cols-[19rem_minmax(0,1fr)]">
-            <aside className="min-w-0 border-b border-bone/10 bg-bone/[0.025] p-5 sm:p-7 lg:flex lg:flex-col lg:border-b-0 lg:border-r lg:p-8">
+            <aside className="min-w-0 border-b border-bone/10 bg-bone/[0.025] p-5 sm:p-7 lg:border-b-0 lg:border-r lg:p-8">
               <div className="no-scrollbar flex gap-2 overflow-x-auto pb-2 lg:block lg:space-y-3 lg:overflow-visible lg:pb-0">
                 {STEPS.map((item, index) => {
                   const Icon = item.icon
@@ -477,19 +477,21 @@ export default function Application() {
                     </button>
                   )
                 })}
-              </div>
 
-              <div className="mt-3 lg:mt-auto lg:pt-6">
                 <a
                   href="/application/status"
-                  className="flex items-center gap-3 rounded-2xl border border-bone/10 px-3.5 py-3 text-bone/40 transition-colors hover:border-bone/25 hover:text-bone lg:px-4 lg:py-4"
+                  className="group flex min-w-[9.5rem] items-center gap-3 rounded-2xl border border-bone/10 bg-transparent px-3.5 py-3 text-left text-bone/45 transition-colors hover:border-bone/25 hover:text-bone lg:w-full lg:min-w-0 lg:px-4 lg:py-4"
                 >
                   <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-bone/15">
                     <ArrowRight className="h-4 w-4" />
                   </span>
                   <span className="min-w-0">
                     <span className="ln-label block text-[0.5rem] opacity-60">Portal</span>
-                    <span className="mt-0.5 block text-xs font-bold uppercase tracking-[0.08em]">Check your application</span>
+                    <span className="mt-0.5 block text-xs font-bold uppercase tracking-[0.08em] lg:hidden">Check status</span>
+                    <span className="mt-0.5 hidden text-xs font-bold uppercase tracking-[0.08em] lg:block">
+                      Check your application
+                    </span>
+                    <span className="mt-1 hidden text-[0.68rem] leading-relaxed opacity-55 lg:block">Track your submitted application</span>
                   </span>
                 </a>
               </div>
