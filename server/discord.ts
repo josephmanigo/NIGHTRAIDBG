@@ -28,6 +28,13 @@ interface DiscordChannel {
 const DISCORD_API = 'https://discord.com/api/v10'
 export const MESSENGER_GROUP_CHAT_URL = 'https://m.me/ch/AbaeMdWdMHYbxpIE/'
 export const DISCORD_NICKNAME_SERVER_URL = 'https://discord.gg/Ay8uSSJS3N'
+export const NIGHTRAID_CLAN_TAG = '\u119E\u6697NR'
+
+const NIGHTRAID_CLANS = [
+  { name: 'NIGHTRAID BG', id: '221853' },
+  { name: 'NIGHTRAIDBS', id: '1040862' },
+  { name: 'NIGHTRAID', id: '188859' },
+] as const
 
 const MESSENGER_GAME_TAGS: Record<string, string> = {
   Bloodstrike: 'BS',
@@ -70,10 +77,20 @@ export function acceptedApplicantDiscordMessage(input: {
     `**Nickname:** \`NIGHT \u2022 ${safeInGameName}\``,
     `**Change it here:** [OPEN THE NICKNAME CHANNEL](${DISCORD_NICKNAME_SERVER_URL})`,
     '',
+    '### IN-GAME IDENTITY',
+    `**Clan tag:** \`${NIGHTRAID_CLAN_TAG}\``,
+    `**Your IGN:** \`${safeInGameName}${NIGHTRAID_CLAN_TAG}\``,
+    `**Sample IGN:** \`Yepo${NIGHTRAID_CLAN_TAG}\``,
+    '',
+    '### CLAN IDS',
+    ...NIGHTRAID_CLANS.map((clan, index) => `${index + 1}. **${clan.name}** \u2014 Clan ID: \`${clan.id}\``),
+    '',
     '### NEXT ORDERS',
     '1. Join the Messenger group chat.',
     '2. Change both nicknames to the formats above.',
-    '3. Review the clan rules and complete your trial period.',
+    '3. Update your in-game name with the NightRaid clan tag.',
+    '4. Join the assigned in-game clan using the clan IDs above.',
+    '5. Review the clan rules and complete your trial period.',
     '',
     '**BUILT IN DARKNESS. PROVEN UNDER PRESSURE.**',
   ].join('\n')
