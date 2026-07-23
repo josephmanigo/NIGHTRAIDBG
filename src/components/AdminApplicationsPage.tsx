@@ -73,6 +73,13 @@ function readable(value: string) {
   return value.split('_').join(' ')
 }
 
+function requestError(reason: unknown, fallback: string) {
+  const message = reason instanceof Error ? reason.message : ''
+  return message === 'Failed to fetch'
+    ? 'The NightRaid server connection was interrupted. Please try again.'
+    : message || fallback
+}
+
 function Detail({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="border-b border-bone/10 py-4 last:border-b-0">
@@ -88,6 +95,7 @@ export default function AdminApplicationsPage() {
   const [selectedId, setSelectedId] = useState('')
   const [securityData, setSecurityData] = useState<SecurityData | null>(null)
   const [securityBusy, setSecurityBusy] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   const [loading, setLoading] = useState(true)
   const [acting, setActing] = useState(false)
   const [error, setError] = useState('')
@@ -110,12 +118,16 @@ export default function AdminApplicationsPage() {
   }, [])
 
   const loadSecurity = useCallback(async () => {
-    const response = await fetch('/api/admin/security', { credentials: 'same-origin' })
-    if (!response.ok || !(response.headers.get('content-type') || '').includes('application/json')) {
+    try {
+      const response = await fetch('/api/admin/security', { credentials: 'same-origin' })
+      if (!response.ok || !(response.headers.get('content-type') || '').includes('application/json')) {
+        setSecurityData(null)
+        return
+      }
+      setSecurityData(await response.json() as SecurityData)
+    } catch {
       setSecurityData(null)
-      return
     }
-    setSecurityData(await response.json() as SecurityData)
   }, [])
 
   useEffect(() => {
@@ -134,7 +146,7 @@ export default function AdminApplicationsPage() {
           await Promise.all([loadApplications(), loadSecurity()])
         }
       } catch (reason) {
-        if (!cancelled) setError(reason instanceof Error ? reason.message : 'Unable to load the administrator portal.')
+        if (!cancelled) setError(requestError(reason, 'Unable to load the administrator portal.'))
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -169,8 +181,22 @@ export default function AdminApplicationsPage() {
       if (!response.ok) throw new Error('Unable to log out of Application Command.')
       window.location.replace('/')
     } catch (reasonValue) {
-      setError(reasonValue instanceof Error ? reasonValue.message : 'Unable to log out of Application Command.')
+      setError(requestError(reasonValue, 'Unable to log out of Application Command.'))
       setActing(false)
+    }
+  }
+
+  const refreshData = async () => {
+    if (refreshing) return
+    setRefreshing(true)
+    setError('')
+
+    try {
+      await Promise.all([loadApplications(), loadSecurity()])
+    } catch (reasonValue) {
+      setError(requestError(reasonValue, 'Unable to refresh Application Command.'))
+    } finally {
+      setRefreshing(false)
     }
   }
 
@@ -214,7 +240,7 @@ export default function AdminApplicationsPage() {
         setNotice(payload.message || `Application ${decision === 'approve' ? 'approved' : 'rejected'}.`)
       }
     } catch (reasonValue) {
-      setError(reasonValue instanceof Error ? reasonValue.message : 'The decision could not be saved.')
+      setError(requestError(reasonValue, 'The decision could not be saved.'))
     } finally {
       setActing(false)
     }
@@ -244,7 +270,7 @@ export default function AdminApplicationsPage() {
         setNotice(payload.message || 'Discord onboarding completed.')
       }
     } catch (reasonValue) {
-      setError(reasonValue instanceof Error ? reasonValue.message : 'Discord onboarding could not be retried.')
+      setError(requestError(reasonValue, 'Discord onboarding could not be retried.'))
     } finally {
       setActing(false)
     }
@@ -270,7 +296,7 @@ export default function AdminApplicationsPage() {
       if (!response.ok) throw new Error(payload.message || 'Messenger notification could not be retried.')
       setNotice(payload.message || 'Messenger notification delivered.')
     } catch (reasonValue) {
-      setError(reasonValue instanceof Error ? reasonValue.message : 'Messenger notification could not be retried.')
+      setError(requestError(reasonValue, 'Messenger notification could not be retried.'))
     } finally {
       setActing(false)
     }
@@ -302,7 +328,7 @@ export default function AdminApplicationsPage() {
       await loadSecurity()
       setNotice(payload.message || 'Applicant ban activated.')
     } catch (reasonValue) {
-      setError(reasonValue instanceof Error ? reasonValue.message : 'Unable to activate the applicant ban.')
+      setError(requestError(reasonValue, 'Unable to activate the applicant ban.'))
     } finally {
       setSecurityBusy(false)
     }
@@ -325,7 +351,7 @@ export default function AdminApplicationsPage() {
       await loadSecurity()
       setNotice(payload.message || 'Applicant ban deactivated.')
     } catch (reasonValue) {
-      setError(reasonValue instanceof Error ? reasonValue.message : 'Unable to deactivate the ban.')
+      setError(requestError(reasonValue, 'Unable to deactivate the ban.'))
     } finally {
       setSecurityBusy(false)
     }
@@ -444,8 +470,8 @@ export default function AdminApplicationsPage() {
 
           <div className="mb-5 flex items-center justify-between gap-4">
             <p className="ln-label text-bone/40">{applications.length} applications</p>
-            <button type="button" onClick={() => void Promise.all([loadApplications(), loadSecurity()])} className="inline-flex h-10 items-center gap-2 rounded-full border border-bone/15 px-4 text-[0.6rem] font-bold uppercase tracking-[0.12em] text-bone/55 transition-colors hover:border-bone/40 hover:text-bone">
-              <RefreshCw className="h-3.5 w-3.5" /> Refresh
+            <button type="button" disabled={refreshing} onClick={() => void refreshData()} className="inline-flex h-10 items-center gap-2 rounded-full border border-bone/15 px-4 text-[0.6rem] font-bold uppercase tracking-[0.12em] text-bone/55 transition-colors hover:border-bone/40 hover:text-bone disabled:cursor-wait disabled:opacity-40">
+              <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} /> Refresh
             </button>
           </div>
 

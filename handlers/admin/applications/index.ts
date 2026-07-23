@@ -21,32 +21,6 @@ export default async function handler(request: VercelRequest, response: VercelRe
     console.error('Admin application list failed:', error.message)
     return response.status(503).json({ message: 'Unable to load applications.' })
   }
-  const applications = data ?? []
-  if (applications.length === 0) return response.status(200).json({ applications })
 
-  const { data: evaluations, error: evaluationError } = await supabase
-    .from('ai_evaluations')
-    .select('*')
-    .in('application_id', applications.map((application) => application.id))
-    .order('created_at', { ascending: false })
-    .limit(500)
-
-  if (evaluationError) {
-    console.error('Admin AI evaluation list failed:', evaluationError.message)
-    return response.status(503).json({ message: 'Unable to load AI application reviews.' })
-  }
-
-  const latestByApplication = new Map<string, (typeof evaluations)[number]>()
-  for (const evaluation of evaluations ?? []) {
-    if (!latestByApplication.has(evaluation.application_id)) {
-      latestByApplication.set(evaluation.application_id, evaluation)
-    }
-  }
-
-  return response.status(200).json({
-    applications: applications.map((application) => ({
-      ...application,
-      ai_evaluation: latestByApplication.get(application.id) ?? null,
-    })),
-  })
+  return response.status(200).json({ applications: data ?? [] })
 }
