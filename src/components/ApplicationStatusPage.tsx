@@ -114,12 +114,11 @@ export default function ApplicationStatusPage() {
   }
 
   const activeIndex = application ? statusIndex(application.status) : 0
-  const messengerNicknames = application
-    ? application.games
-      .map((game) => MESSENGER_GAME_TAGS[game])
-      .filter(Boolean)
-      .map((tag) => `${application.in_game_name} (${tag})`)
+  const messengerTags = application
+    ? application.games.map((game) => MESSENGER_GAME_TAGS[game]).filter(Boolean)
     : []
+  const messengerNickname =
+    application && messengerTags.length > 0 ? `${application.in_game_name} (${messengerTags.join(', ')})` : ''
 
   return (
     <PortalShell
@@ -247,9 +246,7 @@ export default function ApplicationStatusPage() {
                         <p className="ln-label text-[0.48rem] text-bone/35">Messenger group</p>
                         <p className="mt-3 text-xs leading-relaxed text-bone/45">Set your group-chat nickname to</p>
                         <strong className="mt-2 block break-words font-display text-xl uppercase tracking-wide text-bone">
-                          {messengerNicknames.length > 0
-                            ? messengerNicknames.join(' / ')
-                            : `${application.in_game_name} + division tag`}
+                          {messengerNickname || `${application.in_game_name} + division tag`}
                         </strong>
                       </div>
                       <div className="rounded-2xl border border-blood/20 bg-blood/[0.06] p-4 sm:p-5">
@@ -321,7 +318,7 @@ export default function ApplicationStatusPage() {
                   <div>
                     <p className="ln-label text-[0.55rem] text-bone/40">Membership</p>
                     <p className="mt-2 max-w-xl text-sm leading-relaxed text-bone/50">
-                      Leaving closes your membership and clears your NightRaid game roles on Discord. You can apply again later.
+                      Leaving closes your membership and clears your NIGHTRAID game roles on Discord. You can apply again later.
                     </p>
                   </div>
                   <button

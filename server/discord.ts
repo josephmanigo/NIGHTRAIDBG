@@ -50,12 +50,9 @@ export function acceptedApplicantDiscordMessage(input: {
 }) {
   const safeInGameName = input.inGameName.replace(/[\r\n`]/g, ' ').replace(/\s+/g, ' ').trim()
   const headingName = safeInGameName.replace(/([\\*_~|>])/g, '\\$1')
-  const messengerNicknames = input.games
-    .map((game) => MESSENGER_GAME_TAGS[game])
-    .filter(Boolean)
-    .map((tag) => `${safeInGameName} (${tag})`)
-  const messengerDisplay = messengerNicknames.length > 0
-    ? messengerNicknames.join('  /  ')
+  const messengerTags = input.games.map((game) => MESSENGER_GAME_TAGS[game]).filter(Boolean)
+  const messengerDisplay = messengerTags.length > 0
+    ? `${safeInGameName} (${messengerTags.join(', ')})`
     : `${safeInGameName} + division tag from an administrator`
   const progress = input.onboardingComplete
     ? 'Your Discord onboarding is complete. Your selected game roles are ready.'
