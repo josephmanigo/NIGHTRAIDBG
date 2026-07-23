@@ -1,4 +1,3 @@
-import type { AiEvaluationRow } from './database.types.js'
 import { sendDiscordAdminAlert } from './discord.js'
 import { sendMessengerButtonTemplate, sendMessengerText, type MessengerButton } from './messenger.js'
 import { signMessengerAction } from './messenger-security.js'
@@ -43,7 +42,6 @@ function applicationText(
     discord_membership_verified: boolean | null
     reason_for_joining: string
   },
-  evaluation: AiEvaluationRow | null,
 ) {
   const discovery = application.discovery_source === 'Others'
     ? application.discovery_source_other || 'Other'
@@ -53,8 +51,6 @@ function applicationText(
     : application.already_joined_discord
       ? 'Applicant says yes — not verified'
       : 'Not joined yet'
-  const strengths = evaluation?.strengths.length ? evaluation.strengths.map((item) => `• ${item}`).join('\n') : '• Manual review required'
-  const concerns = evaluation?.concerns.length ? evaluation.concerns.map((item) => `• ${item}`).join('\n') : '• None identified'
 
   return `NEW NIGHTRAID APPLICATION
 
@@ -67,15 +63,6 @@ Games: ${application.games.join(', ')}
 Clan tag: ${application.willing_to_use_clan_tag ? 'Yes' : 'No'}
 Play frequency: ${application.play_frequency}
 Previous clan: ${application.previous_clan}
-
-AI score: ${evaluation ? `${evaluation.score}/100` : 'Unavailable'}
-Recommendation: ${evaluation?.recommendation || 'MANUAL_REVIEW'}
-
-Strengths:
-${strengths}
-
-Concerns:
-${concerns}
 
 Reason for leaving:
 ${application.previous_clan_leaving_reason}
@@ -126,15 +113,8 @@ export async function notifyMessengerAdmins(applicationId: string, baseUrl: stri
   if (!application) throw new Error('This application is not available for a Messenger notification.')
 
   try {
-    const [{ data: evaluation, error: evaluationError }, { data: admins, error: adminError }, { data: completedLogs }] =
+    const [{ data: admins, error: adminError }, { data: completedLogs }] =
       await Promise.all([
-        supabase
-          .from('ai_evaluations')
-          .select('*')
-          .eq('application_id', application.id)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle(),
         supabase.from('messenger_admins').select('*').eq('is_active', true),
         supabase
           .from('messenger_notification_logs')
@@ -143,7 +123,6 @@ export async function notifyMessengerAdmins(applicationId: string, baseUrl: stri
           .eq('status', 'COMPLETED'),
       ])
 
-    if (evaluationError) throw new Error(`AI recommendation could not be loaded: ${evaluationError.message}`)
     if (adminError) throw new Error(`Messenger administrators could not be loaded: ${adminError.message}`)
     if (!admins?.length) throw new Error('No active Messenger administrators are registered.')
 
@@ -151,7 +130,7 @@ export async function notifyMessengerAdmins(applicationId: string, baseUrl: stri
     const recipients = admins.filter((admin) => !alreadyDelivered.has(admin.facebook_psid))
     const viewUrl = new URL('/admin/applications', `${baseUrl.replace(/\/$/, '')}/`)
     viewUrl.searchParams.set('application', application.id)
-    const details = applicationText(application, evaluation)
+    const details = applicationText(application)
 
     const results = await Promise.all(
       recipients.map(async (admin) => {
@@ -177,7 +156,7 @@ export async function notifyMessengerAdmins(applicationId: string, baseUrl: stri
           messageIds.push(
             await sendMessengerButtonTemplate(
               admin.facebook_psid,
-              `${application.application_number} · ${application.in_game_name}\nAI: ${evaluation?.score ?? 'N/A'}/100 · ${evaluation?.recommendation || 'MANUAL_REVIEW'}\nAdministrator decision required.`,
+              `${application.application_number} · ${application.in_game_name}\nAdministrator decision required.`,
               buttons,
             ),
           )
