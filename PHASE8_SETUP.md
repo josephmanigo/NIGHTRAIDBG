@@ -6,7 +6,16 @@ Phase 8 adds a Discord bot process that watches the nickname channel. When a mem
 - The bot reacts with ✅ on the message once the rename is done (or if the nickname already matches), so everyone can see who has been renamed already.
 - The bot reacts with ⚠️ when it cannot rename the member (the server owner, or someone with a role above the bot).
 
-Messages that already include the prefix (`NIGHT • Yepo`) are handled without doubling it, and nicknames are trimmed to Discord's 32-character limit.
+Messages that already include the prefix (`NIGHT • Yepo`, `NIGHT - Yepo`) are handled without doubling it, and nicknames are trimmed to Discord's 32-character limit.
+
+## Renaming someone else
+
+Mentioning a member renames **them** instead of the sender:
+
+- `NIGHT - ego @yepo` (or `@yepo ego` — the order does not matter) sets @yepo's nickname to `NIGHT • ego`.
+- Renaming another person requires the sender to hold the **Manage Nicknames** permission; otherwise the bot answers with ⚠️. Members can always rename themselves.
+- The reply-ping on a reply does not count as a mention — only mentions typed into the message body pick a target.
+- Discord's limits still apply to the target: the server owner and members with a role above the bot cannot be renamed (⚠️).
 
 ## Why this is a separate process
 
