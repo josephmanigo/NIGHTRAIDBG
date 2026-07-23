@@ -8,12 +8,14 @@ Phase 8 adds a Discord bot process that watches the nickname channel. When a mem
 
 Nicknames are trimmed to Discord's 32-character limit.
 
-## Renaming someone else
+## Renaming someone else (single or bulk)
 
-Mentioning a member renames **them** instead of the sender:
+Mentioning a member renames **them** instead of the sender. Each mention is paired with the name written next to it, so one message can rename several people:
 
-- `ego @yepo` (or `@yepo ego` — the order does not matter) sets @yepo's nickname to `ego`.
-- Anyone in the channel can rename themselves or a mentioned member — there is no permission requirement. Restrict who can post in the nickname channel if that gets abused.
+- `ego @yepo` (or `@yepo ego`) sets @yepo's nickname to `ego`.
+- `ego @yepo ems @maloi` sets @yepo to `ego` **and** @maloi to `ems` in one message.
+- ✅ appears only when every mentioned member was renamed; if any of them could not be (or a mention had no name next to it), the message gets ⚠️ and the rest are still renamed.
+- Anyone in the channel can rename themselves or mentioned members — there is no permission requirement. Restrict who can post in the nickname channel if that gets abused.
 - The reply-ping on a reply does not count as a mention — only mentions typed into the message body pick a target.
 - Discord's limits still apply to the target: the server owner and members with a role above the bot cannot be renamed (⚠️).
 

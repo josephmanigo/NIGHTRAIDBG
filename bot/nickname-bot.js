@@ -7,8 +7,9 @@
  *   ⚠️  the bot cannot rename this member (server owner, or a role above the bot)
  *
  * Mentioning someone renames them instead of the sender (`ego @yepo` sets
- * @yepo's nickname to `ego`). Anyone may rename themselves or a mentioned
- * member.
+ * @yepo's nickname to `ego`), and several people can be renamed in one
+ * message by pairing each name with a mention (`ego @yepo ems @maloi`).
+ * Anyone may rename themselves or mentioned members.
  *
  * Discord only delivers channel messages over a persistent gateway
  * connection, so this runs as its own long-lived process — it cannot live
@@ -32,14 +33,49 @@ const NICKNAME_MAX_LENGTH = 32 // Discord's hard limit.
 const CHECK_MARK = '✅'
 const WARNING = '⚠️'
 
-function requestedNickname(content) {
-  const name = content
-    .replace(/<@!?\d+>/g, ' ') // Mentions pick the target; they are not part of the name.
+function cleanName(value) {
+  const name = value
     .replace(/[\r\n`]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
   if (!name) return null
-  return name.slice(0, NICKNAME_MAX_LENGTH).trim()
+  return name.slice(0, NICKNAME_MAX_LENGTH).trim() || null
+}
+
+/* Pairs every mention with the name written next to it (the text before the
+ * mention, or after it when nothing usable sits before), so one message can
+ * rename several members: `ego @yepo ems @maloi`. Returns the userId → name
+ * map plus whether every mention received a name. */
+function parseRenameTargets(content) {
+  const tokens = []
+  const mentionPattern = /<@!?(\d+)>/g
+  let cursor = 0
+  for (let match = mentionPattern.exec(content); match; match = mentionPattern.exec(content)) {
+    tokens.push({ text: content.slice(cursor, match.index) })
+    tokens.push({ userId: match[1] })
+    cursor = mentionPattern.lastIndex
+  }
+  tokens.push({ text: content.slice(cursor) })
+
+  const requests = new Map()
+  const consumed = new Set()
+  let allNamed = true
+  for (let index = 0; index < tokens.length; index++) {
+    if (!tokens[index].userId) continue
+    const before = index - 1
+    const after = index + 1
+    let name = null
+    if (!consumed.has(before) && tokens[before] && cleanName(tokens[before].text)) {
+      name = cleanName(tokens[before].text)
+      consumed.add(before)
+    } else if (!consumed.has(after) && tokens[after] && cleanName(tokens[after].text)) {
+      name = cleanName(tokens[after].text)
+      consumed.add(after)
+    }
+    if (name) requests.set(tokens[index].userId, name)
+    else allNamed = false
+  }
+  return { requests, allNamed }
 }
 
 /* Returns true when the member ends up with the nickname, false when the
@@ -81,21 +117,32 @@ client.on(Events.MessageCreate, async (message) => {
   if (message.channelId !== NICKNAME_CHANNEL_ID) return
   if (GUILD_ID && message.guildId !== GUILD_ID) return
 
-  const nickname = requestedNickname(message.content)
-  if (!nickname) return
-
   try {
+    /* Mentions typed into the message (a reply's automatic ping never
+     * appears in the content) rename the mentioned members. */
+    const { requests, allNamed } = parseRenameTargets(message.content)
+    if (requests.size > 0) {
+      const results = await Promise.all(
+        [...requests].map(async ([userId, name]) => {
+          try {
+            const member = await message.guild.members.fetch(userId)
+            return await applyNickname(member, name)
+          } catch (reason) {
+            console.error(`Could not rename user ${userId}:`, reason instanceof Error ? reason.message : reason)
+            return false
+          }
+        }),
+      )
+      await react(message, allNamed && results.every(Boolean) ? CHECK_MARK : WARNING)
+      return
+    }
+
+    /* Mention tokens are never part of a name; a message that only mentions
+     * someone without a name is ignored rather than renaming the sender. */
+    const nickname = cleanName(message.content.replace(/<@!?\d+>/g, ' '))
+    if (!nickname) return
     const author = message.member ?? (await message.guild.members.fetch(message.author.id))
-
-    /* parsedUsers only holds mentions typed into the message, not the
-     * automatic ping on a reply. */
-    const mentioned = message.mentions.parsedUsers ?? message.mentions.users
-    const targets = mentioned.size > 0
-      ? await Promise.all(mentioned.map((user) => message.guild.members.fetch(user.id)))
-      : [author]
-
-    const results = await Promise.all(targets.map((target) => applyNickname(target, nickname)))
-    await react(message, results.every(Boolean) ? CHECK_MARK : WARNING)
+    await react(message, (await applyNickname(author, nickname)) ? CHECK_MARK : WARNING)
   } catch (reason) {
     console.error(`Nickname change failed for a message from ${message.author.tag}:`, reason instanceof Error ? reason.message : reason)
     await react(message, WARNING)
