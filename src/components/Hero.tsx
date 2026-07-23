@@ -166,6 +166,24 @@ export default function Hero() {
     }
   }, [reduced, initScrollTrigger])
 
+  /* The looping background keeps decoding frames long after the hero has
+   * scrolled away; pause it out of view and resume on the way back. */
+  useEffect(() => {
+    if (reduced) return
+    const video = videoRef.current
+    const section = rootRef.current
+    if (!video || !section || typeof IntersectionObserver === 'undefined') return
+    const observer = new IntersectionObserver((entries) => {
+      if (entries[0]?.isIntersecting) {
+        if (video.paused) void video.play().catch(() => {})
+      } else if (!video.paused) {
+        video.pause()
+      }
+    })
+    observer.observe(section)
+    return () => observer.disconnect()
+  }, [reduced])
+
   /* Crossfade the poster out once frames are actually rendering. */
   useEffect(() => {
     if (reduced) return

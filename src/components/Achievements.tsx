@@ -1,7 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { gsap, ScrollTrigger, prefersReducedMotion } from '../lib/motion'
 import SectionHeader from './SectionHeader'
-import InfiniteGallery from '@/components/ui/3d-gallery-photography'
+
+/* Loading three.js lazily keeps ~1 MB of WebGL code off the critical path;
+ * it only downloads when the section comes within mounting range below. */
+const InfiniteGallery = lazy(() => import('@/components/ui/3d-gallery-photography'))
 
 /** Trophy wall — certificates fly past the camera once, then release the scroll. */
 const ACHIEVEMENT_IMAGES = [
@@ -112,14 +115,16 @@ export default function Achievements() {
         className={`overflow-hidden text-white ${reduced ? 'relative h-[95svh] md:h-[110svh]' : 'sticky top-0 h-screen'}`}
       >
         {shouldMountGallery && (
-          <InfiniteGallery
-            images={ACHIEVEMENT_IMAGES}
-            progressRef={progressRef}
-            zSpacing={6}
-            fadeSettings={{ fadeIn: { start: 0.0, end: 0.15 }, fadeOut: { start: 0.85, end: 1.0 } }}
-            blurSettings={{ blurIn: { start: 0.0, end: 0.12 }, blurOut: { start: 0.88, end: 1.0 }, maxBlur: 3.0 }}
-            className="absolute inset-0 h-full w-full"
-          />
+          <Suspense fallback={null}>
+            <InfiniteGallery
+              images={ACHIEVEMENT_IMAGES}
+              progressRef={progressRef}
+              zSpacing={6}
+              fadeSettings={{ fadeIn: { start: 0.0, end: 0.15 }, fadeOut: { start: 0.85, end: 1.0 } }}
+              blurSettings={{ blurIn: { start: 0.0, end: 0.12 }, blurOut: { start: 0.88, end: 1.0 }, maxBlur: 3.0 }}
+              className="absolute inset-0 h-full w-full"
+            />
+          </Suspense>
         )}
 
         {/* Header overlay (floating, centered on top) */}

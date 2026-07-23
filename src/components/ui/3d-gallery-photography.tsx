@@ -314,6 +314,22 @@ export default function InfiniteGallery({
 	progressRef,
 }: InfiniteGalleryProps) {
 	const [webglSupported, setWebglSupported] = useState(true)
+	const containerRef = useRef<HTMLDivElement | null>(null)
+	const [inView, setInView] = useState(true)
+
+	/* Rendering while the gallery is far off-screen burns GPU/CPU for frames
+	 * nobody sees; pause the frameloop out of view and resume just before the
+	 * section scrolls back in. */
+	useEffect(() => {
+		const el = containerRef.current
+		if (!el || typeof IntersectionObserver === 'undefined') return
+		const observer = new IntersectionObserver(
+			(entries) => setInView(Boolean(entries[0]?.isIntersecting)),
+			{ rootMargin: '30% 0px' },
+		)
+		observer.observe(el)
+		return () => observer.disconnect()
+	}, [])
 
 	// Nudge the container measurement once after mount — the initial
 	// ResizeObserver tick can be missed, leaving the canvas at 300x150.
@@ -341,8 +357,13 @@ export default function InfiniteGallery({
 	}
 
 	return (
-		<div className={className} style={style}>
-			<Canvas camera={{ position: [0, 0, 0], fov: 55 }} gl={{ antialias: true, alpha: true }}>
+		<div ref={containerRef} className={className} style={style}>
+			<Canvas
+				camera={{ position: [0, 0, 0], fov: 55 }}
+				dpr={[1, 2]}
+				frameloop={inView ? 'always' : 'never'}
+				gl={{ antialias: true, alpha: true, powerPreference: 'high-performance' }}
+			>
 				<ResponsiveCamera />
 				<GalleryScene
 					images={images}

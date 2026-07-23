@@ -39,6 +39,7 @@ const CircularGallery = React.forwardRef<HTMLDivElement, CircularGalleryProps>(
     const [rotation, setRotation] = useState(0)
     const [isDragging, setIsDragging] = useState(false)
     const [containerWidth, setContainerWidth] = useState(0)
+    const [inView, setInView] = useState(true)
     const containerRef = useRef<HTMLDivElement | null>(null)
     const animationFrameRef = useRef<number | null>(null)
     const dragRef = useRef({ lastX: 0, velocity: 0 })
@@ -55,9 +56,22 @@ const CircularGallery = React.forwardRef<HTMLDivElement, CircularGalleryProps>(
       return () => observer.disconnect()
     }, [])
 
+    /* The auto-rotation re-renders every frame; skip the whole loop while
+     * the gallery is scrolled out of view. */
+    useEffect(() => {
+      const container = containerRef.current
+      if (!container || typeof IntersectionObserver === 'undefined') return
+      const observer = new IntersectionObserver(
+        (entries) => setInView(Boolean(entries[0]?.isIntersecting)),
+        { rootMargin: '15% 0px' },
+      )
+      observer.observe(container)
+      return () => observer.disconnect()
+    }, [])
+
     // Free rotation loop; after a drag the release velocity eases back into it.
     useEffect(() => {
-      if (!interactive) return
+      if (!interactive || !inView) return
       const tick = () => {
         if (!isDragging) {
           dragRef.current.velocity *= 0.95
@@ -76,7 +90,7 @@ const CircularGallery = React.forwardRef<HTMLDivElement, CircularGalleryProps>(
           cancelAnimationFrame(animationFrameRef.current)
         }
       }
-    }, [isDragging, autoRotateSpeed, reduced, interactive])
+    }, [isDragging, autoRotateSpeed, reduced, interactive, inView])
 
     const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
       if (!interactive) return
@@ -185,6 +199,8 @@ const CircularGallery = React.forwardRef<HTMLDivElement, CircularGalleryProps>(
                     src={item.photo.url}
                     alt={item.photo.text}
                     draggable={false}
+                    loading="lazy"
+                    decoding="async"
                     className="absolute inset-0 h-full w-full object-cover"
                     style={{ objectPosition: item.photo.pos || 'center' }}
                   />

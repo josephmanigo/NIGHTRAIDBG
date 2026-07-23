@@ -9,4 +9,16 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        /* Split the heavyweight libraries into parallel, long-cacheable
+         * chunks instead of one monolithic bundle. */
+        manualChunks: {
+          'vendor-three': ['three', '@react-three/fiber', '@react-three/drei'],
+          'vendor-motion': ['gsap', 'lenis'],
+        },
+      },
+    },
+  },
 })
