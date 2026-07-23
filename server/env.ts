@@ -15,7 +15,6 @@ export const env = {
   discordBotToken: () => required('DISCORD_BOT_TOKEN'),
   discordGuildId: () => required('DISCORD_GUILD_ID'),
   discordAdminChannelId: () => optional('DISCORD_ADMIN_CHANNEL_ID'),
-  discordTrialRoleId: () => optional('DISCORD_TRIAL_ROLE_ID'),
   discordGameRoleIds: () => ({
     Bloodstrike: optional('DISCORD_ROLE_BLOODSTRIKE_ID'),
     'Mobile Legends': optional('DISCORD_ROLE_MOBILE_LEGENDS_ID'),

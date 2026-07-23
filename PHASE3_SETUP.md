@@ -1,6 +1,6 @@
 # NightRaid Phase 3 Discord setup
 
-Phase 3 verifies Discord membership when an application is submitted. After administrator approval, it adds the applicant to the NightRaid server, assigns the `Trial Member` role and every selected game role, sends a welcome DM, records the attempt, and exposes a safe retry action in the administrator portal.
+Phase 3 verifies Discord membership when an application is submitted. After administrator approval, it adds the applicant to the NightRaid server, assigns every selected game role, sends a welcome DM, records the attempt, and exposes a safe retry action in the administrator portal.
 
 ## 1. Rotate the Discord credentials
 
@@ -29,17 +29,16 @@ In the Discord Developer Portal:
 3. Select the `bot` scope.
 4. Grant only these bot permissions:
    - **Create Instant Invite** — required by Discord's Add Guild Member endpoint.
-   - **Manage Roles** — required to assign Trial Member and game roles.
+   - **Manage Roles** — required to assign the game roles.
 5. Open the generated URL and install the bot in the NightRaid server.
 
-In **Server Settings > Roles**, move the bot's role above `Trial Member` and every game role it must assign. Discord bots cannot manage roles above their highest role.
+In **Server Settings > Roles**, move the bot's role above every game role it must assign. Discord bots cannot manage roles above their highest role.
 
 ## 4. Create or verify the roles
 
 Use these exact role names when role IDs are not configured:
 
 ```text
-Trial Member
 Bloodstrike
 Mobile Legends
 Honor of Kings
@@ -53,7 +52,6 @@ Valorant
 Explicit role IDs are safer because roles can later be renamed. Enable Developer Mode in Discord, copy each role ID, and add the applicable variables:
 
 ```env
-DISCORD_TRIAL_ROLE_ID=
 DISCORD_ROLE_BLOODSTRIKE_ID=
 DISCORD_ROLE_MOBILE_LEGENDS_ID=
 DISCORD_ROLE_HONOR_OF_KINGS_ID=
@@ -86,7 +84,7 @@ The applicant OAuth request already uses `identify guilds.join`. The bot token a
 4. Confirm `discord_membership_verified` is populated in Supabase.
 5. Sign in to `/admin/applications` with an ID in `ADMIN_DISCORD_IDS`.
 6. Approve the test application.
-7. Confirm the applicant joins the Discord server and receives `Trial Member` plus the selected game roles.
+7. Confirm the applicant joins the Discord server and receives the selected game roles.
 8. Confirm the application becomes `COMPLETED` and an entry appears in `discord_onboarding_logs`.
 9. If onboarding fails, correct the saved error and use **Retry Discord** in the administrator portal.
 

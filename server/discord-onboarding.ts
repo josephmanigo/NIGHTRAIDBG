@@ -57,10 +57,7 @@ async function validAccessToken(discordUserId: string) {
 async function resolveRoles(games: string[]) {
   const guildRoles = await fetchDiscordGuildRoles()
   const configuredGameRoles = env.discordGameRoleIds()
-  const requests = [
-    { name: 'Trial Member', configuredId: env.discordTrialRoleId() },
-    ...games.map((name) => ({ name, configuredId: configuredGameRoles[name as keyof typeof configuredGameRoles] })),
-  ]
+  const requests = games.map((name) => ({ name, configuredId: configuredGameRoles[name as keyof typeof configuredGameRoles] }))
 
   const resolved = requests.map(({ name, configuredId }) => {
     const role = configuredId

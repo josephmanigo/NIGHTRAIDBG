@@ -58,7 +58,7 @@ export function acceptedApplicantDiscordMessage(input: {
     ? messengerNicknames.join('  /  ')
     : `${safeInGameName} + division tag from an administrator`
   const progress = input.onboardingComplete
-    ? 'Your Discord onboarding is complete. Your Trial Member and selected game roles are ready.'
+    ? 'Your Discord onboarding is complete. Your selected game roles are ready.'
     : 'Your entry has been approved. Discord onboarding is now being completed.'
 
   return [
