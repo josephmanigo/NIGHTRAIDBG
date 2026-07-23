@@ -37,6 +37,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
         : 'The member was removed from NightRaid and their game roles were cleared.',
       result.discordCleanup === 'FAILED' ? 'The Discord cleanup failed and may need manual attention.' : null,
       result.memberNotification === 'FAILED' ? 'The Discord DM could not be delivered.' : null,
+      result.rosterRemoval === 'FAILED' ? 'Their Google Sheet roster row could not be deleted.' : null,
     ].filter(Boolean)
     return response.status(200).json({ ...result, message: notes.join(' ') })
   } catch (reason) {

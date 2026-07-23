@@ -7,6 +7,7 @@ import {
   sendDiscordDirectMessage,
 } from './discord.js'
 import { syncExcelRegister } from './excel-sync.js'
+import { removeApplicationFromGoogleSheet } from './google-sheets-sync.js'
 import { getSupabaseAdmin } from './supabase.js'
 
 export const ACTIVE_MEMBER_STATUSES = ['APPROVED', 'DISCORD_JOIN_FAILED', 'COMPLETED']
@@ -27,6 +28,7 @@ export interface MembershipExitResult {
   }
   discordCleanup: 'COMPLETED' | 'FAILED'
   memberNotification: 'COMPLETED' | 'FAILED'
+  rosterRemoval: 'REMOVED' | 'NOT_FOUND' | 'SKIPPED' | 'FAILED'
 }
 
 function safeError(reason: unknown, fallback: string) {
@@ -82,6 +84,10 @@ async function closeMembership(input: {
     console.error('Membership exit Discord cleanup failed:', safeError(reason, 'Discord cleanup failed.'))
   }
 
+  /* The Google Sheet is the live accepted-member roster, so an exit deletes
+   * the row entirely; the Excel register keeps the row as history instead. */
+  const rosterRemoval = (await removeApplicationFromGoogleSheet(application.application_number)).status
+
   await recordAuditEvent({
     actorType: input.actorType,
     actorId: input.actorId,
@@ -89,7 +95,7 @@ async function closeMembership(input: {
     applicationId: application.id,
     targetType: 'clan_application',
     targetId: application.application_number,
-    details: { ...input.details, discordCleanup, memberNotification },
+    details: { ...input.details, discordCleanup, memberNotification, rosterRemoval },
     request: input.request,
   })
 
@@ -99,7 +105,7 @@ async function closeMembership(input: {
     console.error('Membership exit Excel sync failed:', safeError(reason, 'Excel sync failed.'))
   }
 
-  return { application, discordCleanup, memberNotification }
+  return { application, discordCleanup, memberNotification, rosterRemoval }
 }
 
 const CLAIM_COLUMNS = 'id,application_number,discord_user_id,in_game_name,assigned_discord_roles'

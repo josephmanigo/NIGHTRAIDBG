@@ -47,6 +47,12 @@ export type GoogleSheetsSyncResult =
   | { status: 'SKIPPED'; error: string }
   | { status: 'FAILED'; error: string }
 
+export type GoogleSheetsRemovalResult =
+  | { status: 'REMOVED'; spreadsheetId: string; row: number }
+  | { status: 'NOT_FOUND' }
+  | { status: 'SKIPPED'; error: string }
+  | { status: 'FAILED'; error: string }
+
 type GoogleValuesResponse = {
   values?: unknown[][]
 }
@@ -254,6 +260,57 @@ function displayAgeGroup(value: string) {
 
 function yesNo(value: boolean) {
   return value ? 'Yes' : 'No'
+}
+
+/* The register tab is looked up by title instead of assuming sheetId 0 so a
+ * reordered spreadsheet cannot make the row deletion hit the wrong tab. */
+async function sheetIdForTab(configValue: GoogleSheetsConfig, token: string) {
+  const metadata = await googleRequest<{ sheets?: { properties?: { sheetId?: number; title?: string } }[] }>(
+    configValue,
+    token,
+    '?fields=sheets.properties(sheetId,title)',
+  )
+  const sheet = metadata.sheets?.find((candidate) => candidate.properties?.title === configValue.tabName)
+  const sheetId = sheet?.properties?.sheetId
+  if (typeof sheetId !== 'number') throw new Error(`The Google Sheet tab "${configValue.tabName}" was not found.`)
+  return sheetId
+}
+
+export async function removeApplicationFromGoogleSheet(applicationNumber: string): Promise<GoogleSheetsRemovalResult> {
+  const configValue = config()
+  if (!configValue) {
+    return {
+      status: 'SKIPPED',
+      error: 'GOOGLE_SERVICE_ACCOUNT_EMAIL and GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY are not configured.',
+    }
+  }
+
+  try {
+    const token = await accessToken(configValue)
+    const applicationNumbers = await readValues(configValue, token, 'A1:A1000')
+    const existingIndex = (applicationNumbers.values ?? [])
+      .findIndex((row, index) => index > 0 && String(row[0] ?? '') === applicationNumber)
+    if (existingIndex < 1) return { status: 'NOT_FOUND' }
+
+    const sheetId = await sheetIdForTab(configValue, token)
+    await googleRequest<unknown>(configValue, token, ':batchUpdate', {
+      method: 'POST',
+      body: JSON.stringify({
+        requests: [
+          {
+            deleteDimension: {
+              range: { sheetId, dimension: 'ROWS', startIndex: existingIndex, endIndex: existingIndex + 1 },
+            },
+          },
+        ],
+      }),
+    })
+    return { status: 'REMOVED', spreadsheetId: configValue.spreadsheetId, row: existingIndex + 1 }
+  } catch (reason) {
+    const error = safeError(reason)
+    console.error('Google Sheets roster removal failed:', error)
+    return { status: 'FAILED', error }
+  }
 }
 
 export async function syncApprovedApplicationToGoogleSheet(
