@@ -428,6 +428,12 @@ export default function Application() {
           kicker="One form. One honest shot. Tell us how you play, what you stand for, and why NightRaid should be your next squad."
         />
 
+        <div data-reveal className="-mt-4 mb-10 flex justify-center sm:-mt-6 sm:mb-12">
+          <a href="/application/status" className="ln-pill">
+            Check your application <ArrowRight className="h-4 w-4" />
+          </a>
+        </div>
+
         <div data-reveal className="overflow-hidden rounded-[2rem] border border-bone/15 bg-[#080808]/90">
           <div className="h-1 bg-bone/10">
             <div
