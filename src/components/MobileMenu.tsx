@@ -87,7 +87,7 @@ export default function MobileMenu({ open, onClose, activeSection }: MobileMenuP
         })}
       </nav>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-haze px-6 py-5 sm:px-12">
+      <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-5 sm:px-12">
         <span className="ln-label text-bone/50">Raid the night. Rule the game.</span>
         <div className="flex gap-5">
           {SOCIAL_LINKS.map((s) => (

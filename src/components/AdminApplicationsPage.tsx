@@ -555,6 +555,7 @@ export default function AdminApplicationsPage() {
       title="Application"
       accent="command"
       kicker="Review complete applications and record the final NightRaid administrator decision."
+      showHeaderDivider={false}
     >
       {loading ? (
         <div className="rounded-[2rem] border border-bone/10 bg-black/30 p-10 text-center text-sm text-bone/45">Verifying administrator access...</div>
@@ -590,10 +591,10 @@ export default function AdminApplicationsPage() {
             </div>
           )}
 
-          <section className="mb-5 rounded-[2rem] border border-red-400/20 bg-red-400/[0.035] p-5 sm:p-7">
+          <section className="mb-5 rounded-[2rem] border border-white/10 bg-white/[0.035] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.28)] backdrop-blur-2xl sm:p-7">
             <details>
               <summary className="flex cursor-pointer list-none items-center justify-between gap-4">
-                <span className="flex items-center gap-2 ln-label text-[0.55rem] text-red-300"><ShieldAlert className="h-4 w-4" /> Security and audit</span>
+                <span className="flex items-center gap-2 ln-label text-[0.55rem] text-bone/45"><ShieldAlert className="h-4 w-4" /> Security and audit</span>
                 <span className="text-xs text-bone/35">
                   {securityData ? `${securityData.bans.filter((ban) => ban.is_active).length} active bans · ${securityData.auditLogs.length} recent events` : 'Phase 7 database setup required'}
                 </span>
@@ -612,7 +613,7 @@ export default function AdminApplicationsPage() {
                   </div>
                   <div className="mt-4 max-h-64 space-y-2 overflow-y-auto pr-1">
                     {securityData?.bans.filter((ban) => ban.is_active).map((ban) => (
-                      <div key={ban.id} className="rounded-xl border border-red-300/15 bg-black/25 p-4">
+                      <div key={ban.id} className="rounded-xl border border-white/10 bg-white/[0.025] p-4 backdrop-blur-xl">
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
                             <p className="truncate text-sm font-bold text-bone">{ban.in_game_name || ban.discord_user_id || 'Facebook applicant'}</p>
@@ -624,7 +625,7 @@ export default function AdminApplicationsPage() {
                       </div>
                     ))}
                     {securityData && securityData.bans.every((ban) => !ban.is_active) && <p className="rounded-xl border border-bone/10 p-4 text-xs text-bone/35">No active applicant bans.</p>}
-                    {!securityData && <p className="rounded-xl border border-amber-300/20 bg-amber-300/5 p-4 text-xs text-amber-100/70">Run database/phase7.sql in Supabase, then refresh this page.</p>}
+                    {!securityData && <p className="rounded-xl border border-white/10 bg-black/20 p-4 text-xs text-bone/55">Run database/phase7.sql in Supabase, then refresh this page.</p>}
                   </div>
                 </div>
 
@@ -632,7 +633,7 @@ export default function AdminApplicationsPage() {
                   <p className="flex items-center gap-2 ln-label text-[0.5rem] text-bone/45"><History className="h-3.5 w-3.5" /> Recent audit history</p>
                   <div className="mt-4 max-h-64 space-y-2 overflow-y-auto pr-1">
                     {securityData?.auditLogs.slice(0, 30).map((entry) => (
-                      <div key={entry.id} className="flex items-start justify-between gap-4 rounded-xl border border-bone/10 bg-black/25 p-3">
+                      <div key={entry.id} className="flex items-start justify-between gap-4 rounded-xl border border-white/10 bg-white/[0.025] p-3 backdrop-blur-xl">
                         <div className="min-w-0">
                           <p className="truncate text-xs font-bold uppercase tracking-[0.06em] text-bone/65">{readable(entry.action)}</p>
                           <p className="mt-1 truncate text-[0.6rem] text-bone/30">{entry.actor_type}{entry.actor_id ? ` · ${entry.actor_id}` : ''}</p>
@@ -650,10 +651,10 @@ export default function AdminApplicationsPage() {
             </details>
           </section>
 
-          <section className="mb-5 rounded-[2rem] border border-emerald-400/20 bg-emerald-400/[0.045] p-5 sm:p-7">
+          <section className="mb-5 rounded-[2rem] border border-white/10 bg-white/[0.035] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.28)] backdrop-blur-2xl sm:p-7">
             <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
               <div>
-                <p className="flex items-center gap-2 ln-label text-[0.55rem] text-emerald-300"><FileSpreadsheet className="h-4 w-4" /> Excel applicant register</p>
+                <p className="flex items-center gap-2 ln-label text-[0.55rem] text-bone/45"><FileSpreadsheet className="h-4 w-4" /> Excel applicant register</p>
                 <p className="mt-3 text-sm leading-relaxed text-bone/50">
                   {excelStatus?.latestSync
                     ? `Last master sync: ${new Date(excelStatus.latestSync.created_at).toLocaleString()} · ${excelStatus.latestSync.record_count} records`
@@ -753,7 +754,7 @@ export default function AdminApplicationsPage() {
                 {filteredApplications.map((application) => {
                   const active = application.id === selectedId
                   return (
-                    <div key={application.id} className={`flex overflow-hidden rounded-2xl border transition-colors ${active ? 'border-blood bg-blood text-bone' : 'border-bone/10 bg-black/30 text-bone hover:border-bone/30'}`}>
+                    <div key={application.id} className={`flex overflow-hidden rounded-2xl border text-bone shadow-[0_18px_50px_rgba(0,0,0,0.2)] backdrop-blur-xl transition-all ${active ? 'border-white/25 bg-white/[0.1]' : 'border-white/10 bg-white/[0.035] hover:border-white/20 hover:bg-white/[0.055]'}`}>
                       <label className="flex w-11 shrink-0 cursor-pointer items-start justify-center border-r border-current/10 pt-4" title="Select for Excel export">
                         <input
                           type="checkbox"
@@ -775,10 +776,10 @@ export default function AdminApplicationsPage() {
               </div>
 
               {selected && (
-                <article className="overflow-hidden rounded-[2rem] border border-bone/15 bg-[#080808]/90">
+                <article className="overflow-hidden rounded-[2rem] border border-white/10 bg-white/[0.03] shadow-[0_30px_100px_rgba(0,0,0,0.34)] backdrop-blur-2xl">
                   <header className="flex flex-col gap-5 border-b border-bone/10 p-6 sm:flex-row sm:items-start sm:justify-between sm:p-8">
                     <div>
-                      <p className="ln-label text-blood">{selected.application_number}</p>
+                      <p className="ln-label text-bone/40">{selected.application_number}</p>
                       <h2 className="mt-2 font-display text-4xl uppercase text-bone">{selected.in_game_name}</h2>
                       <p className="mt-2 text-sm text-bone/40">Discord: {selected.discord_username}</p>
                     </div>
@@ -795,26 +796,26 @@ export default function AdminApplicationsPage() {
                       <Detail label="Discord answer">{selected.already_joined_discord ? 'Already joined' : 'Not joined'}</Detail>
                       <Detail label="Discord verified">{selected.discord_membership_verified === null ? 'Verification unavailable' : selected.discord_membership_verified ? 'Member found' : 'Not a member yet'}</Detail>
                       <Detail label="Discovery source">{selected.discovery_source === 'Others' ? selected.discovery_source_other || 'Other' : selected.discovery_source}</Detail>
-                      <Detail label="Facebook"><a className="text-blood underline-offset-4 hover:underline" href={selected.facebook_profile_url} target="_blank" rel="noreferrer">Open profile</a></Detail>
+                      <Detail label="Facebook"><a className="text-bone/70 underline-offset-4 hover:text-bone hover:underline" href={selected.facebook_profile_url} target="_blank" rel="noreferrer">Open profile</a></Detail>
                     </dl>
 
                     <div className="mt-6 space-y-4">
-                      <div className="rounded-2xl border border-bone/10 bg-bone/[0.025] p-5">
+                      <div className="rounded-2xl border border-white/10 bg-white/[0.025] p-5 backdrop-blur-xl">
                         <p className="ln-label text-[0.52rem] text-bone/35">Reason for leaving</p>
                         <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-bone/65">{selected.previous_clan_leaving_reason}</p>
                       </div>
-                      <div className="rounded-2xl border border-blood/20 bg-blood/5 p-5">
-                        <p className="ln-label text-[0.52rem] text-blood">Reason for joining</p>
+                      <div className="rounded-2xl border border-white/10 bg-white/[0.025] p-5 backdrop-blur-xl">
+                        <p className="ln-label text-[0.52rem] text-bone/40">Reason for joining</p>
                         <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-bone/70">{selected.reason_for_joining}</p>
                       </div>
                     </div>
 
-                    {selected.decision_reason && <p className="mt-5 rounded-2xl border border-red-400/20 bg-red-400/5 p-4 text-sm text-red-200">Decision: {selected.decision_reason}</p>}
+                    {selected.decision_reason && <p className="mt-5 rounded-2xl border border-white/10 bg-white/[0.025] p-4 text-sm text-bone/65 backdrop-blur-xl">Decision: {selected.decision_reason}</p>}
 
-                    <div className="mt-6 rounded-2xl border border-blood/25 bg-blood/5 p-5 sm:p-6">
+                    <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.035] p-5 shadow-[0_20px_60px_rgba(0,0,0,0.24)] backdrop-blur-2xl sm:p-6">
                       <div className="flex flex-wrap items-start justify-between gap-4">
                         <div>
-                          <p className="flex items-center gap-2 ln-label text-[0.52rem] text-blood"><Sparkles className="h-3.5 w-3.5" /> AI recommendation</p>
+                          <p className="flex items-center gap-2 ln-label text-[0.52rem] text-bone/40"><Sparkles className="h-3.5 w-3.5" /> AI recommendation</p>
                           <p className="mt-2 text-xs leading-relaxed text-bone/40">Advisory only. A NightRaid administrator makes the final decision.</p>
                         </div>
                         <span className="rounded-full border border-bone/15 px-3 py-1.5 text-[0.55rem] font-bold uppercase tracking-[0.1em] text-bone/55">{readable(selected.ai_evaluation_status)}</span>
@@ -855,14 +856,14 @@ export default function AdminApplicationsPage() {
 
                           <p className="mt-5 text-sm leading-relaxed text-bone/65">{selected.ai_evaluation.summary}</p>
                           <div className="mt-5 grid gap-4 md:grid-cols-2">
-                            <div className="rounded-xl border border-emerald-400/15 bg-emerald-400/5 p-4">
-                              <p className="ln-label text-[0.48rem] text-emerald-300">Strengths</p>
+                            <div className="rounded-xl border border-white/10 bg-white/[0.025] p-4 backdrop-blur-xl">
+                              <p className="ln-label text-[0.48rem] text-bone/40">Strengths</p>
                               {selected.ai_evaluation.strengths.length > 0 ? (
                                 <ul className="mt-3 space-y-2 text-xs leading-relaxed text-bone/60">{selected.ai_evaluation.strengths.map((strength) => <li key={strength}>+ {strength}</li>)}</ul>
                               ) : <p className="mt-3 text-xs text-bone/35">No clear strengths identified.</p>}
                             </div>
-                            <div className="rounded-xl border border-amber-300/15 bg-amber-300/5 p-4">
-                              <p className="ln-label text-[0.48rem] text-amber-200">Concerns</p>
+                            <div className="rounded-xl border border-white/10 bg-white/[0.025] p-4 backdrop-blur-xl">
+                              <p className="ln-label text-[0.48rem] text-bone/40">Concerns</p>
                               {selected.ai_evaluation.concerns.length > 0 ? (
                                 <ul className="mt-3 space-y-2 text-xs leading-relaxed text-bone/60">{selected.ai_evaluation.concerns.map((concern) => <li key={concern}>- {concern}</li>)}</ul>
                               ) : <p className="mt-3 text-xs text-bone/35">No specific concerns identified.</p>}
@@ -871,8 +872,8 @@ export default function AdminApplicationsPage() {
                           <p className="mt-4 text-[0.62rem] text-bone/25">{selected.ai_evaluation.model} · {selected.ai_evaluation.prompt_version} · {new Date(selected.ai_evaluation.created_at).toLocaleString()}</p>
                         </div>
                       ) : selected.ai_evaluation_status === 'FAILED' ? (
-                        <div className="mt-5 rounded-xl border border-amber-300/20 bg-amber-300/5 p-4">
-                          <p className="text-sm text-amber-100/75">The automated review failed safely. The application is still ready for human review.</p>
+                        <div className="mt-5 rounded-xl border border-white/10 bg-black/20 p-4">
+                          <p className="text-sm text-bone/65">The automated review failed safely. The application is still ready for human review.</p>
                           {selected.ai_evaluation_error && <p className="mt-2 break-words text-xs text-bone/35">{selected.ai_evaluation_error}</p>}
                         </div>
                       ) : (
@@ -886,8 +887,8 @@ export default function AdminApplicationsPage() {
                       )}
                     </div>
 
-                    <div className="mt-6 rounded-2xl border border-[#5865F2]/25 bg-[#5865F2]/5 p-5">
-                      <p className="ln-label text-[0.52rem] text-[#9da5ff]">Discord onboarding</p>
+                    <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.035] p-5 shadow-[0_20px_60px_rgba(0,0,0,0.24)] backdrop-blur-2xl">
+                      <p className="ln-label text-[0.52rem] text-bone/40">Discord onboarding</p>
                       <p className="mt-3 text-sm font-bold uppercase tracking-[0.08em] text-bone">{readable(selected.discord_onboarding_status)}</p>
                       {selected.assigned_discord_roles.length > 0 && (
                         <p className="mt-2 text-sm text-bone/55">Roles: {selected.assigned_discord_roles.join(', ')}</p>
@@ -896,25 +897,25 @@ export default function AdminApplicationsPage() {
                         <p className="mt-2 text-xs text-bone/35">Completed {new Date(selected.discord_onboarded_at).toLocaleString()}</p>
                       )}
                       {selected.discord_onboarding_error && (
-                        <p className="mt-3 rounded-xl border border-amber-300/20 bg-amber-300/5 p-3 text-xs leading-relaxed text-amber-100/75">{selected.discord_onboarding_error}</p>
+                        <p className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3 text-xs leading-relaxed text-bone/55">{selected.discord_onboarding_error}</p>
                       )}
                     </div>
 
-                    <div className="mt-6 rounded-2xl border border-sky-400/20 bg-sky-400/5 p-5">
+                    <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.035] p-5 shadow-[0_20px_60px_rgba(0,0,0,0.24)] backdrop-blur-2xl">
                       <div className="flex flex-wrap items-start justify-between gap-4">
                         <div>
-                          <p className="flex items-center gap-2 ln-label text-[0.52rem] text-sky-300"><MessageCircle className="h-3.5 w-3.5" /> Messenger notification</p>
+                          <p className="flex items-center gap-2 ln-label text-[0.52rem] text-bone/40"><MessageCircle className="h-3.5 w-3.5" /> Messenger notification</p>
                           <p className="mt-3 text-sm font-bold uppercase tracking-[0.08em] text-bone">{readable(selected.messenger_notification_status)}</p>
                         </div>
                         {selected.messenger_message_ids.length > 0 && (
-                          <span className="rounded-full border border-sky-300/20 px-3 py-1.5 text-[0.55rem] font-bold uppercase tracking-[0.1em] text-sky-100/60">{selected.messenger_message_ids.length} messages</span>
+                          <span className="rounded-full border border-white/10 px-3 py-1.5 text-[0.55rem] font-bold uppercase tracking-[0.1em] text-bone/45">{selected.messenger_message_ids.length} messages</span>
                         )}
                       </div>
                       {selected.messenger_notified_at && (
                         <p className="mt-2 text-xs text-bone/35">Delivered {new Date(selected.messenger_notified_at).toLocaleString()}</p>
                       )}
                       {selected.messenger_notification_error && (
-                        <p className="mt-3 break-words rounded-xl border border-amber-300/20 bg-amber-300/5 p-3 text-xs leading-relaxed text-amber-100/75">{selected.messenger_notification_error}</p>
+                        <p className="mt-3 break-words rounded-xl border border-white/10 bg-black/20 p-3 text-xs leading-relaxed text-bone/55">{selected.messenger_notification_error}</p>
                       )}
                       {selected.status === 'PENDING_REVIEW' && ['NOT_STARTED', 'FAILED'].includes(selected.messenger_notification_status) && (
                         <button type="button" disabled={acting} onClick={() => void retryMessenger()} className="mt-4 inline-flex h-10 items-center gap-2 rounded-full border border-sky-300/30 px-5 text-[0.6rem] font-extrabold uppercase tracking-[0.12em] text-sky-200 transition-colors hover:bg-sky-300 hover:text-black disabled:opacity-50">
@@ -923,10 +924,10 @@ export default function AdminApplicationsPage() {
                       )}
                     </div>
 
-                    <div className="mt-6 rounded-2xl border border-emerald-400/20 bg-emerald-400/5 p-5">
+                    <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.035] p-5 shadow-[0_20px_60px_rgba(0,0,0,0.24)] backdrop-blur-2xl">
                       <div className="flex flex-wrap items-start justify-between gap-4">
                         <div>
-                          <p className="flex items-center gap-2 ln-label text-[0.52rem] text-emerald-300"><FileSpreadsheet className="h-3.5 w-3.5" /> Excel synchronization</p>
+                          <p className="flex items-center gap-2 ln-label text-[0.52rem] text-bone/40"><FileSpreadsheet className="h-3.5 w-3.5" /> Excel synchronization</p>
                           <p className="mt-3 text-sm font-bold uppercase tracking-[0.08em] text-bone">{readable(selected.excel_sync_status)}</p>
                         </div>
                         {selected.excel_synced_at && (
@@ -934,7 +935,7 @@ export default function AdminApplicationsPage() {
                         )}
                       </div>
                       {selected.excel_sync_error && (
-                        <p className="mt-3 break-words rounded-xl border border-amber-300/20 bg-amber-300/5 p-3 text-xs leading-relaxed text-amber-100/75">{selected.excel_sync_error}</p>
+                        <p className="mt-3 break-words rounded-xl border border-white/10 bg-black/20 p-3 text-xs leading-relaxed text-bone/55">{selected.excel_sync_error}</p>
                       )}
                       {['NOT_STARTED', 'FAILED'].includes(selected.excel_sync_status) && (
                         <button type="button" disabled={excelBusy} onClick={() => void syncExcel([selected.id])} className="mt-4 inline-flex h-10 items-center gap-2 rounded-full border border-emerald-300/30 px-5 text-[0.6rem] font-extrabold uppercase tracking-[0.12em] text-emerald-200 transition-colors hover:bg-emerald-300 hover:text-black disabled:opacity-50">
