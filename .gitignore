@@ -4,6 +4,7 @@ node_modules/
 # Build output
 dist/
 dist-ssr/
+.vercel/
 *.tsbuildinfo
 
 # Local env files
@@ -12,6 +13,7 @@ dist-ssr/
 .env.*.local
 
 # Editor/OS
+.claude/
 .vscode/*
 !.vscode/extensions.json
 .idea

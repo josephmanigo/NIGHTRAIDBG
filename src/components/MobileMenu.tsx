@@ -1,8 +1,8 @@
-import { useEffect, useRef } from 'react'
+import { useRef } from 'react'
 import { NAV_ITEMS, SOCIAL_LINKS } from '../data/site'
 import { scrollToId } from '../lib/scroll'
 import { useFocusTrap } from '../hooks/useFocusTrap'
-import { motion } from 'motion/react'
+import { AnimatePresence, motion } from 'motion/react'
 import TextRoll from './ui/TextRoll'
 
 interface MobileMenuProps {
@@ -17,20 +17,6 @@ export default function MobileMenu({ open, onClose, activeSection }: MobileMenuP
   const panelRef = useRef<HTMLDivElement>(null)
   useFocusTrap(panelRef, open, onClose)
 
-  // Stagger links in on open (CSS-driven via the `is-open` class)
-  useEffect(() => {
-    if (!open) return
-    const panel = panelRef.current
-    if (!panel) return
-    const id = requestAnimationFrame(() => panel.classList.add('is-open'))
-    return () => {
-      cancelAnimationFrame(id)
-      panel.classList.remove('is-open')
-    }
-  }, [open])
-
-  if (!open) return null
-
   const go = (id: string) => (e: React.MouseEvent) => {
     e.preventDefault()
     onClose()
@@ -39,17 +25,23 @@ export default function MobileMenu({ open, onClose, activeSection }: MobileMenuP
   }
 
   return (
-    <div
-      ref={panelRef}
-      role="dialog"
-      aria-modal="true"
-      aria-label="Site navigation"
-      className="nr-mobile-menu nr-site-surface fixed inset-0 z-80 flex flex-col"
-    >
-      <div className="flex items-center justify-between px-5 py-5 sm:px-8">
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          ref={panelRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Site navigation"
+          className="nr-mobile-menu nr-site-surface fixed inset-0 z-80 flex flex-col"
+          initial={{ opacity: 0, clipPath: 'inset(0 0 100% 0)' }}
+          animate={{ opacity: 1, clipPath: 'inset(0 0 0% 0)' }}
+          exit={{ opacity: 0, clipPath: 'inset(0 0 100% 0)' }}
+          transition={{ duration: 0.65, ease: [0.65, 0.05, 0, 1] }}
+        >
+      <div className="flex items-start justify-between px-4 py-5 sm:px-6 lg:px-8">
         <span aria-hidden="true">
-          <span className="block font-serif text-2xl uppercase leading-[0.85] text-bone">Night</span>
-          <span className="block font-display text-[1.35rem] uppercase leading-[0.95] tracking-[0.1em] text-bone">
+          <span className="block font-serif text-[1.55rem] uppercase leading-[0.85] tracking-[0.04em] text-bone sm:text-3xl">Night</span>
+          <span className="block font-display text-[1.45rem] uppercase leading-[0.95] tracking-[0.1em] text-bone sm:text-[1.7rem]">
             Raid
           </span>
         </span>
@@ -75,9 +67,11 @@ export default function MobileMenu({ open, onClose, activeSection }: MobileMenuP
               href={`#${item.id}`}
               onClick={go(item.id)}
               aria-current={active ? 'true' : undefined}
-              className="nr-mobile-link group flex items-center justify-center py-2 overflow-hidden w-full text-center"
-              style={{ transitionDelay: `${80 + i * 55}ms` }}
-              initial="initial"
+              className="group flex w-full items-center justify-center overflow-hidden py-2 text-center"
+              initial={{ opacity: 0, y: 24 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.45, delay: 0.16 + i * 0.045, ease: [0.65, 0.05, 0, 1] }}
               whileHover="hovered"
             >
               <TextRoll
@@ -111,6 +105,8 @@ export default function MobileMenu({ open, onClose, activeSection }: MobileMenuP
           ))}
         </div>
       </div>
-    </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   )
 }

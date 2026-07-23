@@ -18,6 +18,7 @@ export const NAV_ITEMS: NavItem[] = [
   { id: 'events', label: 'Events & Tournaments', index: '05' },
   { id: 'achievements', label: 'Achievements', index: '06' },
   { id: 'merch', label: 'Merch', index: '07' },
+  { id: 'apply', label: 'Join NightRaid', index: '08' },
 ]
 
 export const SOCIAL_LINKS = [
@@ -31,7 +32,7 @@ export const ORG = {
   tagline: 'Raid the Night. Rule the Game.',
   founded: '2024', // Night of Fury (May 2025) marked the one-year anniversary
   base: 'Philippines · SEA',
-  games: ['Blood Strike', 'Mobile Legends: Bang Bang', 'Farlight 84', 'Honor of Kings'],
+  games: ['Blood Strike', 'Mobile Legends: Bang Bang', 'Farlight 84'],
 } as const
 
 /** Animated counters in About. Derived from the official members list and
@@ -40,5 +41,5 @@ export const STATS = [
   { value: 90, suffix: '+', label: 'Active Members' },
   { value: 42, suffix: '', label: 'Recorded Achievements' },
   { value: 17, suffix: '', label: 'Championship Titles' },
-  { value: 4, suffix: '', label: 'Game Divisions' },
+  { value: 3, suffix: '', label: 'Game Divisions' },
 ] as const

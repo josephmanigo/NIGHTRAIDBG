@@ -1,0 +1,113 @@
+import type { VercelRequest } from '@vercel/node'
+import { recordAuditEvent } from './audit.js'
+import { acceptedApplicantDiscordMessage, sendDiscordDirectMessage } from './discord.js'
+import { onboardApprovedApplication } from './discord-onboarding.js'
+import { syncExcelRegister } from './excel-sync.js'
+import { getSupabaseAdmin } from './supabase.js'
+
+export type DecisionSource = 'WEB' | 'MESSENGER'
+
+export class DecisionConflictError extends Error {
+  constructor() {
+    super('This application is no longer pending.')
+  }
+}
+
+type ApplicantNotificationResult =
+  | { applicantNotification: 'COMPLETED'; notificationError?: never }
+  | { applicantNotification: 'FAILED'; notificationError: string }
+
+async function notifyApplicant(discordUserId: string, message: string): Promise<ApplicantNotificationResult> {
+  try {
+    await sendDiscordDirectMessage(discordUserId, message)
+    return { applicantNotification: 'COMPLETED' }
+  } catch (reason) {
+    const notificationError = reason instanceof Error ? reason.message.slice(0, 300) : 'Discord notification failed.'
+    console.error('Applicant Discord decision notification failed:', notificationError)
+    return { applicantNotification: 'FAILED', notificationError }
+  }
+}
+
+async function decide(input: {
+  applicationId: string
+  decision: 'APPROVED' | 'REJECTED'
+  reason: string | null
+  source: DecisionSource
+  decidedBy: string
+  request?: VercelRequest
+}) {
+  const { data, error } = await getSupabaseAdmin()
+    .rpc('decide_clan_application', {
+      p_application_id: input.applicationId,
+      p_decision: input.decision,
+      p_reason: input.reason,
+      p_source: input.source,
+      p_decided_by: input.decidedBy,
+    })
+    .single()
+
+  if (error) {
+    if (error.code === 'P0001' || error.message.includes('APPLICATION_NOT_PENDING')) throw new DecisionConflictError()
+    throw new Error(`The application decision could not be saved: ${error.message}`)
+  }
+  await recordAuditEvent({
+    actorType: input.source === 'WEB' ? 'ADMIN' : 'MESSENGER_ADMIN',
+    actorId: input.decidedBy,
+    action: input.decision === 'APPROVED' ? 'APPLICATION_APPROVED' : 'APPLICATION_REJECTED',
+    applicationId: data.id,
+    targetType: 'clan_application',
+    targetId: data.application_number,
+    details: { source: input.source },
+    request: input.request,
+  })
+  return data
+}
+
+export async function approveApplication(input: {
+  applicationId: string
+  source: DecisionSource
+  decidedBy: string
+  request?: VercelRequest
+}) {
+  const application = await decide({
+    ...input,
+    decision: 'APPROVED',
+    reason: null,
+  })
+  const notification = await notifyApplicant(
+    application.discord_user_id,
+    acceptedApplicantDiscordMessage({
+      applicationNumber: application.application_number,
+      inGameName: application.in_game_name,
+      games: application.games,
+      onboardingComplete: false,
+    }),
+  )
+  const onboarding = await onboardApprovedApplication(application.id)
+  const excelSync = await syncExcelRegister([application.id], input.decidedBy)
+  if (notification.applicantNotification === 'FAILED' && onboarding.welcomeNotification === 'COMPLETED') {
+    return { application, onboarding, excelSync, applicantNotification: 'COMPLETED' as const }
+  }
+  return { application, onboarding, excelSync, ...notification }
+}
+
+export async function rejectApplication(input: {
+  applicationId: string
+  reason: string
+  source: DecisionSource
+  decidedBy: string
+  request?: VercelRequest
+}) {
+  const application = await decide({
+    ...input,
+    decision: 'REJECTED',
+    reason: input.reason,
+  })
+
+  const notification = await notifyApplicant(
+    application.discord_user_id,
+    `Thank you for applying to NightRaid. Your application ${application.application_number} was not accepted at this time. Reason: ${input.reason}. You can review the recorded decision in the NightRaid application status portal.`,
+  )
+  const excelSync = await syncExcelRegister([application.id], input.decidedBy)
+  return { application, excelSync, ...notification }
+}

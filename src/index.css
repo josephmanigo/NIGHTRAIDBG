@@ -19,7 +19,11 @@
 @layer base {
   html {
     scroll-behavior: smooth;
+    scrollbar-width: none;
     -webkit-text-size-adjust: 100%;
+  }
+  html::-webkit-scrollbar {
+    display: none;
   }
   html.lenis,
   html.lenis body {
@@ -305,19 +309,6 @@
   .nr-signature-word {
     font-size: clamp(3rem, 17vw, 5.4rem);
   }
-}
-
-/* Mobile menu: staggered link entrance driven by the .is-open class */
-.nr-mobile-menu .nr-mobile-link {
-  opacity: 0;
-  transform: translateY(22px);
-  transition:
-    opacity 0.5s var(--ln-ease),
-    transform 0.5s var(--ln-ease);
-}
-.nr-mobile-menu.is-open .nr-mobile-link {
-  opacity: 1;
-  transform: translateY(0);
 }
 
 /* Reduced motion: kill loops, un-pin the hero, show poster state */

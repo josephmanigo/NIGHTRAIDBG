@@ -107,7 +107,7 @@ export const EVENTS: RaidEvent[] = [
     date: '2025-09-01',
     dateLabel: 'SEASON 2025',
     venue: 'Online · all divisions',
-    games: ['Blood Strike', 'Mobile Legends', 'Farlight 84', 'Honor of Kings'],
+    games: ['Blood Strike', 'Mobile Legends', 'Farlight 84'],
     prize: '₱5,000 cash + Redragon keyboard & mouse combo + NIGHTRAID tee w/ lanyard',
     scope: 'Be active. Earn points. Stay ahead. Win big.',
     details: [
