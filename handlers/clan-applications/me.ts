@@ -1,3 +1,4 @@
+// Routed through the consolidated Vercel API function.
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { methodNotAllowed, noStore } from '../../server/http.js'
 import { getSession } from '../../server/session.js'

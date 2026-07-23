@@ -1,3 +1,4 @@
+// Routed through the consolidated Vercel API function.
 import { randomInt } from 'node:crypto'
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { evaluateApplication } from '../../server/ai-evaluation.js'

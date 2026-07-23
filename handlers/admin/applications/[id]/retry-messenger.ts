@@ -1,3 +1,4 @@
+// Routed through the consolidated Vercel API function.
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { allowAdminMutation, getAdminSession } from '../../../../server/admin-request.js'
 import { recordAuditEvent } from '../../../../server/audit.js'

@@ -1,3 +1,4 @@
+// Routed through the consolidated Vercel API function.
 import { createHash } from 'node:crypto'
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { approveApplication, DecisionConflictError, rejectApplication } from '../../server/application-decisions.js'

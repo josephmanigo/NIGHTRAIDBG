@@ -1,3 +1,4 @@
+// Routed through the consolidated Vercel API function.
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { getAdminSession } from '../../../server/admin-request.js'
 import { EXCEL_BUCKET, MASTER_WORKBOOK_PATH } from '../../../server/excel-sync.js'

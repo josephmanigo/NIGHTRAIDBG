@@ -1,3 +1,4 @@
+// Routed through the consolidated Vercel API function.
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { hasTrustedOrigin, methodNotAllowed } from '../../server/http.js'
 import { clearSessionCookie } from '../../server/session.js'

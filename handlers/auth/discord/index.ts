@@ -1,3 +1,4 @@
+// Routed through the consolidated Vercel API function.
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { discordAuthorizeUrl } from '../../../server/discord.js'
 import { methodNotAllowed, safeReturnTo, singleQueryValue } from '../../../server/http.js'

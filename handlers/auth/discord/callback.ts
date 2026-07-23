@@ -1,3 +1,4 @@
+// Routed through the consolidated Vercel API function.
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { discordAvatarUrl, discordDisplayName, exchangeDiscordCode, fetchDiscordUser } from '../../../server/discord.js'
 import { encryptSecret } from '../../../server/encryption.js'

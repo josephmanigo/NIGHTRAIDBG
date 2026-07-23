@@ -1,3 +1,4 @@
+// Routed through the consolidated Vercel API function.
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { isAdminDiscordId } from '../../server/admin.js'
 import { methodNotAllowed, noStore } from '../../server/http.js'
