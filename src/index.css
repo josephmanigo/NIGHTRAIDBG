@@ -302,6 +302,26 @@
   transform-origin: left center;
 }
 
+/* Page transitions: fade in on load, fade out before internal navigation
+ * (class toggled by src/lib/page-transition.ts). Opacity only, so fixed and
+ * sticky elements keep their positioning. */
+@media (prefers-reduced-motion: no-preference) {
+  body {
+    animation: nr-page-enter 0.45s ease both;
+  }
+  html.nr-page-leaving body {
+    animation: nr-page-leave 0.24s ease forwards;
+  }
+}
+@keyframes nr-page-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes nr-page-leave {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
 @media (max-width: 639px) {
   .nr-signature {
     width: min(25rem, 94vw);
