@@ -4,19 +4,18 @@
  * Watches the nickname channel and renames anyone who chats there to the
  * clan format (`NIGHT • <name>`), then reacts to the message:
  *   ✅  the nickname was changed (or already matches)
- *   ⚠️  the bot cannot rename this member (server owner, or a role above the
- *       bot), or the sender may not rename other people
+ *   ⚠️  the bot cannot rename this member (server owner, or a role above the bot)
  *
  * Mentioning someone renames them instead of the sender (`NIGHT - ego @yepo`
- * sets @yepo to `NIGHT • ego`); that requires the sender to hold the
- * Manage Nicknames permission.
+ * sets @yepo to `NIGHT • ego`). Anyone may rename themselves or a mentioned
+ * member.
  *
  * Discord only delivers channel messages over a persistent gateway
  * connection, so this runs as its own long-lived process — it cannot live
  * inside the Vercel serverless functions. See PHASE8_SETUP.md.
  */
 import { createServer } from 'node:http'
-import { Client, Events, GatewayIntentBits, PermissionFlagsBits } from 'discord.js'
+import { Client, Events, GatewayIntentBits } from 'discord.js'
 
 const required = (name) => {
   const value = process.env[name]?.trim()
@@ -97,13 +96,6 @@ client.on(Events.MessageCreate, async (message) => {
     const targets = mentioned.size > 0
       ? await Promise.all(mentioned.map((user) => message.guild.members.fetch(user.id)))
       : [author]
-
-    const renamesSomeoneElse = targets.some((target) => target.id !== author.id)
-    if (renamesSomeoneElse && !author.permissions.has(PermissionFlagsBits.ManageNicknames)) {
-      console.warn(`${message.author.tag} tried to rename someone else without the Manage Nicknames permission.`)
-      await react(message, WARNING)
-      return
-    }
 
     const results = await Promise.all(targets.map((target) => applyNickname(target, nickname)))
     await react(message, results.every(Boolean) ? CHECK_MARK : WARNING)

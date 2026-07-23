@@ -13,7 +13,7 @@ Messages that already include the prefix (`NIGHT • Yepo`, `NIGHT - Yepo`) are 
 Mentioning a member renames **them** instead of the sender:
 
 - `NIGHT - ego @yepo` (or `@yepo ego` — the order does not matter) sets @yepo's nickname to `NIGHT • ego`.
-- Renaming another person requires the sender to hold the **Manage Nicknames** permission; otherwise the bot answers with ⚠️. Members can always rename themselves.
+- Anyone in the channel can rename themselves or a mentioned member — there is no permission requirement. Restrict who can post in the nickname channel if that gets abused.
 - The reply-ping on a reply does not count as a mention — only mentions typed into the message body pick a target.
 - Discord's limits still apply to the target: the server owner and members with a role above the bot cannot be renamed (⚠️).
 
