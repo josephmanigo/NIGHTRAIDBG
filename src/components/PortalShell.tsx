@@ -7,6 +7,7 @@ interface PortalShellProps {
   accent?: string
   kicker: string
   showHeaderDivider?: boolean
+  headerAction?: ReactNode
   children: ReactNode
 }
 
@@ -16,6 +17,7 @@ export default function PortalShell({
   accent,
   kicker,
   showHeaderDivider = true,
+  headerAction,
   children,
 }: PortalShellProps) {
   return (
@@ -26,9 +28,11 @@ export default function PortalShell({
             <span className="block font-serif text-3xl uppercase leading-[0.85] tracking-[0.04em]">Night</span>
             <span className="block font-display text-[1.7rem] uppercase leading-[0.95] tracking-[0.1em]">Raid</span>
           </a>
-          <a href="/#apply" className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.12em] text-bone/55 transition-colors hover:text-blood">
-            <ArrowLeft className="h-4 w-4" /> Back to site
-          </a>
+          {headerAction || (
+            <a href="/#apply" className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.12em] text-bone/55 transition-colors hover:text-blood">
+              <ArrowLeft className="h-4 w-4" /> Back to site
+            </a>
+          )}
         </div>
       </header>
 

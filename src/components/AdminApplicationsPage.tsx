@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertCircle, Ban, Check, History, MessageCircle, RefreshCw, ShieldAlert, X } from 'lucide-react'
+import { AlertCircle, Ban, Check, History, LogOut, MessageCircle, RefreshCw, ShieldAlert, X } from 'lucide-react'
 import PortalShell from './PortalShell'
 
 interface AdminSession {
@@ -155,6 +155,24 @@ export default function AdminApplicationsPage() {
     () => applications.find((application) => application.id === selectedId) ?? null,
     [applications, selectedId],
   )
+
+  const logout = async () => {
+    if (acting) return
+    setActing(true)
+    setError('')
+
+    try {
+      const response = await fetch('/api/auth/logout', {
+        method: 'POST',
+        credentials: 'same-origin',
+      })
+      if (!response.ok) throw new Error('Unable to log out of Application Command.')
+      window.location.replace('/')
+    } catch (reasonValue) {
+      setError(reasonValue instanceof Error ? reasonValue.message : 'Unable to log out of Application Command.')
+      setActing(false)
+    }
+  }
 
   const decide = async (decision: 'approve' | 'reject') => {
     if (!selected || acting) return
@@ -319,6 +337,16 @@ export default function AdminApplicationsPage() {
       accent="command"
       kicker="Review complete applications and record the final NightRaid administrator decision."
       showHeaderDivider={false}
+      headerAction={(
+        <button
+          type="button"
+          disabled={acting}
+          onClick={() => void logout()}
+          className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.12em] text-bone/55 transition-colors hover:text-blood disabled:cursor-wait disabled:opacity-40"
+        >
+          <LogOut className="h-4 w-4" /> Logout
+        </button>
+      )}
     >
       {loading ? (
         <div className="rounded-[2rem] border border-bone/10 bg-black/30 p-10 text-center text-sm text-bone/45">Verifying administrator access...</div>

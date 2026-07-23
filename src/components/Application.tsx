@@ -8,6 +8,7 @@ import {
   Gamepad2,
   MessageCircle,
   ShieldCheck,
+  Unplug,
   UserRound,
 } from 'lucide-react'
 import SectionHeader from './SectionHeader'
@@ -190,6 +191,7 @@ export default function Application() {
   const [applicationId, setApplicationId] = useState('')
   const [discordUsername, setDiscordUsername] = useState('')
   const [sessionLoading, setSessionLoading] = useState(true)
+  const [disconnecting, setDisconnecting] = useState(false)
   const [connectionError, setConnectionError] = useState('')
 
   useEffect(() => {
@@ -247,6 +249,25 @@ export default function Application() {
       'games',
       data.games.includes(game) ? data.games.filter((item) => item !== game) : [...data.games, game],
     )
+  }
+
+  const disconnectDiscord = async () => {
+    if (disconnecting) return
+    setDisconnecting(true)
+    setConnectionError('')
+
+    try {
+      const response = await fetch('/api/auth/logout', {
+        method: 'POST',
+        credentials: 'same-origin',
+      })
+      if (!response.ok) throw new Error('Unable to disconnect Discord.')
+      setDiscordUsername('')
+    } catch (reason) {
+      setConnectionError(reason instanceof Error ? reason.message : 'Unable to disconnect Discord.')
+    } finally {
+      setDisconnecting(false)
+    }
   }
 
   const validateStep = (targetStep: number) => {
@@ -458,6 +479,18 @@ export default function Application() {
                           <a href="/api/auth/discord?returnTo=%2Fapply" className="mt-4 inline-flex h-10 items-center justify-center rounded-full bg-[#5865F2] px-5 text-[0.62rem] font-extrabold uppercase tracking-[0.12em] text-white transition-colors hover:bg-[#4752c4] sm:mt-0">
                             Continue with Discord
                           </a>
+                        )}
+                        {!sessionLoading && discordUsername && (
+                          <button
+                            type="button"
+                            disabled={disconnecting}
+                            onClick={() => void disconnectDiscord()}
+                            aria-label="Disconnect Discord account"
+                            title="Disconnect Discord"
+                            className="mt-4 flex h-10 w-10 shrink-0 items-center justify-center bg-transparent text-bone/45 transition-colors hover:text-blood disabled:cursor-wait disabled:opacity-35 sm:mt-0"
+                          >
+                            <Unplug className="h-5 w-5" />
+                          </button>
                         )}
                       </div>
                       <FieldError>{connectionError}</FieldError>

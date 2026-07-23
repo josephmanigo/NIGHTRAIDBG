@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { LogIn } from 'lucide-react'
+import { UserRound } from 'lucide-react'
 import { scrollToId } from '../lib/scroll'
 import MobileMenu from './MobileMenu'
 
@@ -68,11 +68,11 @@ export default function Header({ activeSection }: HeaderProps) {
             href="/admin/login"
             aria-label="Administrator login"
             title="Admin login"
-            className={`flex h-11 w-11 items-center justify-center rounded-full border transition-colors duration-300 hover:border-blood hover:bg-blood hover:text-bone sm:h-12 sm:w-12 ${
-              overDark ? 'border-bone/20 text-bone' : 'border-ink/20 text-ink'
+            className={`flex h-14 w-11 items-center justify-center bg-transparent transition-colors duration-300 hover:text-blood sm:h-16 sm:w-12 ${
+              overDark ? 'text-bone' : 'text-ink'
             }`}
           >
-            <LogIn className="h-5 w-5" />
+            <UserRound className="h-5 w-5" />
           </a>
           <button
             type="button"
