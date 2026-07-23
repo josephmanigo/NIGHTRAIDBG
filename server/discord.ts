@@ -205,6 +205,24 @@ export async function addDiscordMemberRole(discordUserId: string, roleId: string
   await discordSuccess(response, 'Assigning a NightRaid role')
 }
 
+export async function removeDiscordMemberRole(discordUserId: string, roleId: string) {
+  const response = await fetch(
+    `${DISCORD_API}/guilds/${encodeURIComponent(env.discordGuildId())}/members/${encodeURIComponent(discordUserId)}/roles/${encodeURIComponent(roleId)}`,
+    { method: 'DELETE', headers: botHeaders() },
+  )
+  if (response.status === 404) return
+  await discordSuccess(response, 'Removing a NightRaid role')
+}
+
+export async function removeDiscordGuildMember(discordUserId: string) {
+  const response = await fetch(
+    `${DISCORD_API}/guilds/${encodeURIComponent(env.discordGuildId())}/members/${encodeURIComponent(discordUserId)}`,
+    { method: 'DELETE', headers: botHeaders() },
+  )
+  if (response.status === 404) return
+  await discordSuccess(response, 'Removing the member from the NightRaid server')
+}
+
 export async function sendDiscordDirectMessage(discordUserId: string, content: string) {
   const channelResponse = await fetch(`${DISCORD_API}/users/@me/channels`, {
     method: 'POST',

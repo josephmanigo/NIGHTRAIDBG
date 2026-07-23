@@ -10,6 +10,8 @@ const applicationStatuses = [
   'REJECTED',
   'DISCORD_JOIN_FAILED',
   'COMPLETED',
+  'REMOVED',
+  'LEFT',
 ] as const
 const games = ['Mobile Legends', 'Bloodstrike', 'Farlight'] as const
 
@@ -114,7 +116,9 @@ async function loadDecisions(applicationIds: string[]) {
 
 export function finalDecision(application: ClanApplicationRow) {
   if (application.status === 'REJECTED') return 'REJECTED'
-  if (['APPROVED', 'DISCORD_JOIN_FAILED', 'COMPLETED'].includes(application.status)) return 'APPROVED'
+  /* REMOVED and LEFT members were approved before exiting, so the register
+   * keeps the original application decision; the status column records the exit. */
+  if (['APPROVED', 'DISCORD_JOIN_FAILED', 'COMPLETED', 'REMOVED', 'LEFT'].includes(application.status)) return 'APPROVED'
   return 'PENDING'
 }
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertCircle, Ban, Check, History, LogOut, MessageCircle, RefreshCw, ShieldAlert, X } from 'lucide-react'
+import { AlertCircle, Ban, Check, History, LogOut, MessageCircle, RefreshCw, ShieldAlert, UserRoundX, X } from 'lucide-react'
 import PortalShell from './PortalShell'
 
 interface AdminSession {
@@ -302,6 +302,48 @@ export default function AdminApplicationsPage() {
     }
   }
 
+  const removeMember = async () => {
+    if (!selected || acting) return
+    const answer = window.prompt(`Why is ${selected.in_game_name} being removed from NightRaid?`)
+    if (answer === null) return
+    const reason = answer.trim()
+    if (reason.length < 2) {
+      setError('Enter a clear removal reason before continuing.')
+      return
+    }
+    const kickFromDiscord = window.confirm(
+      'Also kick them from the NightRaid Discord server?\n\nOK = remove membership and kick from Discord.\nCancel = remove membership and clear game roles, but keep them in the server.',
+    )
+    if (!window.confirm(`Remove ${selected.in_game_name} from NightRaid now?`)) return
+
+    setActing(true)
+    setError('')
+    setNotice('')
+    try {
+      const response = await fetch(`/api/admin/applications/${selected.id}/remove`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason, kickFromDiscord }),
+      })
+      if (!(response.headers.get('content-type') || '').includes('application/json')) {
+        throw new Error('The server API returned an invalid response.')
+      }
+      const payload = (await response.json()) as { message?: string; discordCleanup?: string }
+      await loadApplications()
+      if (!response.ok) throw new Error(payload.message || 'Unable to remove this member.')
+      if (payload.discordCleanup === 'FAILED') {
+        setError(payload.message || 'The member was removed, but the Discord cleanup failed.')
+      } else {
+        setNotice(payload.message || 'The member was removed from NightRaid.')
+      }
+    } catch (reasonValue) {
+      setError(requestError(reasonValue, 'Unable to remove this member.'))
+    } finally {
+      setActing(false)
+    }
+  }
+
   const banSelectedApplicant = async () => {
     if (!selected || securityBusy) return
     const answer = window.prompt(`Why should ${selected.in_game_name} be blocked from applying?`)
@@ -579,10 +621,15 @@ export default function AdminApplicationsPage() {
                       </div>
                     )}
 
-                    {['APPROVED', 'DISCORD_JOIN_FAILED'].includes(selected.status) && selected.discord_onboarding_status !== 'PROCESSING' && (
-                      <div className="mt-7 border-t border-bone/10 pt-7">
-                        <button type="button" disabled={acting} onClick={() => void retryDiscord()} className="inline-flex h-11 items-center gap-2 rounded-full bg-[#5865F2] px-6 text-[0.65rem] font-extrabold uppercase tracking-[0.12em] text-white disabled:opacity-50">
-                          <RefreshCw className="h-4 w-4" /> Retry Discord
+                    {['APPROVED', 'DISCORD_JOIN_FAILED', 'COMPLETED'].includes(selected.status) && (
+                      <div className="mt-7 flex flex-wrap gap-3 border-t border-bone/10 pt-7">
+                        {['APPROVED', 'DISCORD_JOIN_FAILED'].includes(selected.status) && selected.discord_onboarding_status !== 'PROCESSING' && (
+                          <button type="button" disabled={acting} onClick={() => void retryDiscord()} className="inline-flex h-11 items-center gap-2 rounded-full bg-[#5865F2] px-6 text-[0.65rem] font-extrabold uppercase tracking-[0.12em] text-white disabled:opacity-50">
+                            <RefreshCw className="h-4 w-4" /> Retry Discord
+                          </button>
+                        )}
+                        <button type="button" disabled={acting} onClick={() => void removeMember()} className="inline-flex h-11 items-center gap-2 rounded-full border border-red-400/35 px-6 text-[0.65rem] font-extrabold uppercase tracking-[0.12em] text-red-300 transition-colors hover:bg-red-400/10 disabled:opacity-50">
+                          <UserRoundX className="h-4 w-4" /> Remove member
                         </button>
                       </div>
                     )}

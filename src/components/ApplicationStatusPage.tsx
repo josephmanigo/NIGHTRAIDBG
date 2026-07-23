@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { AlertCircle, Check, Clock3, Gamepad2, ShieldCheck, Sparkles } from 'lucide-react'
+import { AlertCircle, Check, Clock3, DoorOpen, Gamepad2, ShieldCheck, Sparkles } from 'lucide-react'
 import PortalShell from './PortalShell'
 
 interface ApplicantSession {
@@ -24,6 +24,8 @@ interface ApplicantApplication {
 }
 
 const FLOW = ['SUBMITTED', 'PENDING_REVIEW', 'APPROVED', 'COMPLETED'] as const
+const MEMBER_STATUSES = ['APPROVED', 'DISCORD_JOIN_FAILED', 'COMPLETED']
+const EXIT_STATUSES = ['REMOVED', 'LEFT']
 const MESSENGER_GROUP_CHAT_URL = 'https://m.me/ch/AbaeMdWdMHYbxpIE/'
 const DISCORD_NICKNAME_SERVER_URL = 'https://discord.gg/Ay8uSSJS3N'
 const MESSENGER_GAME_TAGS: Record<string, string> = {
@@ -48,6 +50,8 @@ export default function ApplicationStatusPage() {
   const [application, setApplication] = useState<ApplicantApplication | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [leaving, setLeaving] = useState(false)
+  const [leaveError, setLeaveError] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -81,6 +85,33 @@ export default function ApplicationStatusPage() {
       cancelled = true
     }
   }, [])
+
+  const leaveClan = async () => {
+    if (!application || leaving) return
+    if (!window.confirm('Leave NightRaid?\n\nYour membership will be closed and your NightRaid game roles on Discord will be cleared. You can apply again later.')) {
+      return
+    }
+    setLeaving(true)
+    setLeaveError('')
+    try {
+      const response = await fetch('/api/clan-applications/leave', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      })
+      if (!(response.headers.get('content-type') || '').includes('application/json')) {
+        throw new Error('The server API returned an invalid response.')
+      }
+      const payload = (await response.json()) as { message?: string }
+      if (!response.ok) throw new Error(payload.message || 'Unable to leave the clan right now.')
+      setApplication((current) => (current ? { ...current, status: 'LEFT', assigned_discord_roles: [] } : current))
+    } catch (reason) {
+      setLeaveError(reason instanceof Error ? reason.message : 'Unable to leave the clan right now.')
+    } finally {
+      setLeaving(false)
+    }
+  }
 
   const activeIndex = application ? statusIndex(application.status) : 0
   const messengerNicknames = application
@@ -123,26 +154,53 @@ export default function ApplicationStatusPage() {
               <h2 className="mt-2 font-display text-3xl uppercase text-bone sm:text-5xl">{application.application_number}</h2>
               <p className="mt-3 text-sm text-bone/45">Submitted {new Date(application.submitted_at).toLocaleString()}</p>
             </div>
-            <span className={`w-fit rounded-full border px-4 py-2 text-[0.62rem] font-extrabold uppercase tracking-[0.12em] ${application.status === 'REJECTED' ? 'border-red-400/30 bg-red-400/10 text-red-300' : application.status === 'APPROVED' || application.status === 'COMPLETED' ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' : 'border-amber-300/30 bg-amber-300/10 text-amber-200'}`}>
+            <span className={`w-fit rounded-full border px-4 py-2 text-[0.62rem] font-extrabold uppercase tracking-[0.12em] ${['REJECTED', 'REMOVED'].includes(application.status) ? 'border-red-400/30 bg-red-400/10 text-red-300' : application.status === 'APPROVED' || application.status === 'COMPLETED' ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' : application.status === 'LEFT' ? 'border-bone/20 bg-bone/5 text-bone/55' : 'border-amber-300/30 bg-amber-300/10 text-amber-200'}`}>
               {statusLabel(application.status)}
             </span>
           </div>
 
           <div className="p-6 sm:p-9">
-            <div className="grid gap-px overflow-hidden rounded-2xl border border-bone/10 bg-bone/10 sm:grid-cols-4">
-              {FLOW.map((status, index) => {
-                const complete = index < activeIndex || application.status === 'COMPLETED'
-                const active = index === activeIndex
-                return (
-                  <div key={status} className="bg-[#0a0a0a] p-5">
-                    <span className={`flex h-9 w-9 items-center justify-center rounded-full border ${complete ? 'border-emerald-400 bg-emerald-400 text-black' : active ? 'border-blood bg-blood text-bone' : 'border-bone/15 text-bone/30'}`}>
-                      {complete ? <Check className="h-4 w-4" /> : active ? <Clock3 className="h-4 w-4" /> : <span className="text-xs font-bold">0{index + 1}</span>}
-                    </span>
-                    <strong className="mt-4 block font-display text-lg uppercase text-bone">{statusLabel(status)}</strong>
-                  </div>
-                )
-              })}
-            </div>
+            {!EXIT_STATUSES.includes(application.status) && (
+              <div className="grid gap-px overflow-hidden rounded-2xl border border-bone/10 bg-bone/10 sm:grid-cols-4">
+                {FLOW.map((status, index) => {
+                  const complete = index < activeIndex || application.status === 'COMPLETED'
+                  const active = index === activeIndex
+                  return (
+                    <div key={status} className="bg-[#0a0a0a] p-5">
+                      <span className={`flex h-9 w-9 items-center justify-center rounded-full border ${complete ? 'border-emerald-400 bg-emerald-400 text-black' : active ? 'border-blood bg-blood text-bone' : 'border-bone/15 text-bone/30'}`}>
+                        {complete ? <Check className="h-4 w-4" /> : active ? <Clock3 className="h-4 w-4" /> : <span className="text-xs font-bold">0{index + 1}</span>}
+                      </span>
+                      <strong className="mt-4 block font-display text-lg uppercase text-bone">{statusLabel(status)}</strong>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {application.status === 'LEFT' && (
+              <div className="rounded-2xl border border-bone/15 bg-bone/[0.03] p-5 sm:p-7">
+                <span className="flex h-9 w-9 items-center justify-center rounded-full border border-bone/20 text-bone/55">
+                  <DoorOpen className="h-4 w-4" />
+                </span>
+                <strong className="mt-4 block font-display text-2xl uppercase text-bone">Membership closed</strong>
+                <p className="mt-3 max-w-xl text-sm leading-relaxed text-bone/50">
+                  You left NightRaid, <strong className="text-bone">{application.in_game_name}</strong>. Your game roles were cleared and this application is now archived. The door stays open whenever you want back in.
+                </p>
+                <a href="/apply" className="ln-pill mt-6">Apply again</a>
+              </div>
+            )}
+
+            {application.status === 'REMOVED' && (
+              <div className="rounded-2xl border border-red-400/25 bg-red-400/[0.07] p-5 sm:p-7">
+                <span className="flex h-9 w-9 items-center justify-center rounded-full border border-red-400/30 text-red-300">
+                  <AlertCircle className="h-4 w-4" />
+                </span>
+                <strong className="mt-4 block font-display text-2xl uppercase text-bone">Membership ended</strong>
+                <p className="mt-3 max-w-xl text-sm leading-relaxed text-red-50/70">
+                  An administrator has removed you from the NightRaid roster. The recorded reason appears below. Unless a ban is active, you may submit a new application in the future.
+                </p>
+              </div>
+            )}
 
             <div className="mt-7 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <div className="rounded-2xl border border-bone/10 bg-bone/[0.025] p-5">
@@ -254,6 +312,32 @@ export default function ApplicationStatusPage() {
               <div className="mt-7 rounded-2xl border border-red-400/20 bg-red-400/5 p-5">
                 <p className="ln-label text-[0.55rem] text-red-300">Decision note</p>
                 <p className="mt-3 text-sm leading-relaxed text-red-100/70">{application.decision_reason}</p>
+              </div>
+            )}
+
+            {MEMBER_STATUSES.includes(application.status) && (
+              <div className="mt-7 rounded-2xl border border-bone/10 bg-bone/[0.02] p-5 sm:p-6">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="ln-label text-[0.55rem] text-bone/40">Membership</p>
+                    <p className="mt-2 max-w-xl text-sm leading-relaxed text-bone/50">
+                      Leaving closes your membership and clears your NightRaid game roles on Discord. You can apply again later.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={leaving}
+                    onClick={() => void leaveClan()}
+                    className="inline-flex h-11 shrink-0 items-center gap-2 rounded-full border border-red-400/35 px-6 text-[0.62rem] font-extrabold uppercase tracking-[0.12em] text-red-300 transition-colors hover:bg-red-400/10 disabled:cursor-wait disabled:opacity-50"
+                  >
+                    <DoorOpen className="h-4 w-4" /> {leaving ? 'Leaving...' : 'Leave NightRaid'}
+                  </button>
+                </div>
+                {leaveError && (
+                  <p className="mt-4 flex items-start gap-2 text-xs leading-relaxed text-red-300" role="alert">
+                    <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {leaveError}
+                  </p>
+                )}
               </div>
             )}
           </div>

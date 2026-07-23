@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import approveApplication from '../handlers/admin/applications/[id]/approve.js'
 import rejectApplication from '../handlers/admin/applications/[id]/reject.js'
+import removeApplicationMember from '../handlers/admin/applications/[id]/remove.js'
 import retryDiscord from '../handlers/admin/applications/[id]/retry-discord.js'
 import retryEvaluation from '../handlers/admin/applications/[id]/retry-evaluation.js'
 import retryMessenger from '../handlers/admin/applications/[id]/retry-messenger.js'
@@ -17,6 +18,7 @@ import discordLogin from '../handlers/auth/discord/index.js'
 import logout from '../handlers/auth/logout.js'
 import session from '../handlers/auth/session.js'
 import submitApplication from '../handlers/clan-applications/index.js'
+import leaveClanMembership from '../handlers/clan-applications/leave.js'
 import myApplication from '../handlers/clan-applications/me.js'
 import messengerWebhook from '../handlers/webhooks/messenger.js'
 import { singleQueryValue } from '../server/http.js'
@@ -36,6 +38,7 @@ const routes: Record<string, Handler> = {
   'auth/logout': logout,
   'auth/session': session,
   'clan-applications': submitApplication,
+  'clan-applications/leave': leaveClanMembership,
   'clan-applications/me': myApplication,
   'webhooks/messenger': messengerWebhook,
 }
@@ -43,6 +46,7 @@ const routes: Record<string, Handler> = {
 const applicationActions: Record<string, Handler> = {
   approve: approveApplication,
   reject: rejectApplication,
+  remove: removeApplicationMember,
   'retry-discord': retryDiscord,
   'retry-evaluation': retryEvaluation,
   'retry-messenger': retryMessenger,
