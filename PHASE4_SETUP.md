@@ -12,14 +12,14 @@ Fresh databases can run the updated `database/phase1.sql`, which already contain
 
 ## 2. Confirm the server variables
 
-Keep the OpenAI key only in `.env.local` and the deployment environment. Never prefix it with `VITE_` or expose it to browser code.
+Create a Gemini API key in [Google AI Studio](https://aistudio.google.com/app/apikey). Keep it only in `.env.local` and the deployment environment. Never prefix it with `VITE_` or expose it to browser code.
 
 ```env
-OPENAI_API_KEY=your-private-openai-api-key
-OPENAI_MODEL=gpt-5.6-sol
+GEMINI_API_KEY=your-private-gemini-api-key
+GEMINI_MODEL=gemini-2.5-flash-lite
 ```
 
-The configured deployment uses `gpt-5.6-sol` for flagship-quality review while preserving low reasoning effort and structured output. The server also accepts `gpt-5.6-terra` and `gpt-5.6-luna` if you later choose a lower-cost tier. Restart the full development server after changing environment variables.
+The configured deployment uses `gemini-2.5-flash-lite`, which supports structured output and is available on the Gemini API free tier subject to Google's current quota limits. Thinking is disabled for lower latency and quota use. Restart the full development server after changing environment variables.
 
 ## 3. Privacy and decision safeguards
 
@@ -30,9 +30,9 @@ The evaluator sends only these application fields:
 - Previous clan and reason for leaving
 - Reason for joining NightRaid
 
-It does not send age group, sex, Facebook URL, Discord identity, or discovery-source information. OpenAI response storage is disabled for evaluation requests. A one-way, salted identifier is used for abuse monitoring instead of the Discord user ID.
+It does not send age group, sex, Facebook URL, Discord identity, or discovery-source information. Google states that free-tier Gemini API content may be used to improve its products, so keep the submitted fields minimal and do not add identity fields to the model request.
 
-Moderation uses `omni-moderation-latest`. Scoring uses these plan categories:
+Gemini's response safety ratings are recorded with the evaluation. Medium/high safety ratings force human review. Scoring uses these plan categories:
 
 | Category | Maximum |
 |---|---:|

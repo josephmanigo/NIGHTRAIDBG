@@ -28,11 +28,11 @@ export const env = {
   }),
   sessionSecret: () => required('SESSION_SECRET'),
   tokenEncryptionKey: () => required('TOKEN_ENCRYPTION_KEY'),
-  openAiApiKey: () => required('OPENAI_API_KEY'),
-  openAiModel: () => {
-    const configured = optional('OPENAI_MODEL')?.replace(/^['"]|['"]$/g, '') || 'gpt-5.6-sol'
-    if (!['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'].includes(configured)) {
-      throw new Error('OPENAI_MODEL must be gpt-5.6-sol, gpt-5.6-terra, or gpt-5.6-luna.')
+  geminiApiKey: () => required('GEMINI_API_KEY'),
+  geminiModel: () => {
+    const configured = optional('GEMINI_MODEL')?.replace(/^['"]|['"]$/g, '') || 'gemini-2.5-flash-lite'
+    if (configured !== 'gemini-2.5-flash-lite') {
+      throw new Error('GEMINI_MODEL must be gemini-2.5-flash-lite.')
     }
     return configured
   },

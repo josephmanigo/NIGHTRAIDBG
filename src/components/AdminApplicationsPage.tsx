@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertCircle, Ban, Check, Download, FileSpreadsheet, History, MessageCircle, RefreshCw, ShieldAlert, Sparkles, X } from 'lucide-react'
+import { AlertCircle, Ban, Check, FileSpreadsheet, History, MessageCircle, RefreshCw, ShieldAlert, Sparkles, X } from 'lucide-react'
 import PortalShell from './PortalShell'
 
 interface AdminSession {
@@ -67,30 +67,6 @@ interface AiEvaluation {
   created_at: string
 }
 
-interface ExcelFilters {
-  dateFrom: string
-  dateTo: string
-  status: string
-  game: string
-  ageGroup: string
-  device: string
-  recommendation: string
-  decision: string
-  recruitmentSource: string
-  onboardingStatus: string
-}
-
-interface ExcelStatus {
-  counts: Record<string, number>
-  latestSync: {
-    status: string
-    record_count: number
-    error_message: string | null
-    created_at: string
-  } | null
-  downloadUrl: string | null
-}
-
 interface ClanBan {
   id: string
   discord_user_id: string | null
@@ -119,50 +95,8 @@ interface SecurityData {
   auditLogs: SecurityAuditLog[]
 }
 
-const emptyFilters: ExcelFilters = {
-  dateFrom: '',
-  dateTo: '',
-  status: '',
-  game: '',
-  ageGroup: '',
-  device: '',
-  recommendation: '',
-  decision: '',
-  recruitmentSource: '',
-  onboardingStatus: '',
-}
-
 function readable(value: string) {
   return value.split('_').join(' ')
-}
-
-function finalDecision(application: AdminApplication) {
-  if (application.status === 'REJECTED') return 'REJECTED'
-  if (['APPROVED', 'DISCORD_JOIN_FAILED', 'COMPLETED'].includes(application.status)) return 'APPROVED'
-  return 'PENDING'
-}
-
-function activeFilters(filters: ExcelFilters) {
-  return Object.fromEntries(Object.entries(filters).filter(([, value]) => value))
-}
-
-async function downloadResponse(response: Response) {
-  if (!response.ok) {
-    const contentType = response.headers.get('content-type') || ''
-    const payload = contentType.includes('application/json') ? await response.json() as { message?: string } : null
-    throw new Error(payload?.message || 'The Excel workbook could not be downloaded.')
-  }
-  const blob = await response.blob()
-  const disposition = response.headers.get('content-disposition') || ''
-  const name = disposition.match(/filename="([^"]+)"/)?.[1] || 'NightRaid_Applicants.xlsx'
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = name
-  document.body.appendChild(link)
-  link.click()
-  link.remove()
-  URL.revokeObjectURL(url)
 }
 
 function Detail({ label, children }: { label: string; children: React.ReactNode }) {
@@ -174,34 +108,10 @@ function Detail({ label, children }: { label: string; children: React.ReactNode 
   )
 }
 
-function FilterSelect({ label, value, onChange, children }: {
-  label: string
-  value: string
-  onChange: (value: string) => void
-  children: React.ReactNode
-}) {
-  return (
-    <label className="block">
-      <span className="ln-label text-[0.48rem] text-bone/35">{label}</span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="mt-2 h-10 w-full rounded-xl border border-bone/10 bg-black/40 px-3 text-xs text-bone outline-none transition-colors focus:border-blood"
-      >
-        <option value="">All</option>
-        {children}
-      </select>
-    </label>
-  )
-}
-
 export default function AdminApplicationsPage() {
   const [session, setSession] = useState<AdminSession | null>(null)
   const [applications, setApplications] = useState<AdminApplication[]>([])
   const [selectedId, setSelectedId] = useState('')
-  const [selectedRows, setSelectedRows] = useState<string[]>([])
-  const [filters, setFilters] = useState<ExcelFilters>(emptyFilters)
-  const [excelStatus, setExcelStatus] = useState<ExcelStatus | null>(null)
   const [securityData, setSecurityData] = useState<SecurityData | null>(null)
   const [securityBusy, setSecurityBusy] = useState(false)
   const [excelBusy, setExcelBusy] = useState(false)
@@ -226,15 +136,6 @@ export default function AdminApplicationsPage() {
     })
   }, [])
 
-  const loadExcelStatus = useCallback(async () => {
-    const response = await fetch('/api/admin/applications/excel-status', { credentials: 'same-origin' })
-    if (!response.ok || !(response.headers.get('content-type') || '').includes('application/json')) {
-      setExcelStatus(null)
-      return
-    }
-    setExcelStatus(await response.json() as ExcelStatus)
-  }, [])
-
   const loadSecurity = useCallback(async () => {
     const response = await fetch('/api/admin/security', { credentials: 'same-origin' })
     if (!response.ok || !(response.headers.get('content-type') || '').includes('application/json')) {
@@ -257,7 +158,7 @@ export default function AdminApplicationsPage() {
         if (cancelled) return
         setSession(nextSession)
         if (nextSession.connected && nextSession.isAdmin) {
-          await Promise.all([loadApplications(), loadExcelStatus(), loadSecurity()])
+          await Promise.all([loadApplications(), loadSecurity()])
         }
       } catch (reason) {
         if (!cancelled) setError(reason instanceof Error ? reason.message : 'Unable to load the administrator portal.')
@@ -269,27 +170,12 @@ export default function AdminApplicationsPage() {
     return () => {
       cancelled = true
     }
-  }, [loadApplications, loadExcelStatus, loadSecurity])
+  }, [loadApplications, loadSecurity])
 
   const selected = useMemo(
     () => applications.find((application) => application.id === selectedId) ?? null,
     [applications, selectedId],
   )
-
-  const filteredApplications = useMemo(() => applications.filter((application) => {
-    if (filters.status && application.status !== filters.status) return false
-    if (filters.game && !application.games.includes(filters.game)) return false
-    if (filters.ageGroup && application.age_group !== filters.ageGroup) return false
-    if (filters.device && application.device !== filters.device) return false
-    if (filters.recommendation && application.ai_evaluation?.recommendation !== filters.recommendation) return false
-    if (filters.decision && finalDecision(application) !== filters.decision) return false
-    if (filters.recruitmentSource && application.discovery_source !== filters.recruitmentSource) return false
-    if (filters.onboardingStatus && application.discord_onboarding_status !== filters.onboardingStatus) return false
-    const submittedAt = new Date(application.submitted_at).getTime()
-    if (filters.dateFrom && submittedAt < new Date(`${filters.dateFrom}T00:00:00`).getTime()) return false
-    if (filters.dateTo && submittedAt > new Date(`${filters.dateTo}T23:59:59.999`).getTime()) return false
-    return true
-  }), [applications, filters])
 
   const decide = async (decision: 'approve' | 'reject') => {
     if (!selected || acting) return
@@ -419,58 +305,6 @@ export default function AdminApplicationsPage() {
     }
   }
 
-  const updateFilter = (key: keyof ExcelFilters, value: string) => {
-    setFilters((current) => ({ ...current, [key]: value }))
-  }
-
-  const toggleSelectedRow = (applicationId: string) => {
-    setSelectedRows((current) => current.includes(applicationId)
-      ? current.filter((id) => id !== applicationId)
-      : [...current, applicationId])
-  }
-
-  const toggleVisibleRows = () => {
-    const visibleIds = filteredApplications.map((application) => application.id)
-    const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedRows.includes(id))
-    setSelectedRows((current) => allSelected
-      ? current.filter((id) => !visibleIds.includes(id))
-      : [...new Set([...current, ...visibleIds])])
-  }
-
-  const exportExcel = async (mode: 'all' | 'filtered' | 'selected') => {
-    if (excelBusy) return
-    if (mode === 'selected' && selectedRows.length === 0) {
-      setError('Select at least one application before exporting selected records.')
-      return
-    }
-    setExcelBusy(true)
-    setError('')
-    setNotice('')
-    try {
-      const body = mode === 'all'
-        ? {}
-        : mode === 'filtered'
-          ? activeFilters(filters)
-          : { applicationIds: selectedRows }
-      const response = await fetch('/api/admin/applications/export', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      await downloadResponse(response)
-      setNotice(mode === 'selected'
-        ? `${selectedRows.length} selected applications exported to Excel.`
-        : mode === 'filtered'
-          ? 'Filtered applications exported to Excel.'
-          : 'All applications exported to Excel.')
-    } catch (reasonValue) {
-      setError(reasonValue instanceof Error ? reasonValue.message : 'The Excel workbook could not be downloaded.')
-    } finally {
-      setExcelBusy(false)
-    }
-  }
-
   const syncExcel = async (applicationIds?: string[]) => {
     if (excelBusy) return
     setExcelBusy(true)
@@ -484,7 +318,7 @@ export default function AdminApplicationsPage() {
         body: JSON.stringify(applicationIds?.length ? { applicationIds } : {}),
       })
       const payload = await response.json() as { message?: string }
-      await Promise.all([loadApplications(), loadExcelStatus()])
+      await loadApplications()
       if (!response.ok) throw new Error(payload.message || 'Excel synchronization failed safely.')
       setNotice(payload.message || 'Excel applicant register synchronized.')
     } catch (reasonValue) {
@@ -590,7 +424,7 @@ export default function AdminApplicationsPage() {
             </div>
           )}
 
-          <section className="mb-5 rounded-[2rem] border border-white/10 bg-white/[0.035] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.28)] backdrop-blur-2xl sm:p-7">
+          <section className="mb-5 rounded-[2rem] border border-white/10 bg-white/[0.035] p-5 backdrop-blur-2xl sm:p-7">
             <details>
               <summary className="flex cursor-pointer list-none items-center justify-between gap-4">
                 <span className="flex items-center gap-2 ln-label text-[0.55rem] text-bone/45"><ShieldAlert className="h-4 w-4" /> Security and audit</span>
@@ -650,94 +484,9 @@ export default function AdminApplicationsPage() {
             </details>
           </section>
 
-          <section className="mb-5 rounded-[2rem] border border-white/10 bg-white/[0.035] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.28)] backdrop-blur-2xl sm:p-7">
-            <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
-              <div>
-                <p className="flex items-center gap-2 ln-label text-[0.55rem] text-bone/45"><FileSpreadsheet className="h-4 w-4" /> Excel applicant register</p>
-                <p className="mt-3 text-sm leading-relaxed text-bone/50">
-                  {excelStatus?.latestSync
-                    ? `Last master sync: ${new Date(excelStatus.latestSync.created_at).toLocaleString()} · ${excelStatus.latestSync.record_count} records`
-                    : 'The private master workbook has not been synchronized yet.'}
-                </p>
-                {excelStatus && (
-                  <div className="mt-3 flex flex-wrap gap-2 text-[0.58rem] font-bold uppercase tracking-[0.08em] text-bone/45">
-                    <span>{excelStatus.counts.SYNCED ?? 0} synced</span>
-                    <span>·</span>
-                    <span>{excelStatus.counts.PENDING ?? 0} pending</span>
-                    <span>·</span>
-                    <span className={(excelStatus.counts.FAILED ?? 0) > 0 ? 'text-amber-200' : ''}>{excelStatus.counts.FAILED ?? 0} failed</span>
-                  </div>
-                )}
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button type="button" disabled={excelBusy} onClick={() => void exportExcel('all')} className="inline-flex h-10 items-center gap-2 rounded-full bg-emerald-400 px-4 text-[0.58rem] font-extrabold uppercase tracking-[0.1em] text-black disabled:opacity-50">
-                  <Download className="h-3.5 w-3.5" /> Export all
-                </button>
-                <button type="button" disabled={excelBusy} onClick={() => void exportExcel('filtered')} className="inline-flex h-10 items-center gap-2 rounded-full border border-emerald-300/30 px-4 text-[0.58rem] font-extrabold uppercase tracking-[0.1em] text-emerald-200 disabled:opacity-50">
-                  <Download className="h-3.5 w-3.5" /> Export filtered
-                </button>
-                <button type="button" disabled={excelBusy || selectedRows.length === 0} onClick={() => void exportExcel('selected')} className="inline-flex h-10 items-center gap-2 rounded-full border border-bone/15 px-4 text-[0.58rem] font-extrabold uppercase tracking-[0.1em] text-bone/60 disabled:opacity-35">
-                  <Download className="h-3.5 w-3.5" /> Selected ({selectedRows.length})
-                </button>
-                <button type="button" disabled={excelBusy} onClick={() => void syncExcel()} className="inline-flex h-10 items-center gap-2 rounded-full border border-bone/15 px-4 text-[0.58rem] font-extrabold uppercase tracking-[0.1em] text-bone/60 disabled:opacity-50">
-                  <RefreshCw className={`h-3.5 w-3.5 ${excelBusy ? 'animate-spin' : ''}`} /> Sync register
-                </button>
-                {excelStatus?.downloadUrl && (
-                  <a href={excelStatus.downloadUrl} className="inline-flex h-10 items-center gap-2 rounded-full border border-sky-300/25 px-4 text-[0.58rem] font-extrabold uppercase tracking-[0.1em] text-sky-200">
-                    <FileSpreadsheet className="h-3.5 w-3.5" /> Synced copy
-                  </a>
-                )}
-              </div>
-            </div>
-
-            <details className="mt-5 border-t border-bone/10 pt-5">
-              <summary className="cursor-pointer ln-label text-[0.55rem] text-bone/55">Export and list filters</summary>
-              <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-                <label className="block">
-                  <span className="ln-label text-[0.48rem] text-bone/35">Submitted from</span>
-                  <input type="date" value={filters.dateFrom} onChange={(event) => updateFilter('dateFrom', event.target.value)} className="mt-2 h-10 w-full rounded-xl border border-bone/10 bg-black/40 px-3 text-xs text-bone outline-none focus:border-blood" />
-                </label>
-                <label className="block">
-                  <span className="ln-label text-[0.48rem] text-bone/35">Submitted to</span>
-                  <input type="date" value={filters.dateTo} onChange={(event) => updateFilter('dateTo', event.target.value)} className="mt-2 h-10 w-full rounded-xl border border-bone/10 bg-black/40 px-3 text-xs text-bone outline-none focus:border-blood" />
-                </label>
-                <FilterSelect label="Application status" value={filters.status} onChange={(value) => updateFilter('status', value)}>
-                  {['SUBMITTED', 'PROCESSING', 'PENDING_REVIEW', 'APPROVED', 'REJECTED', 'DISCORD_JOIN_FAILED', 'COMPLETED'].map((value) => <option key={value} value={value}>{readable(value)}</option>)}
-                </FilterSelect>
-                <FilterSelect label="Game" value={filters.game} onChange={(value) => updateFilter('game', value)}>
-                  {['Mobile Legends', 'Bloodstrike', 'Farlight'].map((value) => <option key={value} value={value}>{value}</option>)}
-                </FilterSelect>
-                <FilterSelect label="Age group" value={filters.ageGroup} onChange={(value) => updateFilter('ageGroup', value)}>
-                  <option value="UNDER_18">Under 18</option>
-                  <option value="AGE_18_OR_ABOVE">18 or above</option>
-                </FilterSelect>
-                <FilterSelect label="Device" value={filters.device} onChange={(value) => updateFilter('device', value)}>
-                  <option value="PC">PC</option><option value="Mobile">Mobile</option>
-                </FilterSelect>
-                <FilterSelect label="AI recommendation" value={filters.recommendation} onChange={(value) => updateFilter('recommendation', value)}>
-                  {['RECOMMENDED', 'MANUAL_REVIEW', 'NOT_RECOMMENDED'].map((value) => <option key={value} value={value}>{readable(value)}</option>)}
-                </FilterSelect>
-                <FilterSelect label="Final decision" value={filters.decision} onChange={(value) => updateFilter('decision', value)}>
-                  {['PENDING', 'APPROVED', 'REJECTED'].map((value) => <option key={value} value={value}>{readable(value)}</option>)}
-                </FilterSelect>
-                <FilterSelect label="Recruitment source" value={filters.recruitmentSource} onChange={(value) => updateFilter('recruitmentSource', value)}>
-                  {['Facebook', 'TikTok', 'Discord', 'Others'].map((value) => <option key={value} value={value}>{value}</option>)}
-                </FilterSelect>
-                <FilterSelect label="Discord onboarding" value={filters.onboardingStatus} onChange={(value) => updateFilter('onboardingStatus', value)}>
-                  {['NOT_STARTED', 'PROCESSING', 'COMPLETED', 'FAILED'].map((value) => <option key={value} value={value}>{readable(value)}</option>)}
-                </FilterSelect>
-              </div>
-              <div className="mt-5 flex flex-wrap items-center gap-3">
-                <button type="button" onClick={() => setFilters(emptyFilters)} className="h-9 rounded-full border border-bone/15 px-4 text-[0.55rem] font-bold uppercase tracking-[0.1em] text-bone/50">Clear filters</button>
-                <button type="button" onClick={toggleVisibleRows} disabled={filteredApplications.length === 0} className="h-9 rounded-full border border-bone/15 px-4 text-[0.55rem] font-bold uppercase tracking-[0.1em] text-bone/50 disabled:opacity-35">Select visible</button>
-                <span className="text-xs text-bone/35">{filteredApplications.length} matching applications</span>
-              </div>
-            </details>
-          </section>
-
           <div className="mb-5 flex items-center justify-between gap-4">
-            <p className="ln-label text-bone/40">{filteredApplications.length} of {applications.length} applications</p>
-            <button type="button" onClick={() => void Promise.all([loadApplications(), loadExcelStatus(), loadSecurity()])} className="inline-flex h-10 items-center gap-2 rounded-full border border-bone/15 px-4 text-[0.6rem] font-bold uppercase tracking-[0.12em] text-bone/55 transition-colors hover:border-bone/40 hover:text-bone">
+            <p className="ln-label text-bone/40">{applications.length} applications</p>
+            <button type="button" onClick={() => void Promise.all([loadApplications(), loadSecurity()])} className="inline-flex h-10 items-center gap-2 rounded-full border border-bone/15 px-4 text-[0.6rem] font-bold uppercase tracking-[0.12em] text-bone/55 transition-colors hover:border-bone/40 hover:text-bone">
               <RefreshCw className="h-3.5 w-3.5" /> Refresh
             </button>
           </div>
@@ -747,22 +496,10 @@ export default function AdminApplicationsPage() {
           ) : (
             <div className="grid min-w-0 gap-5 lg:grid-cols-[22rem_minmax(0,1fr)]">
               <div className="max-h-[48rem] space-y-2 overflow-y-auto pr-1">
-                {filteredApplications.length === 0 && (
-                  <div className="rounded-2xl border border-bone/10 bg-black/30 p-5 text-sm text-bone/40">No applications match the selected filters.</div>
-                )}
-                {filteredApplications.map((application) => {
+                {applications.map((application) => {
                   const active = application.id === selectedId
                   return (
-                    <div key={application.id} className={`flex overflow-hidden rounded-2xl border text-bone shadow-[0_18px_50px_rgba(0,0,0,0.2)] backdrop-blur-xl transition-all ${active ? 'border-white/25 bg-white/[0.1]' : 'border-white/10 bg-white/[0.035] hover:border-white/20 hover:bg-white/[0.055]'}`}>
-                      <label className="flex w-11 shrink-0 cursor-pointer items-start justify-center border-r border-current/10 pt-4" title="Select for Excel export">
-                        <input
-                          type="checkbox"
-                          checked={selectedRows.includes(application.id)}
-                          onChange={() => toggleSelectedRow(application.id)}
-                          className="h-4 w-4 accent-emerald-400"
-                          aria-label={`Select ${application.application_number} for Excel export`}
-                        />
-                      </label>
+                    <div key={application.id} className={`flex overflow-hidden rounded-2xl border text-bone backdrop-blur-xl transition-all ${active ? 'border-white/25 bg-white/[0.1]' : 'border-white/10 bg-white/[0.035] hover:border-white/20 hover:bg-white/[0.055]'}`}>
                       <button type="button" onClick={() => setSelectedId(application.id)} className="min-w-0 flex-1 p-4 text-left">
                         <span className="ln-label text-[0.48rem] opacity-60">{application.application_number}</span>
                         <strong className="mt-2 block truncate font-display text-xl uppercase">{application.in_game_name}</strong>
@@ -775,7 +512,7 @@ export default function AdminApplicationsPage() {
               </div>
 
               {selected && (
-                <article className="overflow-hidden rounded-[2rem] border border-white/10 bg-white/[0.03] shadow-[0_30px_100px_rgba(0,0,0,0.34)] backdrop-blur-2xl">
+                <article className="overflow-hidden rounded-[2rem] border border-white/10 bg-white/[0.03] backdrop-blur-2xl">
                   <header className="flex flex-col gap-5 border-b border-bone/10 p-6 sm:flex-row sm:items-start sm:justify-between sm:p-8">
                     <div>
                       <p className="ln-label text-bone/40">{selected.application_number}</p>
@@ -811,7 +548,7 @@ export default function AdminApplicationsPage() {
 
                     {selected.decision_reason && <p className="mt-5 rounded-2xl border border-white/10 bg-white/[0.025] p-4 text-sm text-bone/65 backdrop-blur-xl">Decision: {selected.decision_reason}</p>}
 
-                    <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.035] p-5 shadow-[0_20px_60px_rgba(0,0,0,0.24)] backdrop-blur-2xl sm:p-6">
+                    <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.035] p-5 backdrop-blur-2xl sm:p-6">
                       <div className="flex flex-wrap items-start justify-between gap-4">
                         <div>
                           <p className="flex items-center gap-2 ln-label text-[0.52rem] text-bone/40"><Sparkles className="h-3.5 w-3.5" /> AI recommendation</p>
@@ -886,7 +623,7 @@ export default function AdminApplicationsPage() {
                       )}
                     </div>
 
-                    <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.035] p-5 shadow-[0_20px_60px_rgba(0,0,0,0.24)] backdrop-blur-2xl">
+                    <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.035] p-5 backdrop-blur-2xl">
                       <p className="ln-label text-[0.52rem] text-bone/40">Discord onboarding</p>
                       <p className="mt-3 text-sm font-bold uppercase tracking-[0.08em] text-bone">{readable(selected.discord_onboarding_status)}</p>
                       {selected.assigned_discord_roles.length > 0 && (
@@ -900,7 +637,7 @@ export default function AdminApplicationsPage() {
                       )}
                     </div>
 
-                    <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.035] p-5 shadow-[0_20px_60px_rgba(0,0,0,0.24)] backdrop-blur-2xl">
+                    <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.035] p-5 backdrop-blur-2xl">
                       <div className="flex flex-wrap items-start justify-between gap-4">
                         <div>
                           <p className="flex items-center gap-2 ln-label text-[0.52rem] text-bone/40"><MessageCircle className="h-3.5 w-3.5" /> Messenger notification</p>
@@ -923,7 +660,7 @@ export default function AdminApplicationsPage() {
                       )}
                     </div>
 
-                    <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.035] p-5 shadow-[0_20px_60px_rgba(0,0,0,0.24)] backdrop-blur-2xl">
+                    <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.035] p-5 backdrop-blur-2xl">
                       <div className="flex flex-wrap items-start justify-between gap-4">
                         <div>
                           <p className="flex items-center gap-2 ln-label text-[0.52rem] text-bone/40"><FileSpreadsheet className="h-3.5 w-3.5" /> Excel synchronization</p>

@@ -1,9 +1,5 @@
-import { createHash } from 'node:crypto'
-import { zodTextFormat } from 'openai/helpers/zod'
-import { aiTextEvaluationSchema } from './ai-evaluation-schema.js'
-import type { AiEvaluationRow, Json } from './database.types.js'
-import { env } from './env.js'
-import { getOpenAiClient } from './openai.js'
+import type { AiEvaluationRow } from './database.types.js'
+import { generateGeminiReview } from './gemini.js'
 import { getSupabaseAdmin } from './supabase.js'
 
 const PROMPT_VERSION = 'nightraid-applicant-review-v1'
@@ -35,10 +31,6 @@ function evaluationError(reason: unknown) {
   return message.replace(/\s+/g, ' ').slice(0, 400)
 }
 
-function safetyIdentifier(discordUserId: string) {
-  return createHash('sha256').update(`${env.sessionSecret()}:${discordUserId}`).digest('hex')
-}
-
 export async function evaluateApplication(applicationId: string): Promise<EvaluationOutcome> {
   const supabase = getSupabaseAdmin()
   const startedAt = new Date().toISOString()
@@ -54,7 +46,7 @@ export async function evaluateApplication(applicationId: string): Promise<Evalua
     .in('status', ['SUBMITTED', 'PENDING_REVIEW'])
     .in('ai_evaluation_status', ['NOT_STARTED', 'FAILED', 'COMPLETED'])
     .select(
-      'id,discord_user_id,device,games,willing_to_use_clan_tag,play_frequency,previous_clan,previous_clan_leaving_reason,reason_for_joining',
+      'id,device,games,willing_to_use_clan_tag,play_frequency,previous_clan,previous_clan_leaving_reason,reason_for_joining',
     )
     .maybeSingle()
 
@@ -62,45 +54,16 @@ export async function evaluateApplication(applicationId: string): Promise<Evalua
   if (!application) throw new Error('This application is not available for AI evaluation.')
 
   try {
-    const client = getOpenAiClient()
-    const moderationText = [
-      `Previous clan: ${application.previous_clan}`,
-      `Reason for leaving: ${application.previous_clan_leaving_reason}`,
-      `Reason for joining: ${application.reason_for_joining}`,
-    ].join('\n')
-    const moderation = await client.moderations.create({
-      model: 'omni-moderation-latest',
-      input: moderationText,
+    const geminiResult = await generateGeminiReview(REVIEW_INSTRUCTIONS, {
+      device: application.device,
+      games: application.games,
+      willingToUseClanTag: application.willing_to_use_clan_tag,
+      playFrequency: application.play_frequency,
+      previousClan: application.previous_clan,
+      previousClanLeavingReason: application.previous_clan_leaving_reason,
+      reasonForJoining: application.reason_for_joining,
     })
-    const moderationResult = moderation.results[0]
-    if (!moderationResult) throw new Error('OpenAI moderation returned no result.')
-
-    const model = env.openAiModel()
-    const response = await client.responses.parse({
-      model,
-      instructions: REVIEW_INSTRUCTIONS,
-      input: [
-        {
-          role: 'user',
-          content: JSON.stringify({
-            device: application.device,
-            games: application.games,
-            willingToUseClanTag: application.willing_to_use_clan_tag,
-            playFrequency: application.play_frequency,
-            previousClan: application.previous_clan,
-            previousClanLeavingReason: application.previous_clan_leaving_reason,
-            reasonForJoining: application.reason_for_joining,
-          }),
-        },
-      ],
-      text: { format: zodTextFormat(aiTextEvaluationSchema, 'nightraid_applicant_review') },
-      reasoning: { effort: 'low' },
-      max_output_tokens: 1_200,
-      safety_identifier: safetyIdentifier(application.discord_user_id),
-      store: false,
-    })
-    const textReview = response.output_parsed
-    if (!textReview) throw new Error('OpenAI returned no structured evaluation.')
+    const { model, review: textReview } = geminiResult
 
     const activityScore = ACTIVITY_SCORES[application.play_frequency] ?? 0
     const clanCommitmentScore = application.willing_to_use_clan_tag ? 20 : 8
@@ -112,19 +75,16 @@ export async function evaluateApplication(applicationId: string): Promise<Evalua
       textReview.consistencyScore +
       textReview.communicationScore
     const concerns = [...textReview.concerns]
-    if (moderationResult.flagged) concerns.push('Automated safety screening flagged text for administrator review.')
+    if (geminiResult.moderationFlagged) concerns.push('Automated safety screening flagged text for administrator review.')
     if (!application.willing_to_use_clan_tag) concerns.push('Applicant is not currently willing to use the clan tag.')
     if (textReview.confidence < 0.55) concerns.push('The automated review has low confidence and needs closer human review.')
 
     let recommendation: AiEvaluationRow['recommendation'] =
       score >= 80 ? 'RECOMMENDED' : score >= 60 ? 'MANUAL_REVIEW' : 'NOT_RECOMMENDED'
-    if (moderationResult.flagged || !application.willing_to_use_clan_tag || textReview.confidence < 0.55) {
+    if (geminiResult.moderationFlagged || !application.willing_to_use_clan_tag || textReview.confidence < 0.55) {
       recommendation = 'MANUAL_REVIEW'
     }
 
-    const flaggedCategories = Object.fromEntries(
-      Object.entries(moderationResult.categories).filter(([, flagged]) => flagged),
-    ) as Json
     const { data: evaluation, error: insertError } = await supabase
       .from('ai_evaluations')
       .insert({
@@ -141,8 +101,8 @@ export async function evaluateApplication(applicationId: string): Promise<Evalua
         strengths: textReview.strengths,
         concerns: [...new Set(concerns)].slice(0, 8),
         summary: textReview.summary,
-        moderation_flagged: moderationResult.flagged,
-        moderation_categories: flaggedCategories,
+        moderation_flagged: geminiResult.moderationFlagged,
+        moderation_categories: geminiResult.moderationCategories,
         model,
         prompt_version: PROMPT_VERSION,
       })
