@@ -30,9 +30,9 @@ export const env = {
   tokenEncryptionKey: () => required('TOKEN_ENCRYPTION_KEY'),
   geminiApiKey: () => required('GEMINI_API_KEY'),
   geminiModel: () => {
-    const configured = optional('GEMINI_MODEL')?.replace(/^['"]|['"]$/g, '') || 'gemini-2.5-flash-lite'
-    if (configured !== 'gemini-2.5-flash-lite') {
-      throw new Error('GEMINI_MODEL must be gemini-2.5-flash-lite.')
+    const configured = optional('GEMINI_MODEL')?.replace(/^['"]|['"]$/g, '') || 'gemini-3.1-pro-preview'
+    if (configured !== 'gemini-3.1-pro-preview') {
+      throw new Error('GEMINI_MODEL must be gemini-3.1-pro-preview.')
     }
     return configured
   },

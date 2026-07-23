@@ -10,7 +10,7 @@ import { syncExcelRegister } from '../../server/excel-sync.js'
 import { getRequestOrigin, hasTrustedOrigin, methodNotAllowed, requestBody } from '../../server/http.js'
 import { notifyMessengerAdmins } from '../../server/messenger-notifications.js'
 import { consumeRateLimit, rateLimitResponse } from '../../server/rate-limit.js'
-import { getSession } from '../../server/session.js'
+import { clearSessionCookie, getSession } from '../../server/session.js'
 import { getSupabaseAdmin } from '../../server/supabase.js'
 
 const OPEN_STATUSES = ['SUBMITTED', 'PROCESSING', 'PENDING_REVIEW', 'APPROVED', 'DISCORD_JOIN_FAILED']
@@ -187,6 +187,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
 
   const excelSync = await syncExcelRegister([application.id])
 
+  clearSessionCookie(response)
   return response.status(201).json({
     applicationId: number,
     status: 'PENDING_REVIEW',

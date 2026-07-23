@@ -15,11 +15,13 @@ import Achievements from './components/Achievements'
 import Merch from './components/Merch'
 import Application from './components/Application'
 import ApplicationStatusPage from './components/ApplicationStatusPage'
+import AdminLoginPage from './components/AdminLoginPage'
 import AdminApplicationsPage from './components/AdminApplicationsPage'
 import Footer from './components/Footer'
 
 export default function App() {
   if (window.location.pathname === '/application/status') return <ApplicationStatusPage />
+  if (window.location.pathname === '/admin/login') return <AdminLoginPage />
   if (window.location.pathname === '/admin/applications') return <AdminApplicationsPage />
   return <MarketingSite />
 }

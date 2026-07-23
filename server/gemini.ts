@@ -73,10 +73,10 @@ export async function generateGeminiReview(
         ],
         generationConfig: {
           temperature: 0.2,
-          maxOutputTokens: 1_200,
+          maxOutputTokens: 2_048,
           responseMimeType: 'application/json',
           responseJsonSchema: aiTextEvaluationJsonSchema,
-          thinkingConfig: { thinkingBudget: 0 },
+          thinkingConfig: { thinkingLevel: 'low' },
         },
       }),
       signal: AbortSignal.timeout(20_000),

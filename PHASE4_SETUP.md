@@ -16,10 +16,10 @@ Create a Gemini API key in [Google AI Studio](https://aistudio.google.com/app/ap
 
 ```env
 GEMINI_API_KEY=your-private-gemini-api-key
-GEMINI_MODEL=gemini-2.5-flash-lite
+GEMINI_MODEL=gemini-3.1-pro-preview
 ```
 
-The configured deployment uses `gemini-2.5-flash-lite`, which supports structured output and is available on the Gemini API free tier subject to Google's current quota limits. Thinking is disabled for lower latency and quota use. Restart the full development server after changing environment variables.
+The configured deployment uses `gemini-3.1-pro-preview` with structured output and its lowest supported thinking level (`low`) to reduce latency and cost. This model has no Gemini API free tier; the Google Cloud project connected to the API key must have billing enabled. Restart the full development server after changing environment variables.
 
 ## 3. Privacy and decision safeguards
 
@@ -30,7 +30,7 @@ The evaluator sends only these application fields:
 - Previous clan and reason for leaving
 - Reason for joining NightRaid
 
-It does not send age group, sex, Facebook URL, Discord identity, or discovery-source information. Google states that free-tier Gemini API content may be used to improve its products, so keep the submitted fields minimal and do not add identity fields to the model request.
+It does not send age group, sex, Facebook URL, Discord identity, or discovery-source information. Google states that paid-tier Gemini API content is not used to improve its products. Keep the submitted fields minimal and do not add identity fields to the model request.
 
 Gemini's response safety ratings are recorded with the evaluation. Medium/high safety ratings force human review. Scoring uses these plan categories:
 

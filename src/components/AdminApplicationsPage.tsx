@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertCircle, Ban, Check, FileSpreadsheet, History, MessageCircle, RefreshCw, ShieldAlert, Sparkles, X } from 'lucide-react'
+import { AlertCircle, Ban, Check, History, MessageCircle, RefreshCw, ShieldAlert, X } from 'lucide-react'
 import PortalShell from './PortalShell'
 
 interface AdminSession {
@@ -33,38 +33,12 @@ interface AdminApplication {
   assigned_discord_roles: string[]
   discord_onboarded_at: string | null
   discord_onboarding_error: string | null
-  ai_evaluation_status: string
-  ai_evaluation_error: string | null
-  ai_evaluated_at: string | null
-  ai_evaluation: AiEvaluation | null
   messenger_notification_status: string
   messenger_notification_error: string | null
   messenger_notified_at: string | null
   messenger_message_ids: string[]
-  excel_sync_status: string
-  excel_synced_at: string | null
-  excel_sync_error: string | null
   submitted_at: string
   reviewed_at: string | null
-}
-
-interface AiEvaluation {
-  score: number
-  recommendation: string
-  confidence: number
-  motivation_score: number
-  teamwork_score: number
-  activity_score: number
-  clan_commitment_score: number
-  consistency_score: number
-  communication_score: number
-  strengths: string[]
-  concerns: string[]
-  summary: string
-  moderation_flagged: boolean
-  model: string
-  prompt_version: string
-  created_at: string
 }
 
 interface ClanBan {
@@ -114,7 +88,6 @@ export default function AdminApplicationsPage() {
   const [selectedId, setSelectedId] = useState('')
   const [securityData, setSecurityData] = useState<SecurityData | null>(null)
   const [securityBusy, setSecurityBusy] = useState(false)
-  const [excelBusy, setExcelBusy] = useState(false)
   const [loading, setLoading] = useState(true)
   const [acting, setActing] = useState(false)
   const [error, setError] = useState('')
@@ -171,6 +144,12 @@ export default function AdminApplicationsPage() {
       cancelled = true
     }
   }, [loadApplications, loadSecurity])
+
+  useEffect(() => {
+    if (!loading && session && (!session.connected || !session.isAdmin)) {
+      window.location.replace('/admin/login')
+    }
+  }, [loading, session])
 
   const selected = useMemo(
     () => applications.find((application) => application.id === selectedId) ?? null,
@@ -253,32 +232,6 @@ export default function AdminApplicationsPage() {
     }
   }
 
-  const retryEvaluation = async () => {
-    if (!selected || acting) return
-    setActing(true)
-    setError('')
-    setNotice('')
-    try {
-      const response = await fetch(`/api/admin/applications/${selected.id}/retry-evaluation`, {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: '{}',
-      })
-      if (!(response.headers.get('content-type') || '').includes('application/json')) {
-        throw new Error('The server API returned an invalid response.')
-      }
-      const payload = (await response.json()) as { message?: string }
-      await loadApplications()
-      if (!response.ok) throw new Error(payload.message || 'AI review could not be retried.')
-      setNotice(payload.message || 'AI recommendation refreshed.')
-    } catch (reasonValue) {
-      setError(reasonValue instanceof Error ? reasonValue.message : 'AI review could not be retried.')
-    } finally {
-      setActing(false)
-    }
-  }
-
   const retryMessenger = async () => {
     if (!selected || acting) return
     setActing(true)
@@ -302,29 +255,6 @@ export default function AdminApplicationsPage() {
       setError(reasonValue instanceof Error ? reasonValue.message : 'Messenger notification could not be retried.')
     } finally {
       setActing(false)
-    }
-  }
-
-  const syncExcel = async (applicationIds?: string[]) => {
-    if (excelBusy) return
-    setExcelBusy(true)
-    setError('')
-    setNotice('')
-    try {
-      const response = await fetch('/api/admin/applications/sync-excel', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(applicationIds?.length ? { applicationIds } : {}),
-      })
-      const payload = await response.json() as { message?: string }
-      await loadApplications()
-      if (!response.ok) throw new Error(payload.message || 'Excel synchronization failed safely.')
-      setNotice(payload.message || 'Excel applicant register synchronized.')
-    } catch (reasonValue) {
-      setError(reasonValue instanceof Error ? reasonValue.message : 'Excel synchronization could not be completed.')
-    } finally {
-      setExcelBusy(false)
     }
   }
 
@@ -504,7 +434,6 @@ export default function AdminApplicationsPage() {
                         <span className="ln-label text-[0.48rem] opacity-60">{application.application_number}</span>
                         <strong className="mt-2 block truncate font-display text-xl uppercase">{application.in_game_name}</strong>
                         <span className="mt-2 block text-xs opacity-55">{readable(application.status)}</span>
-                        <span className="mt-1 block text-[0.62rem] uppercase tracking-[0.08em] opacity-40">AI: {readable(application.ai_evaluation_status)}</span>
                       </button>
                     </div>
                   )
@@ -548,81 +477,6 @@ export default function AdminApplicationsPage() {
 
                     {selected.decision_reason && <p className="mt-5 rounded-2xl border border-white/10 bg-white/[0.025] p-4 text-sm text-bone/65 backdrop-blur-xl">Decision: {selected.decision_reason}</p>}
 
-                    <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.035] p-5 backdrop-blur-2xl sm:p-6">
-                      <div className="flex flex-wrap items-start justify-between gap-4">
-                        <div>
-                          <p className="flex items-center gap-2 ln-label text-[0.52rem] text-bone/40"><Sparkles className="h-3.5 w-3.5" /> AI recommendation</p>
-                          <p className="mt-2 text-xs leading-relaxed text-bone/40">Advisory only. A NightRaid administrator makes the final decision.</p>
-                        </div>
-                        <span className="rounded-full border border-bone/15 px-3 py-1.5 text-[0.55rem] font-bold uppercase tracking-[0.1em] text-bone/55">{readable(selected.ai_evaluation_status)}</span>
-                      </div>
-
-                      {selected.ai_evaluation_status === 'COMPLETED' && selected.ai_evaluation ? (
-                        <div className="mt-6">
-                          <div className="grid gap-3 sm:grid-cols-3">
-                            <div className="rounded-xl border border-bone/10 bg-black/25 p-4">
-                              <p className="ln-label text-[0.48rem] text-bone/35">Score</p>
-                              <strong className="mt-2 block font-display text-3xl text-bone">{selected.ai_evaluation.score}<span className="text-base text-bone/30">/100</span></strong>
-                            </div>
-                            <div className="rounded-xl border border-bone/10 bg-black/25 p-4">
-                              <p className="ln-label text-[0.48rem] text-bone/35">Recommendation</p>
-                              <strong className="mt-2 block text-sm uppercase tracking-[0.08em] text-bone">{readable(selected.ai_evaluation.recommendation)}</strong>
-                            </div>
-                            <div className="rounded-xl border border-bone/10 bg-black/25 p-4">
-                              <p className="ln-label text-[0.48rem] text-bone/35">Confidence</p>
-                              <strong className="mt-2 block font-display text-3xl text-bone">{Math.round(selected.ai_evaluation.confidence * 100)}%</strong>
-                            </div>
-                          </div>
-
-                          <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                            {[
-                              ['Motivation', selected.ai_evaluation.motivation_score, 25],
-                              ['Teamwork', selected.ai_evaluation.teamwork_score, 20],
-                              ['Activity', selected.ai_evaluation.activity_score, 15],
-                              ['Clan commitment', selected.ai_evaluation.clan_commitment_score, 20],
-                              ['Consistency', selected.ai_evaluation.consistency_score, 10],
-                              ['Communication', selected.ai_evaluation.communication_score, 10],
-                            ].map(([label, score, maximum]) => (
-                              <div key={String(label)} className="flex items-center justify-between rounded-xl border border-bone/10 bg-black/20 px-4 py-3 text-xs">
-                                <span className="text-bone/45">{label}</span>
-                                <strong className="text-bone">{score}/{maximum}</strong>
-                              </div>
-                            ))}
-                          </div>
-
-                          <p className="mt-5 text-sm leading-relaxed text-bone/65">{selected.ai_evaluation.summary}</p>
-                          <div className="mt-5 grid gap-4 md:grid-cols-2">
-                            <div className="rounded-xl border border-white/10 bg-white/[0.025] p-4 backdrop-blur-xl">
-                              <p className="ln-label text-[0.48rem] text-bone/40">Strengths</p>
-                              {selected.ai_evaluation.strengths.length > 0 ? (
-                                <ul className="mt-3 space-y-2 text-xs leading-relaxed text-bone/60">{selected.ai_evaluation.strengths.map((strength) => <li key={strength}>+ {strength}</li>)}</ul>
-                              ) : <p className="mt-3 text-xs text-bone/35">No clear strengths identified.</p>}
-                            </div>
-                            <div className="rounded-xl border border-white/10 bg-white/[0.025] p-4 backdrop-blur-xl">
-                              <p className="ln-label text-[0.48rem] text-bone/40">Concerns</p>
-                              {selected.ai_evaluation.concerns.length > 0 ? (
-                                <ul className="mt-3 space-y-2 text-xs leading-relaxed text-bone/60">{selected.ai_evaluation.concerns.map((concern) => <li key={concern}>- {concern}</li>)}</ul>
-                              ) : <p className="mt-3 text-xs text-bone/35">No specific concerns identified.</p>}
-                            </div>
-                          </div>
-                          <p className="mt-4 text-[0.62rem] text-bone/25">{selected.ai_evaluation.model} · {selected.ai_evaluation.prompt_version} · {new Date(selected.ai_evaluation.created_at).toLocaleString()}</p>
-                        </div>
-                      ) : selected.ai_evaluation_status === 'FAILED' ? (
-                        <div className="mt-5 rounded-xl border border-white/10 bg-black/20 p-4">
-                          <p className="text-sm text-bone/65">The automated review failed safely. The application is still ready for human review.</p>
-                          {selected.ai_evaluation_error && <p className="mt-2 break-words text-xs text-bone/35">{selected.ai_evaluation_error}</p>}
-                        </div>
-                      ) : (
-                        <p className="mt-5 text-sm text-bone/45">{selected.ai_evaluation_status === 'PROCESSING' ? 'The AI model is reviewing this application.' : 'No automated review has run yet.'}</p>
-                      )}
-
-                      {selected.status === 'PENDING_REVIEW' && selected.ai_evaluation_status !== 'PROCESSING' && (
-                        <button type="button" disabled={acting} onClick={() => void retryEvaluation()} className="mt-5 inline-flex h-10 items-center gap-2 rounded-full border border-blood/40 px-5 text-[0.6rem] font-extrabold uppercase tracking-[0.12em] text-blood transition-colors hover:bg-blood hover:text-bone disabled:opacity-50">
-                          <RefreshCw className="h-3.5 w-3.5" /> {selected.ai_evaluation_status === 'COMPLETED' ? 'Re-run AI review' : 'Retry AI review'}
-                        </button>
-                      )}
-                    </div>
-
                     <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.035] p-5 backdrop-blur-2xl">
                       <p className="ln-label text-[0.52rem] text-bone/40">Discord onboarding</p>
                       <p className="mt-3 text-sm font-bold uppercase tracking-[0.08em] text-bone">{readable(selected.discord_onboarding_status)}</p>
@@ -656,26 +510,6 @@ export default function AdminApplicationsPage() {
                       {selected.status === 'PENDING_REVIEW' && ['NOT_STARTED', 'FAILED'].includes(selected.messenger_notification_status) && (
                         <button type="button" disabled={acting} onClick={() => void retryMessenger()} className="mt-4 inline-flex h-10 items-center gap-2 rounded-full border border-sky-300/30 px-5 text-[0.6rem] font-extrabold uppercase tracking-[0.12em] text-sky-200 transition-colors hover:bg-sky-300 hover:text-black disabled:opacity-50">
                           <RefreshCw className="h-3.5 w-3.5" /> Retry Messenger
-                        </button>
-                      )}
-                    </div>
-
-                    <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.035] p-5 backdrop-blur-2xl">
-                      <div className="flex flex-wrap items-start justify-between gap-4">
-                        <div>
-                          <p className="flex items-center gap-2 ln-label text-[0.52rem] text-bone/40"><FileSpreadsheet className="h-3.5 w-3.5" /> Excel synchronization</p>
-                          <p className="mt-3 text-sm font-bold uppercase tracking-[0.08em] text-bone">{readable(selected.excel_sync_status)}</p>
-                        </div>
-                        {selected.excel_synced_at && (
-                          <span className="text-xs text-bone/35">Updated {new Date(selected.excel_synced_at).toLocaleString()}</span>
-                        )}
-                      </div>
-                      {selected.excel_sync_error && (
-                        <p className="mt-3 break-words rounded-xl border border-white/10 bg-black/20 p-3 text-xs leading-relaxed text-bone/55">{selected.excel_sync_error}</p>
-                      )}
-                      {['NOT_STARTED', 'FAILED'].includes(selected.excel_sync_status) && (
-                        <button type="button" disabled={excelBusy} onClick={() => void syncExcel([selected.id])} className="mt-4 inline-flex h-10 items-center gap-2 rounded-full border border-emerald-300/30 px-5 text-[0.6rem] font-extrabold uppercase tracking-[0.12em] text-emerald-200 transition-colors hover:bg-emerald-300 hover:text-black disabled:opacity-50">
-                          <RefreshCw className={`h-3.5 w-3.5 ${excelBusy ? 'animate-spin' : ''}`} /> Retry Excel sync
                         </button>
                       )}
                     </div>

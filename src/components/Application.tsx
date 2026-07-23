@@ -222,6 +222,16 @@ export default function Application() {
     }
   }, [])
 
+  useEffect(() => {
+    if (!applicationId) return
+
+    const redirectTimer = window.setTimeout(() => {
+      window.location.replace('/#home')
+    }, 2500)
+
+    return () => window.clearTimeout(redirectTimer)
+  }, [applicationId])
+
   const update = <K extends keyof ApplicationData>(key: K, value: ApplicationData[K]) => {
     setData((current) => ({ ...current, [key]: value }))
     setErrors((current) => {
@@ -413,7 +423,7 @@ export default function Application() {
                   <p className="ln-label mt-8 text-emerald-300">Application received</p>
                   <h3 className="mt-3 font-display text-4xl uppercase text-bone sm:text-6xl">You are in the queue.</h3>
                   <p className="mt-5 max-w-lg text-sm leading-relaxed text-bone/55">
-                    Your application is pending review. Save this reference to track your application status.
+                    Your application is pending review. Save this reference to track your application status. Your Discord session is now disconnected, and you will return to the homepage shortly.
                   </p>
                   <div className="mt-8 rounded-2xl border border-bone/15 bg-bone/5 px-6 py-4">
                     <span className="ln-label text-[0.55rem] text-bone/40">Application ID</span>
@@ -445,7 +455,7 @@ export default function Application() {
                           </p>
                         </div>
                         {!sessionLoading && !discordUsername && (
-                          <a href="/api/auth/discord?returnTo=%2F%23apply" className="mt-4 inline-flex h-10 items-center justify-center rounded-full bg-[#5865F2] px-5 text-[0.62rem] font-extrabold uppercase tracking-[0.12em] text-white transition-colors hover:bg-[#4752c4] sm:mt-0">
+                          <a href="/api/auth/discord?returnTo=%2Fapply" className="mt-4 inline-flex h-10 items-center justify-center rounded-full bg-[#5865F2] px-5 text-[0.62rem] font-extrabold uppercase tracking-[0.12em] text-white transition-colors hover:bg-[#4752c4] sm:mt-0">
                             Continue with Discord
                           </a>
                         )}
@@ -720,7 +730,7 @@ export default function Application() {
                             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
                             Connect Discord to verify your account and enable onboarding if approved.
                           </p>
-                          <a href="/api/auth/discord?returnTo=%2F%23apply" className="inline-flex h-10 shrink-0 items-center justify-center rounded-full bg-[#5865F2] px-5 text-[0.6rem] font-extrabold uppercase tracking-[0.12em] text-white">
+                          <a href="/api/auth/discord?returnTo=%2Fapply" className="inline-flex h-10 shrink-0 items-center justify-center rounded-full bg-[#5865F2] px-5 text-[0.6rem] font-extrabold uppercase tracking-[0.12em] text-white">
                             Connect Discord
                           </a>
                         </div>
