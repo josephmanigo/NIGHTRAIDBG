@@ -92,10 +92,10 @@ export default function ApplicationStatusPage() {
 
   return (
     <PortalShell
-      eyebrow="Applicant portal"
       title="Track your"
       accent="raid"
       kicker="Follow your application from submission through administrator review and Discord onboarding."
+      showHeaderDivider={false}
     >
       {loading ? (
         <div className="rounded-[2rem] border border-bone/10 bg-black/30 p-10 text-center text-sm text-bone/45">Loading your application...</div>
