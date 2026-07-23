@@ -84,14 +84,21 @@ export default function AdminLoginPage() {
             </span>
 
             <p className="ln-label mt-7 text-blood">{accessDenied ? 'Access denied' : 'Discord secured'}</p>
-            <h2 className="mt-3 max-w-xl font-display text-[clamp(2.3rem,6vw,4.8rem)] uppercase leading-[0.92] text-bone">
-              {accessDenied ? 'This account is not authorized.' : 'Enter application command.'}
+            <h2 className={`mt-3 max-w-xl font-display uppercase leading-[0.92] text-bone ${
+              accessDenied ? 'text-[clamp(2.15rem,5vw,4.2rem)]' : 'text-[clamp(2.3rem,6vw,4.8rem)]'
+            }`}>
+              {accessDenied ? (
+                <>
+                  <span className="block">This account is</span>
+                  <span className="block whitespace-nowrap">not authorized.</span>
+                </>
+              ) : 'Enter application command.'}
             </h2>
-            <p className="mt-5 max-w-xl text-sm leading-relaxed text-bone/50">
-              {accessDenied
-                ? `${session?.discordUsername || 'This Discord account'} is not one of the authorized NightRaid administrators.`
-                : 'Continue with one of the two Discord accounts listed in ADMIN_DISCORD_IDS. Access is verified on the server before any application data is shown.'}
-            </p>
+            {accessDenied && (
+              <p className="mt-5 max-w-xl text-sm leading-relaxed text-bone/50">
+                {session?.discordUsername || 'This Discord account'} is not one of the authorized NightRaid administrators.
+              </p>
+            )}
 
             {error && (
               <p className="mt-5 rounded-2xl border border-blood/25 bg-blood/5 p-4 text-sm leading-relaxed text-red-200" role="alert">

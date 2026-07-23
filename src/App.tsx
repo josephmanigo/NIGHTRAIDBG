@@ -3,6 +3,7 @@ import { ScrollTrigger } from './lib/motion'
 import { useSmoothScroll } from './hooks/useSmoothScroll'
 import { useSectionSpy } from './hooks/useSectionSpy'
 import { useMagnetic } from './hooks/useMagnetic'
+import { getLenis } from './lib/scroll'
 import { NAV_ITEMS } from './data/site'
 import Preloader from './components/Preloader'
 import Header from './components/Header'
@@ -54,13 +55,41 @@ function MarketingSite() {
   useEffect(() => {
     if (!isApplyRoute) return
 
-    const frame = window.requestAnimationFrame(() => {
+    let frame = 0
+    let settleTimer = 0
+    let cancelled = false
+
+    const positionAtApplication = () => {
+      if (cancelled) return
       const application = document.getElementById('apply')
       if (!application) return
-      window.scrollTo({ top: Math.max(0, application.offsetTop - 72), behavior: 'auto' })
-    })
 
-    return () => window.cancelAnimationFrame(frame)
+      ScrollTrigger.refresh()
+      const smoothScroller = getLenis()
+      if (smoothScroller) {
+        smoothScroller.scrollTo(application, { offset: -72, immediate: true, force: true })
+      } else {
+        window.scrollTo({ top: Math.max(0, application.offsetTop - 72), behavior: 'auto' })
+      }
+      ScrollTrigger.update()
+    }
+
+    const schedulePosition = () => {
+      window.cancelAnimationFrame(frame)
+      frame = window.requestAnimationFrame(positionAtApplication)
+    }
+
+    schedulePosition()
+    if (document.fonts?.ready) void document.fonts.ready.then(schedulePosition)
+    window.addEventListener('load', schedulePosition)
+    settleTimer = window.setTimeout(schedulePosition, 350)
+
+    return () => {
+      cancelled = true
+      window.cancelAnimationFrame(frame)
+      window.clearTimeout(settleTimer)
+      window.removeEventListener('load', schedulePosition)
+    }
   }, [isApplyRoute])
 
   return (
