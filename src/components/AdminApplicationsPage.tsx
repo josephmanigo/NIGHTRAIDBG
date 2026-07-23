@@ -551,7 +551,6 @@ export default function AdminApplicationsPage() {
 
   return (
     <PortalShell
-      eyebrow="Authorized access"
       title="Application"
       accent="command"
       kicker="Review complete applications and record the final NightRaid administrator decision."
