@@ -67,7 +67,7 @@ function addStatusFormatting(sheet: Worksheet, columnLetter: string, rowCount: n
 function addApplicantsSheet(workbook: ExcelJS.Workbook, records: ExcelApplicationRecord[]) {
   const sheet = workbook.addWorksheet('Applicants', { views: [{ state: 'frozen', ySplit: 1 }] })
   const columns = [
-    'Application ID', 'Submission Date', 'In Game Name', 'Discord Username', 'Discord User ID', 'Age Group', 'Sex',
+    'Application ID', 'Submission Date', 'In Game Name', 'Discord Username', 'Discord User ID', 'Age Group', 'Gender',
     'Device', 'Games Applied For', 'Willing to Use Clan Tag', 'Play Frequency', 'Previous Clan', 'Reason for Leaving',
     'Facebook Profile Link', 'Where They Found NightRaid', 'Already Joined Discord', 'Discord Membership Verified',
     'Reason for Joining', 'AI Score', 'AI Recommendation', 'AI Confidence', 'AI Strengths', 'AI Concerns',

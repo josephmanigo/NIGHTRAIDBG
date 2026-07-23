@@ -57,7 +57,7 @@ function applicationText(
 Application ID: ${application.application_number}
 IGN: ${application.in_game_name}
 Age: ${application.age_group === 'AGE_18_OR_ABOVE' ? '18 or above' : 'Under 18'}
-Sex: ${application.sex}
+Gender: ${application.sex}
 Device: ${application.device}
 Games: ${application.games.join(', ')}
 Clan tag: ${application.willing_to_use_clan_tag ? 'Yes' : 'No'}

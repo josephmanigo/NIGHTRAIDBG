@@ -19,7 +19,7 @@ create table if not exists public.clan_applications (
   discord_username text not null,
   in_game_name text not null,
   age_group text not null check (age_group in ('UNDER_18', 'AGE_18_OR_ABOVE')),
-  sex text not null check (sex in ('Male', 'Female')),
+  sex text not null check (sex in ('Male', 'Female', 'Other')),
   device text not null check (device in ('PC', 'Mobile')),
   games text[] not null check (cardinality(games) > 0),
   willing_to_use_clan_tag boolean not null,

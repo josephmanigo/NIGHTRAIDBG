@@ -3,7 +3,6 @@ import { z } from 'zod'
 export const allowedGames = [
   'Mobile Legends',
   'Bloodstrike',
-  'Farlight',
 ] as const
 
 const trimmed = (minimum: number, maximum: number) => z.string().trim().min(minimum).max(maximum)
@@ -22,7 +21,7 @@ export const clanApplicationSchema = z
   .object({
     inGameName: trimmed(2, 50),
     ageGroup: z.enum(['UNDER_18', 'AGE_18_OR_ABOVE']),
-    sex: z.enum(['Male', 'Female']),
+    sex: z.enum(['Male', 'Female', 'Other']),
     device: z.enum(['PC', 'Mobile']),
     games: z.array(z.enum(allowedGames)).min(1).max(allowedGames.length),
     willingToUseClanTag: z.boolean(),

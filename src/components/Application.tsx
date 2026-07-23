@@ -46,7 +46,6 @@ const STEPS = [
 const GAMES = [
   'Mobile Legends',
   'Bloodstrike',
-  'Farlight',
 ] as const
 
 const CONSENTS = [
@@ -579,10 +578,14 @@ export default function Application() {
                           error={errors.ageGroup}
                         />
                         <ChoiceGroup
-                          label="Sex"
+                          label="Gender"
                           name="sex"
                           value={data.sex}
-                          options={[{ label: 'Male', value: 'Male' }, { label: 'Female', value: 'Female' }]}
+                          options={[
+                            { label: 'Male', value: 'Male' },
+                            { label: 'Female', value: 'Female' },
+                            { label: 'Other', value: 'Other' },
+                          ]}
                           onChange={(value) => update('sex', value)}
                           error={errors.sex}
                         />
@@ -599,7 +602,7 @@ export default function Application() {
 
                       <p className="flex items-start gap-2 text-xs leading-relaxed text-bone/35">
                         <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blood" />
-                        Age and sex are profile information. Sex is never used  for the approval decision.
+                        Age and gender are profile information. Gender is never used for the approval decision.
                       </p>
                     </div>
                   )}
