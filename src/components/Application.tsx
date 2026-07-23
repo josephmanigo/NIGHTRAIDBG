@@ -163,6 +163,7 @@ function ChoiceGroup({
   onChange,
   error,
   columns = 2,
+  className,
 }: {
   label: string
   name: string
@@ -171,9 +172,10 @@ function ChoiceGroup({
   onChange: (value: string) => void
   error?: string
   columns?: 2 | 3
+  className?: string
 }) {
   return (
-    <fieldset>
+    <fieldset className={className}>
       <legend>
         <FieldLabel>{label}</FieldLabel>
       </legend>
@@ -188,7 +190,7 @@ function ChoiceGroup({
               aria-checked={selected}
               name={name}
               onClick={() => onChange(option.value)}
-              className={`min-h-12 rounded-2xl border px-4 py-3 text-left text-xs font-bold uppercase tracking-[0.1em] transition-colors duration-300 ${
+              className={`min-h-11 rounded-xl border px-3.5 py-2.5 text-left text-xs font-bold uppercase tracking-[0.1em] transition-colors duration-300 ${
                 selected
                   ? 'border-blood bg-blood text-bone'
                   : 'border-bone/15 bg-black/20 text-bone/55 hover:border-bone/35 hover:text-bone'
@@ -570,7 +572,7 @@ export default function Application() {
                         <FieldError>{errors.inGameName}</FieldError>
                       </label>
 
-                      <div className="grid gap-6 sm:grid-cols-2">
+                      <div className="grid max-w-3xl gap-6 sm:grid-cols-2">
                         <ChoiceGroup
                           label="How old are you?"
                           name="ageGroup"
@@ -594,6 +596,7 @@ export default function Application() {
                         name="sex"
                         value={data.sex}
                         columns={3}
+                        className="max-w-xl"
                         options={[
                           { label: 'Male', value: 'Male' },
                           { label: 'Female', value: 'Female' },
@@ -615,7 +618,7 @@ export default function Application() {
                       <fieldset>
                         <legend><FieldLabel>Which game are you applying for?</FieldLabel></legend>
                         <p className="mt-2 text-xs text-bone/35">Select every division you actively play.</p>
-                        <div className="mt-4 grid grid-cols-2 gap-2 sm:gap-3">
+                        <div className="mt-4 grid max-w-xl grid-cols-2 gap-2 sm:gap-3">
                           {GAMES.map((game) => {
                             const selected = data.games.includes(game)
                             return (
@@ -625,7 +628,7 @@ export default function Application() {
                                 role="checkbox"
                                 aria-checked={selected}
                                 onClick={() => toggleGame(game)}
-                                className={`min-h-[5.5rem] rounded-2xl border p-3 text-left transition-colors ${selected ? 'border-blood bg-blood text-bone' : 'border-bone/15 bg-black/20 text-bone/55 hover:border-bone/35 hover:text-bone'}`}
+                                className={`min-h-[4.5rem] rounded-2xl border p-3 text-left transition-colors ${selected ? 'border-blood bg-blood text-bone' : 'border-bone/15 bg-black/20 text-bone/55 hover:border-bone/35 hover:text-bone'}`}
                               >
                                 <Gamepad2 className="h-4 w-4" />
                                 <span className="mt-3 block text-[0.68rem] font-bold uppercase leading-tight tracking-[0.08em]">{game}</span>
@@ -638,7 +641,7 @@ export default function Application() {
 
                       <fieldset>
                         <legend><FieldLabel>How often do you play?</FieldLabel></legend>
-                        <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                        <div className="mt-2 grid max-w-2xl gap-2 sm:grid-cols-3">
                           {['Everyday', '3 times a week', 'Once a week'].map((frequency) => {
                             const selected = frequency === data.playFrequency
                             return (
@@ -663,6 +666,7 @@ export default function Application() {
                         label="Willing to use our clan tag?"
                         name="clanTag"
                         value={data.willingToUseClanTag}
+                        className="max-w-sm"
                         options={[{ label: 'Yes', value: 'Yes' }, { label: 'No', value: 'No' }]}
                         onChange={(value) => update('willingToUseClanTag', value)}
                         error={errors.willingToUseClanTag}
