@@ -1,18 +1,18 @@
 # NIGHTRAID Phase 8 — Nickname bot
 
-Phase 8 adds a Discord bot process that watches the nickname channel. When a member sends a message there, the bot renames them to the clan format and marks the message:
+Phase 8 adds a Discord bot process that watches the nickname channel. When a member sends a message there, the bot renames them to the message text and marks the message:
 
-- Member sends `Yepo` → their server nickname becomes `NIGHT • Yepo`.
+- Member sends `Yepo` → their server nickname becomes `Yepo`.
 - The bot reacts with ✅ on the message once the rename is done (or if the nickname already matches), so everyone can see who has been renamed already.
 - The bot reacts with ⚠️ when it cannot rename the member (the server owner, or someone with a role above the bot).
 
-Messages that already include the prefix (`NIGHT • Yepo`, `NIGHT - Yepo`) are handled without doubling it, and nicknames are trimmed to Discord's 32-character limit.
+Nicknames are trimmed to Discord's 32-character limit.
 
 ## Renaming someone else
 
 Mentioning a member renames **them** instead of the sender:
 
-- `NIGHT - ego @yepo` (or `@yepo ego` — the order does not matter) sets @yepo's nickname to `NIGHT • ego`.
+- `ego @yepo` (or `@yepo ego` — the order does not matter) sets @yepo's nickname to `ego`.
 - Anyone in the channel can rename themselves or a mentioned member — there is no permission requirement. Restrict who can post in the nickname channel if that gets abused.
 - The reply-ping on a reply does not count as a mention — only mentions typed into the message body pick a target.
 - Discord's limits still apply to the target: the server owner and members with a role above the bot cannot be renamed (⚠️).
@@ -72,6 +72,6 @@ Keep the process running (pm2, systemd, a Railway/Render worker, or a terminal t
 ## 5. Test
 
 1. Send an in-game name in the nickname channel from a normal member account.
-2. The member's nickname changes to `NIGHT • <name>` and the message receives ✅.
+2. The member's nickname changes to the message text and the message receives ✅.
 3. Send the same name again — the bot answers with ✅ immediately without changing anything.
 4. Send a message as someone the bot cannot manage (for example the server owner) — the message receives ⚠️.

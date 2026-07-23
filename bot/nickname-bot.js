@@ -2,12 +2,12 @@
  * NIGHTRAID nickname bot.
  *
  * Watches the nickname channel and renames anyone who chats there to the
- * clan format (`NIGHT • <name>`), then reacts to the message:
+ * message text, then reacts to the message:
  *   ✅  the nickname was changed (or already matches)
  *   ⚠️  the bot cannot rename this member (server owner, or a role above the bot)
  *
- * Mentioning someone renames them instead of the sender (`NIGHT - ego @yepo`
- * sets @yepo to `NIGHT • ego`). Anyone may rename themselves or a mentioned
+ * Mentioning someone renames them instead of the sender (`ego @yepo` sets
+ * @yepo's nickname to `ego`). Anyone may rename themselves or a mentioned
  * member.
  *
  * Discord only delivers channel messages over a persistent gateway
@@ -27,8 +27,6 @@ const BOT_TOKEN = required('DISCORD_BOT_TOKEN')
 const NICKNAME_CHANNEL_ID = required('DISCORD_NICKNAME_CHANNEL_ID')
 const GUILD_ID = process.env.DISCORD_GUILD_ID?.trim() || null
 
-/* Must match the format promised in the acceptance DM (server/discord.ts). */
-const NICKNAME_PREFIX = 'NIGHT • '
 const NICKNAME_MAX_LENGTH = 32 // Discord's hard limit.
 
 const CHECK_MARK = '✅'
@@ -38,11 +36,10 @@ function requestedNickname(content) {
   const name = content
     .replace(/<@!?\d+>/g, ' ') // Mentions pick the target; they are not part of the name.
     .replace(/[\r\n`]/g, ' ')
-    .replace(/^\s*night\s*[•\-–—:|]\s*/i, '') // Already-formatted input keeps a single prefix.
     .replace(/\s+/g, ' ')
     .trim()
   if (!name) return null
-  return `${NICKNAME_PREFIX}${name}`.slice(0, NICKNAME_MAX_LENGTH).trim()
+  return name.slice(0, NICKNAME_MAX_LENGTH).trim()
 }
 
 /* Returns true when the member ends up with the nickname, false when the
