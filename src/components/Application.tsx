@@ -162,6 +162,7 @@ function ChoiceGroup({
   options,
   onChange,
   error,
+  columns = 2,
 }: {
   label: string
   name: string
@@ -169,13 +170,14 @@ function ChoiceGroup({
   options: readonly { label: string; value: string }[]
   onChange: (value: string) => void
   error?: string
+  columns?: 2 | 3
 }) {
   return (
     <fieldset>
       <legend>
         <FieldLabel>{label}</FieldLabel>
       </legend>
-      <div className="mt-2 grid grid-cols-2 gap-2" role="radiogroup" aria-label={label}>
+      <div className={`mt-2 grid gap-2 ${columns === 3 ? 'grid-cols-3' : 'grid-cols-2'}`} role="radiogroup" aria-label={label}>
         {options.map((option) => {
           const selected = option.value === value
           return (
@@ -578,26 +580,27 @@ export default function Application() {
                           error={errors.ageGroup}
                         />
                         <ChoiceGroup
-                          label="Gender"
-                          name="sex"
-                          value={data.sex}
-                          options={[
-                            { label: 'Male', value: 'Male' },
-                            { label: 'Female', value: 'Female' },
-                            { label: 'Other', value: 'Other' },
-                          ]}
-                          onChange={(value) => update('sex', value)}
-                          error={errors.sex}
+                          label="Main device"
+                          name="device"
+                          value={data.device}
+                          options={[{ label: 'PC', value: 'PC' }, { label: 'Mobile', value: 'Mobile' }]}
+                          onChange={(value) => update('device', value)}
+                          error={errors.device}
                         />
                       </div>
 
                       <ChoiceGroup
-                        label="Main device"
-                        name="device"
-                        value={data.device}
-                        options={[{ label: 'PC', value: 'PC' }, { label: 'Mobile', value: 'Mobile' }]}
-                        onChange={(value) => update('device', value)}
-                        error={errors.device}
+                        label="Gender"
+                        name="sex"
+                        value={data.sex}
+                        columns={3}
+                        options={[
+                          { label: 'Male', value: 'Male' },
+                          { label: 'Female', value: 'Female' },
+                          { label: 'Other', value: 'Other' },
+                        ]}
+                        onChange={(value) => update('sex', value)}
+                        error={errors.sex}
                       />
 
                       <p className="flex items-start gap-2 text-xs leading-relaxed text-bone/35">
@@ -612,7 +615,7 @@ export default function Application() {
                       <fieldset>
                         <legend><FieldLabel>Which game are you applying for?</FieldLabel></legend>
                         <p className="mt-2 text-xs text-bone/35">Select every division you actively play.</p>
-                        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
+                        <div className="mt-4 grid grid-cols-2 gap-2 sm:gap-3">
                           {GAMES.map((game) => {
                             const selected = data.games.includes(game)
                             return (
@@ -633,38 +636,37 @@ export default function Application() {
                         <FieldError>{errors.games}</FieldError>
                       </fieldset>
 
-                      <div className="grid gap-6 lg:grid-cols-2">
-                        <fieldset>
-                          <legend><FieldLabel>How often do you play?</FieldLabel></legend>
-                          <div className="mt-2 space-y-2">
-                            {['Everyday', '3 times a week', 'Once a week'].map((frequency) => {
-                              const selected = frequency === data.playFrequency
-                              return (
-                                <button
-                                  key={frequency}
-                                  type="button"
-                                  role="radio"
-                                  aria-checked={selected}
-                                  onClick={() => update('playFrequency', frequency)}
-                                  className={`flex min-h-11 w-full items-center justify-between rounded-xl border px-4 py-2.5 text-left text-xs font-bold uppercase tracking-[0.08em] transition-colors ${selected ? 'border-blood bg-blood text-bone' : 'border-bone/15 bg-black/20 text-bone/55 hover:border-bone/35 hover:text-bone'}`}
-                                >
-                                  {frequency}
-                                  {selected && <Check className="h-4 w-4" />}
-                                </button>
-                              )
-                            })}
-                          </div>
-                          <FieldError>{errors.playFrequency}</FieldError>
-                        </fieldset>
-                        <ChoiceGroup
-                          label="Willing to use our clan tag?"
-                          name="clanTag"
-                          value={data.willingToUseClanTag}
-                          options={[{ label: 'Yes', value: 'Yes' }, { label: 'No', value: 'No' }]}
-                          onChange={(value) => update('willingToUseClanTag', value)}
-                          error={errors.willingToUseClanTag}
-                        />
-                      </div>
+                      <fieldset>
+                        <legend><FieldLabel>How often do you play?</FieldLabel></legend>
+                        <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                          {['Everyday', '3 times a week', 'Once a week'].map((frequency) => {
+                            const selected = frequency === data.playFrequency
+                            return (
+                              <button
+                                key={frequency}
+                                type="button"
+                                role="radio"
+                                aria-checked={selected}
+                                onClick={() => update('playFrequency', frequency)}
+                                className={`flex min-h-11 w-full items-center justify-between rounded-xl border px-4 py-2.5 text-left text-xs font-bold uppercase tracking-[0.08em] transition-colors ${selected ? 'border-blood bg-blood text-bone' : 'border-bone/15 bg-black/20 text-bone/55 hover:border-bone/35 hover:text-bone'}`}
+                              >
+                                {frequency}
+                                {selected && <Check className="h-4 w-4" />}
+                              </button>
+                            )
+                          })}
+                        </div>
+                        <FieldError>{errors.playFrequency}</FieldError>
+                      </fieldset>
+
+                      <ChoiceGroup
+                        label="Willing to use our clan tag?"
+                        name="clanTag"
+                        value={data.willingToUseClanTag}
+                        options={[{ label: 'Yes', value: 'Yes' }, { label: 'No', value: 'No' }]}
+                        onChange={(value) => update('willingToUseClanTag', value)}
+                        error={errors.willingToUseClanTag}
+                      />
                     </div>
                   )}
 
