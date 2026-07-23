@@ -110,7 +110,7 @@ export async function rejectApplication(input: {
 
   const notification = await notifyApplicant(
     application.discord_user_id,
-    `Thank you for applying to NightRaid. Your application ${application.application_number} was not accepted at this time. Reason: ${input.reason}. You can review the recorded decision in the NightRaid application status portal.`,
+    `Thank you for applying to NIGHTRAID. Your application ${application.application_number} was not accepted at this time. Reason: ${input.reason}. You can review the recorded decision in the NIGHTRAID application status portal.`,
   )
   const excelSync = await syncExcelRegister([application.id], input.decidedBy)
   return { application, excelSync, ...notification }

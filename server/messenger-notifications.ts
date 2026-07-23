@@ -18,7 +18,7 @@ function safeError(reason: unknown) {
 async function sendBackupAlert(applicationNumber: string, error: string) {
   try {
     await sendDiscordAdminAlert(
-      `NightRaid Messenger delivery failed for ${applicationNumber}. The application remains in the admin portal. Error: ${error.slice(0, 300)}`,
+      `NIGHTRAID Messenger delivery failed for ${applicationNumber}. The application remains in the admin portal. Error: ${error.slice(0, 300)}`,
     )
   } catch (reason) {
     console.error('Backup Discord administrator alert failed:', safeError(reason))
