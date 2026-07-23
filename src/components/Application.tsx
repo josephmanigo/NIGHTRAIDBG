@@ -618,7 +618,7 @@ export default function Application() {
                       <fieldset>
                         <legend><FieldLabel>Which game are you applying for?</FieldLabel></legend>
                         <p className="mt-2 text-xs text-bone/35">Select every division you actively play.</p>
-                        <div className="mt-4 grid max-w-xl grid-cols-2 gap-2 sm:gap-3">
+                        <div className="mt-4 grid max-w-2xl gap-2 sm:grid-cols-2">
                           {GAMES.map((game) => {
                             const selected = data.games.includes(game)
                             return (
@@ -628,10 +628,15 @@ export default function Application() {
                                 role="checkbox"
                                 aria-checked={selected}
                                 onClick={() => toggleGame(game)}
-                                className={`min-h-[4.5rem] rounded-2xl border p-3 text-left transition-colors ${selected ? 'border-blood bg-blood text-bone' : 'border-bone/15 bg-black/20 text-bone/55 hover:border-bone/35 hover:text-bone'}`}
+                                className={`flex min-h-[4.5rem] items-center gap-3.5 rounded-2xl border px-4 py-3.5 text-left transition-colors ${selected ? 'border-blood bg-blood text-bone' : 'border-bone/15 bg-black/20 text-bone/55 hover:border-bone/35 hover:text-bone'}`}
                               >
-                                <Gamepad2 className="h-4 w-4" />
-                                <span className="mt-3 block text-[0.68rem] font-bold uppercase leading-tight tracking-[0.08em]">{game}</span>
+                                <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border ${selected ? 'border-bone/25 bg-black/10' : 'border-bone/15'}`}>
+                                  <Gamepad2 aria-hidden="true" className="h-4 w-4" />
+                                </span>
+                                <span className="min-w-0 flex-1 text-xs font-bold uppercase leading-tight tracking-[0.08em]">{game}</span>
+                                <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${selected ? 'border-bone/40 text-bone' : 'border-bone/20 text-transparent'}`}>
+                                  <Check aria-hidden="true" className="h-3.5 w-3.5" />
+                                </span>
                               </button>
                             )
                           })}
@@ -666,7 +671,7 @@ export default function Application() {
                         label="Willing to use our clan tag?"
                         name="clanTag"
                         value={data.willingToUseClanTag}
-                        className="max-w-sm"
+                        className="max-w-md"
                         options={[{ label: 'Yes', value: 'Yes' }, { label: 'No', value: 'No' }]}
                         onChange={(value) => update('willingToUseClanTag', value)}
                         error={errors.willingToUseClanTag}
