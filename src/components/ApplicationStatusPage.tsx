@@ -113,7 +113,7 @@ export default function ApplicationStatusPage() {
         <div className="rounded-[2rem] border border-bone/10 bg-black/30 p-7 sm:p-10">
           <h2 className="font-display text-3xl uppercase text-bone">No application found</h2>
           <p className="mt-3 text-sm text-bone/50">No NightRaid application is connected to {session.discordUsername}.</p>
-          <a href="/#apply" className="ln-pill mt-7">Start an application</a>
+          <a href="/apply" className="ln-pill mt-7">Start an application</a>
         </div>
       ) : (
         <div className="overflow-hidden rounded-[2rem] border border-bone/15 bg-[#080808]/90">
@@ -231,7 +231,7 @@ export default function ApplicationStatusPage() {
               <div className="mt-7 rounded-2xl border border-red-400/25 bg-red-400/[0.07] p-5">
                 <p className="ln-label text-[0.55rem] text-red-300">Application decision</p>
                 <p className="mt-3 text-sm leading-relaxed text-red-50/75">
-                  Thank you for applying to NightRaid. Your application was not accepted at this time.
+                  Thank you for applying to NIGHTRAID. Your application was not accepted at this time.
                 </p>
               </div>
             )}

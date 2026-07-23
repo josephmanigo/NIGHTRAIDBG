@@ -29,7 +29,7 @@ export function appUrl(request: VercelRequest, path: string) {
 }
 
 export function safeReturnTo(value: string | undefined) {
-  if (!value || !value.startsWith('/') || value.startsWith('//')) return '/#apply'
+  if (!value || !value.startsWith('/') || value.startsWith('//')) return '/apply'
   return value
 }
 

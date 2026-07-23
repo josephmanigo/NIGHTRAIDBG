@@ -13,6 +13,8 @@ import {
 } from 'lucide-react'
 import SectionHeader from './SectionHeader'
 import { useReveal } from '../hooks/useReveal'
+import { ScrollTrigger } from '../lib/motion'
+import { scrollToId } from '../lib/scroll'
 
 const STEPS = [
   {
@@ -95,6 +97,41 @@ const INITIAL_DATA: ApplicationData = {
     falseInfo: false,
     processing: false,
   },
+}
+
+/* Keeps in-progress answers alive across the Discord OAuth round trip,
+ * which navigates away from the page and back. */
+const DRAFT_STORAGE_KEY = 'nightraid-application-draft'
+
+function readDraft(): { step: number; data: ApplicationData } | null {
+  try {
+    const raw = sessionStorage.getItem(DRAFT_STORAGE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as { step?: unknown; data?: Partial<ApplicationData> | null } | null
+    if (!parsed || typeof parsed !== 'object' || typeof parsed.step !== 'number' || !parsed.data || typeof parsed.data !== 'object') {
+      return null
+    }
+    const saved = parsed.data
+    return {
+      step: Math.min(STEPS.length - 1, Math.max(0, Math.trunc(parsed.step))),
+      data: {
+        ...INITIAL_DATA,
+        ...saved,
+        games: Array.isArray(saved.games) ? saved.games.filter((game): game is string => typeof game === 'string') : [],
+        consents: { ...INITIAL_DATA.consents, ...(saved.consents ?? {}) },
+      },
+    }
+  } catch {
+    return null
+  }
+}
+
+function clearDraft() {
+  try {
+    sessionStorage.removeItem(DRAFT_STORAGE_KEY)
+  } catch {
+    /* Storage unavailable. */
+  }
 }
 
 const inputClass =
@@ -183,8 +220,8 @@ function isFacebookUrl(value: string) {
 
 export default function Application() {
   const revealRef = useReveal<HTMLDivElement>({ selector: '[data-reveal]', stagger: 0.1 })
-  const [step, setStep] = useState(0)
-  const [data, setData] = useState<ApplicationData>(INITIAL_DATA)
+  const [step, setStep] = useState(() => readDraft()?.step ?? 0)
+  const [data, setData] = useState<ApplicationData>(() => readDraft()?.data ?? INITIAL_DATA)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState('')
@@ -225,13 +262,20 @@ export default function Application() {
   }, [])
 
   useEffect(() => {
+    if (applicationId) return
+    try {
+      sessionStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify({ step, data }))
+    } catch {
+      /* Storage unavailable. */
+    }
+  }, [step, data, applicationId])
+
+  /* Bring the confirmation into view: the form above collapses on success,
+   * which would otherwise leave the viewport stranded mid-page. */
+  useEffect(() => {
     if (!applicationId) return
-
-    const redirectTimer = window.setTimeout(() => {
-      window.location.replace('/#home')
-    }, 2500)
-
-    return () => window.clearTimeout(redirectTimer)
+    ScrollTrigger.refresh()
+    scrollToId('apply')
   }, [applicationId])
 
   const update = <K extends keyof ApplicationData>(key: K, value: ApplicationData[K]) => {
@@ -355,6 +399,7 @@ export default function Application() {
         ? ((await response.json()) as { applicationId?: string; message?: string })
         : null
       if (!response.ok || !result?.applicationId) throw new Error(result?.message || 'Application service unavailable')
+      clearDraft()
       setApplicationId(result.applicationId)
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : 'The application could not be submitted.')
@@ -444,7 +489,7 @@ export default function Application() {
                   <p className="ln-label mt-8 text-emerald-300">Application received</p>
                   <h3 className="mt-3 font-display text-4xl uppercase text-bone sm:text-6xl">You are in the queue.</h3>
                   <p className="mt-5 max-w-lg text-sm leading-relaxed text-bone/55">
-                    Your application is pending review. Save this reference to track your application status. Your Discord session is now disconnected, and you will return to the homepage shortly.
+                    Your application is pending review. Save this reference to track your application status. Your Discord session is now disconnected, and this confirmation will remain here until you choose where to go next.
                   </p>
                   <div className="mt-8 rounded-2xl border border-bone/15 bg-bone/5 px-6 py-4">
                     <span className="ln-label text-[0.55rem] text-bone/40">Application ID</span>

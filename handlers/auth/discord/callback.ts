@@ -15,7 +15,7 @@ import { getSupabaseAdmin } from '../../../server/supabase.js'
 
 function oauthFailure(request: VercelRequest, response: VercelResponse, reason: string) {
   clearOAuthCookies(response)
-  return response.redirect(302, appUrl(request, `/?discord_error=${encodeURIComponent(reason)}#apply`))
+  return response.redirect(302, appUrl(request, `/apply?discord_error=${encodeURIComponent(reason)}`))
 }
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
