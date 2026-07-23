@@ -634,14 +634,6 @@ export default function Application() {
                       </fieldset>
 
                       <div className="grid gap-6 lg:grid-cols-2">
-                        <ChoiceGroup
-                          label="Willing to use our clan tag?"
-                          name="clanTag"
-                          value={data.willingToUseClanTag}
-                          options={[{ label: 'Yes', value: 'Yes' }, { label: 'No', value: 'No' }]}
-                          onChange={(value) => update('willingToUseClanTag', value)}
-                          error={errors.willingToUseClanTag}
-                        />
                         <fieldset>
                           <legend><FieldLabel>How often do you play?</FieldLabel></legend>
                           <div className="mt-2 space-y-2">
@@ -664,6 +656,14 @@ export default function Application() {
                           </div>
                           <FieldError>{errors.playFrequency}</FieldError>
                         </fieldset>
+                        <ChoiceGroup
+                          label="Willing to use our clan tag?"
+                          name="clanTag"
+                          value={data.willingToUseClanTag}
+                          options={[{ label: 'Yes', value: 'Yes' }, { label: 'No', value: 'No' }]}
+                          onChange={(value) => update('willingToUseClanTag', value)}
+                          error={errors.willingToUseClanTag}
+                        />
                       </div>
                     </div>
                   )}
