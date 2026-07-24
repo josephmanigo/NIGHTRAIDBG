@@ -76,6 +76,48 @@ Discord requires lowercase slash-command names, so the NIGHTRAID clan command is
 
 For predictable results, pin only the official rule messages and arrange the rules in the order they were originally posted. The bot needs **View Channel** and **Read Message History** in the rules channel. Keep **MESSAGE CONTENT INTENT** enabled so it can read the rule text.
 
+## Scrim registration automation
+
+The same long-running bot maintains a live ordered scrim board across these channels:
+
+| Purpose | Channel ID |
+| --- | --- |
+| Team registration | `1260139820836065300` |
+| Live registered teams and waiting list | `1260501981508669471` |
+| Cancellations and replacement claims | `1344620122094174281` |
+
+### Registration
+
+Each valid line in the registration channel is added in message order:
+
+```text
+🇵🇭 | TAG - TEAM NAME
+```
+
+One message may contain several valid lines. Slots are filled from `01A` through `25Y`; additional teams enter the waiting list in order. Posting a new registration banner GIF clears the previous cycle and starts a fresh real-time board.
+
+### Cancellation and waiting-list promotion
+
+Use this format in the cancellation channel:
+
+```text
+CANCEL - TEAM NAME
+```
+
+The team is removed. If it owned a slot, the first waiting-list team is immediately promoted into that exact slot.
+
+### Claiming a canceled slot
+
+Reply directly to the `CANCEL - TEAM NAME` message:
+
+```text
+MINE - TEAM TAG TEAM NAME
+```
+
+The claiming team receives the canceled slot. If a waiting-list team was temporarily promoted, it returns to the front of the waiting list. Only the first valid claim is accepted.
+
+The live board is bot-owned, pinned, automatically edited after each change, and reconstructed after restarts. Its Philippine date is refreshed automatically. The bot needs **View Channel**, **Read Message History**, **Send Messages**, **Embed Links**, **Add Reactions**, and **Manage Messages** in the three channels.
+
 ## 4. Run the bot
 
 ```
@@ -101,3 +143,6 @@ Keep the process running (pm2, systemd, a Railway/Render worker, or a terminal t
 6. Join a voice channel, open that voice channel's text chat, type `/rules`, and confirm the same rules embed appears.
 7. Run `/nrules` and confirm **NIGHTRAID CLAN RULES** uses the configured clan-rules message.
 8. Run `/scrimrules` and confirm **SCRIM MECHANICS** includes both the mechanics text and requested image.
+9. Send two valid teams in one registration message and confirm both appear in consecutive slots.
+10. Fill the slots, register a waiting team, cancel a slotted team, and confirm the first waiting team is promoted.
+11. Reply `MINE - TAG TEAM NAME` to a cancellation and confirm the claimed team replaces the canceled slot.

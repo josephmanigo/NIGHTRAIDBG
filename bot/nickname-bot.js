@@ -21,6 +21,7 @@
  */
 import { createServer } from 'node:http'
 import { ActionRowBuilder, ButtonBuilder, ButtonStyle, Client, EmbedBuilder, Events, GatewayIntentBits } from 'discord.js'
+import { installScrimAutomation } from './scrim-automation.js'
 
 const required = (name) => {
   const value = process.env[name]?.trim()
@@ -251,6 +252,8 @@ const client = new Client({
     GatewayIntentBits.MessageContent,
   ],
 })
+
+installScrimAutomation(client)
 
 client.once(Events.ClientReady, async (readyClient) => {
   console.log(`Nickname bot connected as ${readyClient.user.tag}. Watching channel ${NICKNAME_CHANNEL_ID}.`)
