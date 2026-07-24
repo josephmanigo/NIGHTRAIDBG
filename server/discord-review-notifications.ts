@@ -25,11 +25,14 @@ function applicationEmbed(application: ClanApplicationRow, viewUrl: string) {
     application.discovery_source === 'Others'
       ? application.discovery_source_other || 'Other'
       : application.discovery_source
-  const discordStatus = application.discord_membership_verified
-    ? 'Verified member'
-    : application.already_joined_discord
-      ? 'Applicant says joined; verification unavailable'
-      : 'Not joined'
+  const discordStatus =
+    application.discord_membership_verified === true
+      ? 'Verified member'
+      : application.discord_membership_verified === false
+        ? 'Not in server — rejection DM unavailable'
+        : application.already_joined_discord
+          ? 'Applicant says joined; verification unavailable'
+          : 'Not joined — rejection DM unavailable'
 
   return {
     color: NIGHTRAID_RED,

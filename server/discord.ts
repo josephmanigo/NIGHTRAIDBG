@@ -127,12 +127,20 @@ export interface DiscordUser {
 }
 
 async function discordJson<T>(response: Response): Promise<T> {
-  if (!response.ok) throw new Error(`Discord API request failed with status ${response.status}.`)
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as { code?: number; message?: string } | null
+    const detail = payload?.message ? ` ${payload.message}${payload.code ? ` (${payload.code})` : ''}.` : ''
+    throw new Error(`Discord API request failed with status ${response.status}.${detail}`)
+  }
   return (await response.json()) as T
 }
 
 async function discordSuccess(response: Response, action: string) {
-  if (!response.ok) throw new Error(`${action} failed with Discord status ${response.status}.`)
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as { code?: number; message?: string } | null
+    const detail = payload?.message ? ` ${payload.message}${payload.code ? ` (${payload.code})` : ''}.` : ''
+    throw new Error(`${action} failed with Discord status ${response.status}.${detail}`)
+  }
 }
 
 function botHeaders(json = false) {

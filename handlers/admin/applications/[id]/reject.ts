@@ -31,7 +31,9 @@ export default async function handler(request: VercelRequest, response: VercelRe
       message:
         result.applicantNotification === 'COMPLETED'
           ? 'Application rejected and the applicant was notified through Discord.'
-          : 'Application rejected. The applicant can see the decision in the status portal, but the Discord DM failed.',
+          : result.applicantNotification === 'PORTAL_ONLY'
+            ? 'Application rejected. The applicant is not in the Discord server, so the decision is available in the status portal.'
+            : 'Application rejected. The decision is visible in the status portal, but the Discord DM failed unexpectedly.',
     })
   } catch (reason) {
     if (reason instanceof DecisionConflictError) return response.status(409).json({ message: reason.message })

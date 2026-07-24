@@ -24,7 +24,9 @@ export default async function handler(request: VercelRequest, response: VercelRe
     const notificationNote =
       result.applicantNotification === 'COMPLETED'
         ? ' The applicant was notified through Discord.'
-        : ' The Discord DM failed, but the acceptance is visible in the applicant portal.'
+        : result.applicantNotification === 'PORTAL_ONLY'
+          ? ' The applicant is not in the Discord server, so the acceptance is visible in the applicant portal.'
+          : ' The Discord DM failed unexpectedly, but the acceptance is visible in the applicant portal.'
     const sheetNote =
       googleSheetsSync.status === 'SYNCED'
         ? ' The accepted-applicant Google Sheet was updated.'

@@ -1,6 +1,10 @@
 import type { VercelRequest } from '@vercel/node'
 import { recordAuditEvent } from './audit.js'
-import { acceptedApplicantDiscordMessage, sendDiscordDirectMessage } from './discord.js'
+import {
+  acceptedApplicantDiscordMessage,
+  fetchDiscordGuildMember,
+  sendDiscordDirectMessage,
+} from './discord.js'
 import { onboardApprovedApplication, type DiscordOnboardingResult } from './discord-onboarding.js'
 import { syncExcelRegister } from './excel-sync.js'
 import { syncApprovedApplicationToGoogleSheet } from './google-sheets-sync.js'
@@ -16,9 +20,20 @@ export class DecisionConflictError extends Error {
 
 type ApplicantNotificationResult =
   | { applicantNotification: 'COMPLETED'; notificationError?: never }
+  | { applicantNotification: 'PORTAL_ONLY'; notificationError?: never }
   | { applicantNotification: 'FAILED'; notificationError: string }
 
 async function notifyApplicant(discordUserId: string, message: string): Promise<ApplicantNotificationResult> {
+  try {
+    const member = await fetchDiscordGuildMember(discordUserId)
+    if (!member) return { applicantNotification: 'PORTAL_ONLY' }
+  } catch (reason) {
+    console.warn(
+      'Applicant Discord membership check failed before notification:',
+      reason instanceof Error ? reason.message : 'Unknown Discord membership error',
+    )
+  }
+
   try {
     await sendDiscordDirectMessage(discordUserId, message)
     return { applicantNotification: 'COMPLETED' }

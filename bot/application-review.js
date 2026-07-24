@@ -169,7 +169,7 @@ export function installApplicationReview(client) {
       const message = channel?.messages ? await channel.messages.fetch(modal.messageId) : null
       if (message) await markDecision(message, 'REJECTED', interaction.user.username, reason)
       await interaction.editReply({
-        content: `❌ ${result.message}`,
+        content: `✅ ${result.message}`,
         allowedMentions: { parse: [] },
       })
     } catch (reason) {

@@ -127,8 +127,8 @@ async function processEvent(event: MetaMessagingEvent) {
       await sendMessengerText(
         senderPsid,
         result.onboarding.status === 'COMPLETED'
-          ? `Approved ${result.application.application_number}. Discord onboarding completed.${result.applicantNotification === 'COMPLETED' ? ' The applicant was notified through Discord.' : ' The applicant DM failed, but the acceptance is visible in the status portal.'}`
-          : `Approved ${result.application.application_number}, but Discord onboarding needs a retry in the admin portal.${result.applicantNotification === 'COMPLETED' ? ' The applicant was notified through Discord.' : ' The applicant DM failed, but the acceptance is visible in the status portal.'}`,
+          ? `Approved ${result.application.application_number}. Discord onboarding completed.${result.applicantNotification === 'COMPLETED' ? ' The applicant was notified through Discord.' : result.applicantNotification === 'PORTAL_ONLY' ? ' The applicant is not in the Discord server, so the acceptance is visible in the status portal.' : ' The applicant DM failed unexpectedly, but the acceptance is visible in the status portal.'}`
+          : `Approved ${result.application.application_number}, but Discord onboarding needs a retry in the admin portal.${result.applicantNotification === 'COMPLETED' ? ' The applicant was notified through Discord.' : result.applicantNotification === 'PORTAL_ONLY' ? ' The applicant is not in the Discord server, so the acceptance is visible in the status portal.' : ' The applicant DM failed unexpectedly, but the acceptance is visible in the status portal.'}`,
       )
     } else if (action.action === 'REJECT_MENU') {
       if (!admin.can_reject) throw new Error('This Messenger administrator cannot reject applications.')
@@ -176,7 +176,9 @@ async function processEvent(event: MetaMessagingEvent) {
         senderPsid,
         result.applicantNotification === 'COMPLETED'
           ? `Rejected ${result.application.application_number}. The applicant was notified through Discord.`
-          : `Rejected ${result.application.application_number}. The Discord DM failed, but the decision is visible in the applicant portal.`,
+          : result.applicantNotification === 'PORTAL_ONLY'
+            ? `Rejected ${result.application.application_number}. The applicant is not in the Discord server, so the decision is available in the status portal.`
+            : `Rejected ${result.application.application_number}. The Discord DM failed unexpectedly, but the decision is visible in the applicant portal.`,
       )
     } else if (action.action === 'REJECT_CANCEL') {
       if (!admin.can_reject) throw new Error('This rejection action is not permitted.')

@@ -118,7 +118,9 @@ export default async function handler(request: VercelRequest, response: VercelRe
       message:
         result.applicantNotification === 'COMPLETED'
           ? 'Application rejected and the applicant was notified through Discord.'
-          : 'Application rejected, but the applicant Discord DM failed.',
+          : result.applicantNotification === 'PORTAL_ONLY'
+            ? 'Application rejected. The applicant is not in the NIGHTRAID server, so the decision is available in their application status portal.'
+            : 'Application rejected, but the applicant Discord DM failed unexpectedly.',
     })
   } catch (reason) {
     if (reason instanceof DecisionConflictError) {
