@@ -3,8 +3,10 @@ import {
   addDiscordGuildMember,
   addDiscordMemberRole,
   fetchDiscordGuildRoles,
+  nightNickname,
   refreshDiscordToken,
   sendDiscordWelcomeMessage,
+  setDiscordMemberNickname,
 } from './discord.js'
 import { env } from './env.js'
 import { getSupabaseAdmin } from './supabase.js'
@@ -15,6 +17,7 @@ const CLAIMABLE_ONBOARDING_STATUSES = ['NOT_STARTED', 'FAILED']
 export interface DiscordOnboardingResult {
   status: 'COMPLETED' | 'DISCORD_JOIN_FAILED'
   assignedRoles: string[]
+  nicknameApplied?: boolean
   welcomeNotification?: 'COMPLETED' | 'FAILED'
   error?: string
 }
@@ -127,6 +130,19 @@ export async function onboardApprovedApplication(applicationId: string): Promise
         assignedRoles.push(role.name)
       }
     }
+
+    /* Best effort: an unmanageable member (server owner, higher role) keeps
+     * their own nickname and simply gets the manual instructions instead. */
+    let nicknameApplied = false
+    try {
+      nicknameApplied = await setDiscordMemberNickname(
+        application.discord_user_id,
+        nightNickname(application.in_game_name),
+      )
+    } catch (reason) {
+      console.error('Discord onboarding nickname update failed:', safeError(reason))
+    }
+
     let welcomeNotification: 'COMPLETED' | 'FAILED' = 'COMPLETED'
     try {
       await sendDiscordWelcomeMessage(
@@ -134,6 +150,7 @@ export async function onboardApprovedApplication(applicationId: string): Promise
         application.application_number,
         application.in_game_name,
         application.games,
+        nicknameApplied,
       )
     } catch (reason) {
       welcomeNotification = 'FAILED'
@@ -161,7 +178,7 @@ export async function onboardApprovedApplication(applicationId: string): Promise
       assignedRoles,
       status: 'COMPLETED',
     })
-    return { status: 'COMPLETED', assignedRoles, welcomeNotification }
+    return { status: 'COMPLETED', assignedRoles, nicknameApplied, welcomeNotification }
   } catch (reason) {
     const message = safeError(reason)
     const failedAt = new Date().toISOString()

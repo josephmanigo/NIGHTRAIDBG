@@ -76,7 +76,7 @@ export async function approveApplication(input: {
     reason: null,
   })
 
-  const sendAcceptanceMessage = () =>
+  const sendAcceptanceMessage = (nicknameApplied: boolean) =>
     notifyApplicant(
       application.discord_user_id,
       acceptedApplicantDiscordMessage({
@@ -84,6 +84,7 @@ export async function approveApplication(input: {
         inGameName: application.in_game_name,
         games: application.games,
         onboardingComplete: false,
+        nicknameApplied,
       }),
     )
 
@@ -94,13 +95,13 @@ export async function approveApplication(input: {
   try {
     onboarding = await onboardApprovedApplication(application.id)
   } catch (reason) {
-    await sendAcceptanceMessage()
+    await sendAcceptanceMessage(false)
     throw reason
   }
   const notification: ApplicantNotificationResult =
     onboarding.welcomeNotification === 'COMPLETED'
       ? { applicantNotification: 'COMPLETED' }
-      : await sendAcceptanceMessage()
+      : await sendAcceptanceMessage(onboarding.nicknameApplied ?? false)
 
   const [excelSync, googleSheetsSync] = await Promise.all([
     syncExcelRegister([application.id], input.decidedBy),

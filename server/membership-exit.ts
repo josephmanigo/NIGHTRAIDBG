@@ -1,10 +1,13 @@
 import type { VercelRequest } from '@vercel/node'
 import { recordAuditEvent } from './audit.js'
 import {
+  fetchDiscordGuildMember,
   fetchDiscordGuildRoles,
   removeDiscordGuildMember,
   removeDiscordMemberRole,
   sendDiscordDirectMessage,
+  setDiscordMemberNickname,
+  withoutNightPrefix,
 } from './discord.js'
 import { syncExcelRegister } from './excel-sync.js'
 import { removeApplicationFromGoogleSheet } from './google-sheets-sync.js'
@@ -33,6 +36,18 @@ export interface MembershipExitResult {
 
 function safeError(reason: unknown, fallback: string) {
   return (reason instanceof Error ? reason.message : fallback).slice(0, 300)
+}
+
+/* A member who stays in the server after exiting the clan loses the
+ * `NIGHT • ` nickname prefix: `NIGHT • Yepo` becomes `Yepo`. Nicknames
+ * without the prefix are left alone. */
+async function dropNightNicknamePrefix(discordUserId: string, inGameName: string) {
+  const member = await fetchDiscordGuildMember(discordUserId)
+  const nickname = member?.nick?.trim()
+  if (!nickname) return
+  const stripped = withoutNightPrefix(nickname)
+  if (stripped === nickname) return
+  await setDiscordMemberNickname(discordUserId, stripped || inGameName.trim().slice(0, 32) || null)
 }
 
 /* assigned_discord_roles stores role names, so they are resolved back to IDs
@@ -75,9 +90,11 @@ async function closeMembership(input: {
   let discordCleanup: 'COMPLETED' | 'FAILED' = 'COMPLETED'
   try {
     if (input.kickFromDiscord) {
+      /* A kick wipes the server nickname, so no rename is needed first. */
       await removeDiscordGuildMember(application.discord_user_id)
     } else {
       await clearAssignedRoles(application.discord_user_id, application.assigned_discord_roles)
+      await dropNightNicknamePrefix(application.discord_user_id, application.in_game_name)
     }
   } catch (reason) {
     discordCleanup = 'FAILED'

@@ -251,7 +251,7 @@ export default function ApplicationStatusPage() {
                       </div>
                       <div className="rounded-2xl border border-blood/20 bg-blood/[0.06] p-4 sm:p-5">
                         <p className="ln-label text-[0.48rem] text-blood">Discord server</p>
-                        <p className="mt-3 text-xs leading-relaxed text-bone/45">Set your server nickname to</p>
+                        <p className="mt-3 text-xs leading-relaxed text-bone/45">Your server nickname is set automatically to</p>
                         <strong className="mt-2 block break-words font-display text-xl uppercase tracking-wide text-bone">
                           {`NIGHT \u2022 ${application.in_game_name}`}
                         </strong>

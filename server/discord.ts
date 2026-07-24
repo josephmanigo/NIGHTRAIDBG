@@ -10,6 +10,7 @@ export interface DiscordTokenResponse {
 
 export interface DiscordGuildMember {
   user?: DiscordUser
+  nick?: string | null
   roles: string[]
   joined_at?: string
 }
@@ -42,11 +43,26 @@ const MESSENGER_GAME_TAGS: Record<string, string> = {
   Farlight: 'FL',
 }
 
+export const NIGHT_NICKNAME_PREFIX = 'NIGHT • '
+const DISCORD_NICKNAME_MAX_LENGTH = 32 // Discord's hard limit.
+
+export function nightNickname(inGameName: string) {
+  const safe = inGameName.replace(/[\r\n`]/g, ' ').replace(/\s+/g, ' ').trim()
+  return `${NIGHT_NICKNAME_PREFIX}${safe}`.slice(0, DISCORD_NICKNAME_MAX_LENGTH).trim()
+}
+
+/* `NIGHT • Yepo` → `Yepo`; a nickname without the clan prefix comes back
+ * unchanged. Tolerates the separator variants members type by hand. */
+export function withoutNightPrefix(nickname: string) {
+  return nickname.replace(/^night\s*[•·|:-]*\s*/i, '').trim()
+}
+
 export function acceptedApplicantDiscordMessage(input: {
   applicationNumber: string
   inGameName: string
   games: string[]
   onboardingComplete: boolean
+  nicknameApplied?: boolean
 }) {
   const safeInGameName = input.inGameName.replace(/[\r\n`]/g, ' ').replace(/\s+/g, ' ').trim()
   const headingName = safeInGameName.replace(/([\\*_~|>])/g, '\\$1')
@@ -71,8 +87,12 @@ export function acceptedApplicantDiscordMessage(input: {
     `**Enter:** [JOIN THE NIGHTRAID GROUP](${MESSENGER_GROUP_CHAT_URL})`,
     '',
     '### DISCORD SERVER',
-    `**Nickname:** \`NIGHT \u2022 ${safeInGameName}\``,
-    `**Change it here:** [OPEN THE NICKNAME CHANNEL](${DISCORD_NICKNAME_SERVER_URL})`,
+    ...(input.nicknameApplied
+      ? [`**Nickname:** \`${nightNickname(input.inGameName)}\` \u2014 already set for you.`]
+      : [
+          `**Nickname:** \`NIGHT \u2022 ${safeInGameName}\``,
+          `**Change it here:** [OPEN THE NICKNAME CHANNEL](${DISCORD_NICKNAME_SERVER_URL})`,
+        ]),
     '',
     '### IN-GAME IDENTITY',
     `**Clan tag:** \`${NIGHTRAID_CLAN_TAG}\``,
@@ -84,7 +104,9 @@ export function acceptedApplicantDiscordMessage(input: {
     '',
     '### NEXT ORDERS',
     '1. Join the Messenger group chat.',
-    '2. Change both nicknames to the formats above.',
+    input.nicknameApplied
+      ? '2. Set your Messenger nickname to the format above — your Discord nickname is already done.'
+      : '2. Change both nicknames to the formats above.',
     '3. Update your in-game name with the NIGHTRAID clan tag.',
     '4. Join the assigned in-game clan using the clan IDs above.',
     '5. Review the clan rules and complete your trial period.',
@@ -211,6 +233,20 @@ export async function removeDiscordMemberRole(discordUserId: string, roleId: str
   await discordSuccess(response, 'Removing a NIGHTRAID role')
 }
 
+/* Sets (or clears, with null) a member's server nickname. Returns false when
+ * Discord refuses the rename — the server owner, a member with a role above
+ * the bot's, or someone no longer in the server — so callers can treat an
+ * unmanageable member as a soft failure instead of aborting their flow. */
+export async function setDiscordMemberNickname(discordUserId: string, nickname: string | null) {
+  const response = await fetch(
+    `${DISCORD_API}/guilds/${encodeURIComponent(env.discordGuildId())}/members/${encodeURIComponent(discordUserId)}`,
+    { method: 'PATCH', headers: botHeaders(true), body: JSON.stringify({ nick: nickname }) },
+  )
+  if (response.status === 403 || response.status === 404) return false
+  await discordSuccess(response, 'Updating the NIGHTRAID member nickname')
+  return true
+}
+
 export async function removeDiscordGuildMember(discordUserId: string) {
   const response = await fetch(
     `${DISCORD_API}/guilds/${encodeURIComponent(env.discordGuildId())}/members/${encodeURIComponent(discordUserId)}`,
@@ -255,6 +291,7 @@ export async function sendDiscordWelcomeMessage(
   applicationNumber: string,
   inGameName: string,
   games: string[],
+  nicknameApplied: boolean,
 ) {
   return sendDiscordDirectMessage(
     discordUserId,
@@ -263,6 +300,7 @@ export async function sendDiscordWelcomeMessage(
       inGameName,
       games,
       onboardingComplete: true,
+      nicknameApplied,
     }),
   )
 }
