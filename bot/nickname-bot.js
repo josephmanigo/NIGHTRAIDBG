@@ -35,9 +35,22 @@ const RULES_CHANNEL_ID = process.env.DISCORD_RULES_CHANNEL_ID?.trim() || '120860
 
 const NICKNAME_MAX_LENGTH = 32 // Discord's hard limit.
 const RULES_COMMAND_NAME = 'rules'
+const NIGHTRAID_RULES_COMMAND_NAME = 'nrules'
+const SCRIM_RULES_COMMAND_NAME = 'scrimrules'
+const NIGHTRAID_CLAN_RULES_CHANNEL_ID = '1239020074908520478'
+const NIGHTRAID_CLAN_RULES_MESSAGE_ID = '1443300854613544993'
+const SCRIM_RULES_CHANNEL_ID = '1260371856268202125'
+const SCRIM_RULES_MESSAGE_ID = '1522987468532744332'
+const SCRIM_RULES_IMAGE_MESSAGE_ID = '1522987523335524442'
 const RULES_DESCRIPTION_LIMIT = 5_600
 const RULES_EMBED_LIMIT = 3_800
 const NIGHTRAID_RED = 0xed1c24
+const COMMAND_DEFINITIONS = [
+  { name: RULES_COMMAND_NAME, description: 'Show the official NIGHTRAID rules.' },
+  { name: NIGHTRAID_RULES_COMMAND_NAME, description: 'Show the NIGHTRAID clan rules.' },
+  { name: SCRIM_RULES_COMMAND_NAME, description: 'Show the official NIGHTRAID scrim mechanics.' },
+]
+const COMMAND_NAMES = new Set(COMMAND_DEFINITIONS.map((command) => command.name))
 
 const CHECK_MARK = '✅'
 const WARNING = '⚠️'
@@ -129,9 +142,9 @@ function messageText(message) {
     .join('\n')
 }
 
-function truncateRulesContent(content) {
+function truncateResponseContent(content) {
   if (content.length <= RULES_DESCRIPTION_LIMIT) return content
-  return `${content.slice(0, RULES_DESCRIPTION_LIMIT - 72).trimEnd()}\n\n*More rules are available in the official rules channel.*`
+  return `${content.slice(0, RULES_DESCRIPTION_LIMIT - 72).trimEnd()}\n\n*More details are available in the source channel.*`
 }
 
 function splitRulesContent(content) {
@@ -168,7 +181,7 @@ function buildRulesResponse(messages, guildId) {
     .filter(Boolean)
     .join('\n\n')
   const rulesChannelUrl = `https://discord.com/channels/${guildId}/${RULES_CHANNEL_ID}`
-  const description = truncateRulesContent(content || `Read the official rules in <#${RULES_CHANNEL_ID}>.`)
+  const description = truncateResponseContent(content || `Read the official rules in <#${RULES_CHANNEL_ID}>.`)
   const embeds = splitRulesContent(description).map((chunk, index) =>
     new EmbedBuilder()
       .setColor(NIGHTRAID_RED)
@@ -182,6 +195,48 @@ function buildRulesResponse(messages, guildId) {
         .setLabel('OPEN RULES CHANNEL')
         .setStyle(ButtonStyle.Link)
         .setURL(rulesChannelUrl),
+    ),
+  ]
+
+  return { embeds, components, allowedMentions: { parse: [] } }
+}
+
+async function fetchReadableChannel(channelId) {
+  const channel = await client.channels.fetch(channelId)
+  if (!channel?.isTextBased() || !('messages' in channel)) {
+    throw new Error(`Channel ${channelId} is not a readable text channel.`)
+  }
+  return channel
+}
+
+function buildExactMessageResponse({
+  messages,
+  guildId,
+  channelId,
+  sourceMessageId,
+  title,
+  footer,
+  buttonLabel,
+  imageUrl,
+}) {
+  const content = messages.map(messageText).filter(Boolean).join('\n\n')
+  const description = truncateResponseContent(content || `Open <#${channelId}> to view this information.`)
+  const embeds = splitRulesContent(description).map((chunk, index) =>
+    new EmbedBuilder()
+      .setColor(NIGHTRAID_RED)
+      .setTitle(index === 0 ? title : `${title} • CONTINUED`)
+      .setDescription(chunk)
+      .setFooter({ text: footer }),
+  )
+  if (imageUrl) embeds.at(-1)?.setImage(imageUrl)
+
+  const sourceUrl = `https://discord.com/channels/${guildId}/${channelId}/${sourceMessageId}`
+  const components = [
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setLabel(buttonLabel)
+        .setStyle(ButtonStyle.Link)
+        .setURL(sourceUrl),
     ),
   ]
 
@@ -212,18 +267,19 @@ client.once(Events.ClientReady, async (readyClient) => {
 
   try {
     const guild = await readyClient.guilds.fetch(GUILD_ID)
-    await guild.commands.create({
-      name: RULES_COMMAND_NAME,
-      description: 'Show the official NIGHTRAID rules.',
-    })
-    console.log(`/${RULES_COMMAND_NAME} is registered in ${guild.name}. Rules source: ${RULES_CHANNEL_ID}.`)
+    for (const command of COMMAND_DEFINITIONS) {
+      await guild.commands.create(command)
+    }
+    console.log(
+      `${COMMAND_DEFINITIONS.map((command) => `/${command.name}`).join(', ')} registered in ${guild.name}.`,
+    )
   } catch (reason) {
-    console.error(`Could not register /${RULES_COMMAND_NAME}:`, reason instanceof Error ? reason.message : reason)
+    console.error('Could not register NIGHTRAID commands:', reason instanceof Error ? reason.message : reason)
   }
 })
 
 client.on(Events.InteractionCreate, async (interaction) => {
-  if (!interaction.isChatInputCommand() || interaction.commandName !== RULES_COMMAND_NAME) return
+  if (!interaction.isChatInputCommand() || !COMMAND_NAMES.has(interaction.commandName)) return
 
   try {
     await interaction.deferReply()
@@ -235,16 +291,58 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return
     }
 
-    const channel = await client.channels.fetch(RULES_CHANNEL_ID)
-    if (!channel?.isTextBased() || !('messages' in channel)) {
-      throw new Error('DISCORD_RULES_CHANNEL_ID does not point to a readable text channel.')
+    if (interaction.commandName === RULES_COMMAND_NAME) {
+      const channel = await fetchReadableChannel(RULES_CHANNEL_ID)
+      const messages = await fetchRulesMessages(channel)
+      await interaction.editReply(buildRulesResponse(messages, interaction.guildId))
+      return
     }
-    const messages = await fetchRulesMessages(channel)
-    await interaction.editReply(buildRulesResponse(messages, interaction.guildId))
+
+    if (interaction.commandName === NIGHTRAID_RULES_COMMAND_NAME) {
+      const channel = await fetchReadableChannel(NIGHTRAID_CLAN_RULES_CHANNEL_ID)
+      const message = await channel.messages.fetch(NIGHTRAID_CLAN_RULES_MESSAGE_ID)
+      await interaction.editReply(
+        buildExactMessageResponse({
+          messages: [message],
+          guildId: interaction.guildId,
+          channelId: NIGHTRAID_CLAN_RULES_CHANNEL_ID,
+          sourceMessageId: NIGHTRAID_CLAN_RULES_MESSAGE_ID,
+          title: 'NIGHTRAID CLAN RULES',
+          footer: 'Official NIGHTRAID clan rules',
+          buttonLabel: 'OPEN CLAN RULES',
+        }),
+      )
+      return
+    }
+
+    const channel = await fetchReadableChannel(SCRIM_RULES_CHANNEL_ID)
+    const [message, imageMessage] = await Promise.all([
+      channel.messages.fetch(SCRIM_RULES_MESSAGE_ID),
+      channel.messages.fetch(SCRIM_RULES_IMAGE_MESSAGE_ID),
+    ])
+    const imageUrl = imageMessage.attachments.find((attachment) => attachment.contentType?.startsWith('image/'))?.url
+    await interaction.editReply(
+      buildExactMessageResponse({
+        messages: [message],
+        guildId: interaction.guildId,
+        channelId: SCRIM_RULES_CHANNEL_ID,
+        sourceMessageId: SCRIM_RULES_MESSAGE_ID,
+        title: 'SCRIM MECHANICS',
+        footer: 'Official NIGHTRAID scrim mechanics',
+        buttonLabel: 'OPEN SCRIM RULES',
+        imageUrl,
+      }),
+    )
   } catch (reason) {
-    console.error(`/${RULES_COMMAND_NAME} failed:`, reason instanceof Error ? reason.message : reason)
+    console.error(`/${interaction.commandName} failed:`, reason instanceof Error ? reason.message : reason)
+    const sourceChannelId =
+      interaction.commandName === NIGHTRAID_RULES_COMMAND_NAME
+        ? NIGHTRAID_CLAN_RULES_CHANNEL_ID
+        : interaction.commandName === SCRIM_RULES_COMMAND_NAME
+          ? SCRIM_RULES_CHANNEL_ID
+          : RULES_CHANNEL_ID
     const errorResponse = {
-      content: `The NIGHTRAID rules could not be loaded right now. Open <#${RULES_CHANNEL_ID}> to read them.`,
+      content: `The requested NIGHTRAID information could not be loaded right now. Open <#${sourceChannelId}> to view it.`,
       allowedMentions: { parse: [] },
     }
     if (interaction.deferred || interaction.replied) await interaction.editReply(errorResponse).catch(() => undefined)

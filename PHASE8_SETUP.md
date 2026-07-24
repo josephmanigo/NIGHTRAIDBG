@@ -1,6 +1,6 @@
 # NIGHTRAID Phase 8 — Discord bot
 
-Phase 8 adds a Discord bot process that manages nickname requests and the server's `/rules` command.
+Phase 8 adds a Discord bot process that manages nickname requests and the server's rules commands.
 
 ## Nickname channel
 
@@ -62,15 +62,17 @@ To copy an ID: Discord **User Settings → Advanced → Developer Mode**, then r
 
 Put the nickname channel ID in `.env.local` (next to the existing variables) and on the host that runs the bot. Set `DISCORD_RULES_CHANNEL_ID` only if the official rules move to another channel.
 
-## `/rules` command
+## Rules commands
 
-When the bot starts, it registers `/rules` as an instant guild command in `DISCORD_GUILD_ID`. Members can run it in any channel where **Use Application Commands** is allowed, including the text chat attached to a voice channel.
+When the bot starts, it registers the rules commands as instant guild commands in `DISCORD_GUILD_ID`. Members can run them in any channel where **Use Application Commands** is allowed, including the text chat attached to a voice channel.
 
-The response is a NIGHTRAID-styled embed:
+| Command | Response | Source |
+| --- | --- | --- |
+| `/rules` | **NIGHTRAID RULES** | Pinned messages in `DISCORD_RULES_CHANNEL_ID`, or the latest 100 messages when nothing is pinned |
+| `/nrules` | **NIGHTRAID CLAN RULES** | Message `1443300854613544993` |
+| `/scrimrules` | **SCRIM MECHANICS** plus its official image | Text message `1522987468532744332` and image message `1522987523335524442` |
 
-- Pinned messages in `DISCORD_RULES_CHANNEL_ID` are used first, ordered from oldest to newest.
-- If nothing is pinned, the latest 100 messages are used.
-- The response includes an **OPEN RULES CHANNEL** button.
+Discord requires lowercase slash-command names, so the NIGHTRAID clan command is `/nrules`, not `/Nrules`. Every response uses a NIGHTRAID-styled embed and includes a button linking back to its source message or channel.
 
 For predictable results, pin only the official rule messages and arrange the rules in the order they were originally posted. The bot needs **View Channel** and **Read Message History** in the rules channel. Keep **MESSAGE CONTENT INTENT** enabled so it can read the rule text.
 
@@ -84,7 +86,7 @@ The script loads `.env.local` / `.env` automatically when present. A successful 
 
 ```
 Nickname bot connected as NIGHTRAID#0000. Watching channel 123456789012345678.
-/rules is registered in NIGHTRAID. Rules source: 234567890123456789.
+/rules, /nrules, /scrimrules registered in NIGHTRAID.
 ```
 
 Keep the process running (pm2, systemd, a Railway/Render worker, or a terminal that stays open). If it is offline, messages in the nickname channel are simply not processed — nothing else in the system depends on it.
@@ -97,3 +99,5 @@ Keep the process running (pm2, systemd, a Railway/Render worker, or a terminal t
 4. Send a message as someone the bot cannot manage (for example the server owner) — the message receives ⚠️.
 5. Type `/rules` in a normal text channel and confirm the rules embed appears.
 6. Join a voice channel, open that voice channel's text chat, type `/rules`, and confirm the same rules embed appears.
+7. Run `/nrules` and confirm **NIGHTRAID CLAN RULES** uses the configured clan-rules message.
+8. Run `/scrimrules` and confirm **SCRIM MECHANICS** includes both the mechanics text and requested image.
