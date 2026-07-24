@@ -33,25 +33,26 @@ export function parseRejectModalId(value) {
   return match ? { applicationId: match[1], messageId: match[2] } : null
 }
 
-function signedHeaders(body, secret, timestamp = String(Date.now())) {
+function signedHeaders(body, botToken, timestamp = String(Date.now())) {
   const canonical = [
     timestamp,
     body.action,
     body.applicationId,
     body.adminDiscordId,
+    body.channelId,
     body.reason ?? '',
   ].join('\n')
   return {
     'content-type': 'application/json',
     'x-nightraid-timestamp': timestamp,
-    'x-nightraid-signature': createHmac('sha256', secret).update(canonical).digest('hex'),
+    'x-nightraid-signature': createHmac('sha256', botToken).update(canonical).digest('hex'),
   }
 }
 
-async function sendDecision(appUrl, secret, body) {
+async function sendDecision(appUrl, botToken, body) {
   const response = await fetch(`${appUrl}/api/discord/application-action`, {
     method: 'POST',
-    headers: signedHeaders(body, secret),
+    headers: signedHeaders(body, botToken),
     body: JSON.stringify(body),
   })
   const payload = await response.json().catch(() => ({}))
@@ -94,32 +95,26 @@ function ephemeralMessage(interaction, content) {
 }
 
 export function installApplicationReview(client) {
-  const channelId = process.env.DISCORD_APPLICATIONS_CHANNEL_ID?.trim()
-  if (!channelId) {
-    console.log('Discord application review is disabled: DISCORD_APPLICATIONS_CHANNEL_ID is not configured.')
-    return
-  }
-
+  const configuredChannelId = process.env.DISCORD_APPLICATIONS_CHANNEL_ID?.trim()
   const appUrl = (process.env.APP_URL?.trim() || 'https://nightraidbg.com').replace(/\/$/, '')
-  const signingSecret = process.env.APPLICATION_SIGNING_SECRET?.trim()
+  const botToken = process.env.DISCORD_BOT_TOKEN?.trim()
   const authorizedAdmins = adminIds()
-  if (!signingSecret || authorizedAdmins.size === 0) {
-    console.error(
-      'Discord application review is disabled: APPLICATION_SIGNING_SECRET and ADMIN_DISCORD_IDS are required.',
-    )
+  if (!botToken) {
+    console.error('Discord application review is disabled: DISCORD_BOT_TOKEN is missing.')
     return
   }
+  console.log('Discord application review interactions enabled.')
 
   client.on(Events.InteractionCreate, async (interaction) => {
     const button = interaction.isButton() ? parseReviewButtonId(interaction.customId) : null
     const modal = interaction.isModalSubmit() ? parseRejectModalId(interaction.customId) : null
     if (!button && !modal) return
 
-    if (interaction.channelId !== channelId) {
+    if (configuredChannelId && interaction.channelId !== configuredChannelId) {
       await ephemeralMessage(interaction, 'This application action can only be used in the NIGHTRAID review channel.')
       return
     }
-    if (!authorizedAdmins.has(interaction.user.id)) {
+    if (authorizedAdmins.size > 0 && !authorizedAdmins.has(interaction.user.id)) {
       await ephemeralMessage(interaction, 'Your Discord account is not authorized to decide NIGHTRAID applications.')
       return
     }
@@ -146,10 +141,11 @@ export function installApplicationReview(client) {
 
       if (button?.action === 'APPROVE') {
         await interaction.deferReply({ ephemeral: true })
-        const result = await sendDecision(appUrl, signingSecret, {
+        const result = await sendDecision(appUrl, botToken, {
           action: 'APPROVE',
           applicationId: button.applicationId,
           adminDiscordId: interaction.user.id,
+          channelId: interaction.channelId,
           reason: null,
         })
         await markDecision(interaction.message, 'APPROVED', interaction.user.username, null)
@@ -162,10 +158,11 @@ export function installApplicationReview(client) {
 
       const reason = interaction.fields.getTextInputValue('reason').trim()
       await interaction.deferReply({ ephemeral: true })
-      const result = await sendDecision(appUrl, signingSecret, {
+      const result = await sendDecision(appUrl, botToken, {
         action: 'REJECT',
         applicationId: modal.applicationId,
         adminDiscordId: interaction.user.id,
+        channelId: interaction.channelId,
         reason,
       })
       const channel = interaction.channel

@@ -19,6 +19,7 @@ const actionSchema = z
     action: z.enum(['APPROVE', 'REJECT']),
     applicationId: z.string().uuid(),
     adminDiscordId: z.string().regex(/^\d{16,22}$/),
+    channelId: z.string().regex(/^\d{16,22}$/),
     reason: z.string().trim().min(2).max(500).nullable().optional(),
   })
   .strict()
@@ -40,6 +41,7 @@ function canonicalAction(timestamp: string, action: DiscordAction) {
     action.action,
     action.applicationId,
     action.adminDiscordId,
+    action.channelId,
     action.reason ?? '',
   ].join('\n')
 }
@@ -52,7 +54,7 @@ function hasValidSignature(request: VercelRequest, action: DiscordAction) {
   const issuedAt = Number(timestamp)
   if (!Number.isSafeInteger(issuedAt) || Math.abs(Date.now() - issuedAt) > SIGNATURE_MAX_AGE_MS) return false
 
-  const expected = createHmac('sha256', env.applicationSigningSecret())
+  const expected = createHmac('sha256', env.discordBotToken())
     .update(canonicalAction(timestamp, action))
     .digest('hex')
   const providedBuffer = Buffer.from(signature, 'hex')
@@ -80,6 +82,9 @@ export default async function handler(request: VercelRequest, response: VercelRe
   }
   if (!isAdminDiscordId(parsed.data.adminDiscordId)) {
     return response.status(403).json({ message: 'This Discord account is not an authorized NIGHTRAID administrator.' })
+  }
+  if (parsed.data.channelId !== env.discordApplicationsChannelId()) {
+    return response.status(403).json({ message: 'This action did not come from the NIGHTRAID review channel.' })
   }
 
   try {

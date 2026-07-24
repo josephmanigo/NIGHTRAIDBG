@@ -58,10 +58,9 @@ The bot reads:
 | `DISCORD_GUILD_ID` | Yes for `/rules` | The NIGHTRAID server ID. |
 | `DISCORD_RULES_CHANNEL_ID` | No | Overrides the default NIGHTRAID rules channel (`1208605026868535387`). |
 | `SCRIM_REGISTRATION_OPENER_IDS` | No | Extra Discord user IDs allowed to open a scrim cycle with a GIF, separated by commas. EMS is already allowed. |
-| `DISCORD_APPLICATIONS_CHANNEL_ID` | Yes for application cards | The private channel where new application cards and decision buttons are posted. |
-| `APP_URL` | Yes for application cards | Production website URL, normally `https://nightraidbg.com`. |
-| `APPLICATION_SIGNING_SECRET` | Yes for application cards | The same signing secret configured in Vercel. |
-| `ADMIN_DISCORD_IDS` | Yes for application cards | The two authorized administrator Discord IDs, separated by commas. |
+| `DISCORD_APPLICATIONS_CHANNEL_ID` | Yes in Vercel; optional on bot host | The private channel where new application cards and decision buttons are posted. |
+| `APP_URL` | No | Production website URL; defaults to `https://nightraidbg.com` on the bot host. |
+| `ADMIN_DISCORD_IDS` | Yes in Vercel; optional on bot host | The two authorized administrator Discord IDs, separated by commas. Vercel always enforces this list. |
 
 To copy an ID: Discord **User Settings → Advanced → Developer Mode**, then right-click the server or channel → **Copy ID**.
 
@@ -71,21 +70,21 @@ Put the nickname channel ID in `.env.local` (next to the existing variables) and
 
 Create a private text channel such as `application-review`. Only the two NIGHTRAID administrators and the NIGHTRAID bot should be able to view it. Give the bot **View Channel**, **Send Messages**, **Embed Links**, **Read Message History**, and **Use Application Commands** in that channel.
 
-Copy the channel ID and configure the following values in **both** Vercel and the host that runs the long-lived bot:
+Copy the channel ID and configure these values in **Vercel**:
 
 ```text
 DISCORD_APPLICATIONS_CHANNEL_ID=123456789012345678
-APP_URL=https://nightraidbg.com
-APPLICATION_SIGNING_SECRET=<the same existing secret on both hosts>
 ADMIN_DISCORD_IDS=<first-admin-id>,<second-admin-id>
 ```
 
-Deploy the website API first, then restart the long-lived Discord bot. Every new application will post a NIGHTRAID card in that channel:
+The bot host does not need a new secret. It signs decision requests with its existing `DISCORD_BOT_TOKEN`; Vercel verifies the signature, channel ID, and administrator ID. `DISCORD_APPLICATIONS_CHANNEL_ID`, `ADMIN_DISCORD_IDS`, and `APP_URL` may also be placed on the bot host for earlier local validation, but they are not required there.
+
+Deploy the website API first, update the bot to the same Git commit, then restart the long-lived Discord bot. Its startup logs must include `Discord application review interactions enabled.` Every new application will post a NIGHTRAID card in that channel:
 
 - **ACCEPT** runs the existing approval workflow, including Discord onboarding, applicant DM, nickname and game roles, Excel, and Google Sheets.
 - **REJECT** opens a required reason form, records the rejection, and sends that reason to the applicant through Discord.
 - **VIEW FULL FORM** opens the protected web admin portal.
-- Only Discord accounts listed in `ADMIN_DISCORD_IDS` can use the decision buttons. The bot signs each request with `APPLICATION_SIGNING_SECRET`, and the website verifies it before changing an application.
+- Only Discord accounts listed in Vercel's `ADMIN_DISCORD_IDS` can use the decision buttons. The bot signs each request with its bot token, and the website verifies it before changing an application.
 
 ## Rules commands
 
