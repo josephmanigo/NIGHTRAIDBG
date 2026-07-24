@@ -24,6 +24,7 @@ interface ApplicantApplication {
 }
 
 const FLOW = ['SUBMITTED', 'PENDING_REVIEW', 'APPROVED', 'COMPLETED'] as const
+const REJECTED_FLOW = ['SUBMITTED', 'PENDING_REVIEW', 'REJECTED'] as const
 const MEMBER_STATUSES = ['APPROVED', 'DISCORD_JOIN_FAILED', 'COMPLETED']
 const EXIT_STATUSES = ['REMOVED', 'LEFT']
 const MESSENGER_GROUP_CHAT_URL = 'https://m.me/ch/AbaeMdWdMHYbxpIE/'
@@ -38,11 +39,10 @@ function statusLabel(status: string) {
   return status.split('_').join(' ')
 }
 
-function statusIndex(status: string) {
+function statusIndex(status: string, flow: readonly string[]) {
   if (status === 'PROCESSING') return 0
-  if (status === 'REJECTED') return 2
   if (status === 'DISCORD_JOIN_FAILED') return 2
-  return Math.max(0, FLOW.indexOf(status as (typeof FLOW)[number]))
+  return Math.max(0, flow.indexOf(status))
 }
 
 export default function ApplicationStatusPage() {
@@ -113,7 +113,8 @@ export default function ApplicationStatusPage() {
     }
   }
 
-  const activeIndex = application ? statusIndex(application.status) : 0
+  const applicationFlow = application?.status === 'REJECTED' ? REJECTED_FLOW : FLOW
+  const activeIndex = application ? statusIndex(application.status, applicationFlow) : 0
   const messengerTags = application
     ? application.games.map((game) => MESSENGER_GAME_TAGS[game]).filter(Boolean)
     : []
@@ -160,16 +161,17 @@ export default function ApplicationStatusPage() {
 
           <div className="p-6 sm:p-9">
             {!EXIT_STATUSES.includes(application.status) && (
-              <div className="grid gap-px overflow-hidden rounded-2xl border border-bone/10 bg-bone/10 sm:grid-cols-4">
-                {FLOW.map((status, index) => {
+              <div className={`grid gap-px overflow-hidden rounded-2xl border border-bone/10 bg-bone/10 ${application.status === 'REJECTED' ? 'sm:grid-cols-3' : 'sm:grid-cols-4'}`}>
+                {applicationFlow.map((status, index) => {
                   const complete = index < activeIndex || application.status === 'COMPLETED'
                   const active = index === activeIndex
+                  const rejected = application.status === 'REJECTED' && status === 'REJECTED'
                   return (
                     <div key={status} className="bg-[#0a0a0a] p-5">
-                      <span className={`flex h-9 w-9 items-center justify-center rounded-full border ${complete ? 'border-emerald-400 bg-emerald-400 text-black' : active ? 'border-blood bg-blood text-bone' : 'border-bone/15 text-bone/30'}`}>
-                        {complete ? <Check className="h-4 w-4" /> : active ? <Clock3 className="h-4 w-4" /> : <span className="text-xs font-bold">0{index + 1}</span>}
+                      <span className={`flex h-9 w-9 items-center justify-center rounded-full border ${complete ? 'border-emerald-400 bg-emerald-400 text-black' : rejected ? 'border-red-400 bg-red-500 text-white' : active ? 'border-blood bg-blood text-bone' : 'border-bone/15 text-bone/30'}`}>
+                        {complete ? <Check className="h-4 w-4" /> : rejected ? <AlertCircle className="h-4 w-4" /> : active ? <Clock3 className="h-4 w-4" /> : <span className="text-xs font-bold">0{index + 1}</span>}
                       </span>
-                      <strong className="mt-4 block font-display text-lg uppercase text-bone">{statusLabel(status)}</strong>
+                      <strong className={`mt-4 block font-display text-lg uppercase ${rejected ? 'text-red-300' : 'text-bone'}`}>{statusLabel(status)}</strong>
                     </div>
                   )
                 })}
@@ -212,7 +214,15 @@ export default function ApplicationStatusPage() {
               </div>
               <div className="rounded-2xl border border-bone/10 bg-bone/[0.025] p-5">
                 <span className="flex items-center gap-2 text-bone/35"><ShieldCheck className="h-4 w-4" /><span className="ln-label text-[0.52rem]">Discord check</span></span>
-                <strong className="mt-3 block text-bone">{application.discord_membership_verified === null ? 'Unavailable' : application.discord_membership_verified ? 'Member verified' : 'Awaiting onboarding'}</strong>
+                <strong className="mt-3 block text-bone">
+                  {application.status === 'REJECTED'
+                    ? 'Onboarding not required'
+                    : application.discord_membership_verified === null
+                      ? 'Unavailable'
+                      : application.discord_membership_verified
+                        ? 'Member verified'
+                        : 'Awaiting onboarding'}
+                </strong>
               </div>
               <div className="rounded-2xl border border-bone/10 bg-bone/[0.025] p-5">
                 <span className="flex items-center gap-2 text-bone/35"><Sparkles className="h-4 w-4" /><span className="ln-label text-[0.52rem]">Automated check</span></span>
