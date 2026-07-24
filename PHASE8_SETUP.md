@@ -95,9 +95,9 @@ Each valid line in the registration channel is added in message order:
 🇵🇭 | TAG - TEAM NAME
 ```
 
-One message may contain several valid lines. Slots are filled from `01A` through `25Y`; additional teams enter the waiting list in order. Posting a new registration banner GIF clears the previous cycle and starts a fresh real-time board.
+One message may contain several valid lines. Slots are filled from `01A` through `25Y`; additional teams enter the waiting list in order. Posting a new registration banner GIF closes the previous cycle and starts a fresh real-time board.
 
-Registration remains closed until EMS posts the official registration GIF in the team-registration channel. That GIF is the opening signal: the bot clears the previous slot list, starts a new cycle at the GIF's timestamp, and logs only team messages sent after it. Random GIFs from applicants do not restart the board. Additional trusted opener IDs can be added as a comma-separated `SCRIM_REGISTRATION_OPENER_IDS` environment variable.
+Registration remains closed until EMS posts the official registration GIF in the team-registration channel. That GIF is the opening signal: the bot leaves the previous slot-list message unchanged as history, posts a separate new pinned board, starts a new cycle at the GIF's timestamp, and logs only team messages sent after it. Random GIFs from applicants do not restart the board. Additional trusted opener IDs can be added as a comma-separated `SCRIM_REGISTRATION_OPENER_IDS` environment variable.
 
 The bot validates the entire message before adding anything:
 

@@ -276,8 +276,9 @@ function closeRegistration() {
   state.cycleStartMessageId = null
 }
 
-function openRegistration(message) {
+function openRegistration(message, { createNewBoard = false } = {}) {
   resetBoard()
+  if (createNewBoard) state.boardMessageId = null
   state.registrationOpen = true
   state.cycleStartedAt = message.createdTimestamp
   state.cycleStartMessageId = message.id
@@ -334,7 +335,11 @@ function boardEmbeds() {
     .setColor(NIGHTRAID_RED)
     .setTitle('WAIT LIST')
     .setDescription(['```', ...waitLines, '```'].join('\n'))
-    .setFooter({ text: BOARD_MARKER })
+    .setFooter({
+      text: state.cycleStartMessageId
+        ? `${BOARD_MARKER} • CYCLE ${state.cycleStartMessageId}`
+        : BOARD_MARKER,
+    })
     .setTimestamp()
 
   return [board, waiting]
@@ -374,8 +379,25 @@ function restoreBoard(message) {
 function isLiveBoard(message, botUserId) {
   if (message.author.id !== botUserId) return false
   return message.embeds.some(
-    (embed) => embed.footer?.text === BOARD_MARKER || embed.title === '📣 NIGHTRAID SCRIMMAGE SLOT LIST',
+    (embed) =>
+      embed.footer?.text?.startsWith(BOARD_MARKER) ||
+      embed.title === '📣 NIGHTRAID SCRIMMAGE SLOT LIST',
   )
+}
+
+function boardCycleMessageId(message) {
+  for (const embed of message.embeds) {
+    const match = /• CYCLE (\d+)$/.exec(embed.footer?.text ?? '')
+    if (match) return match[1]
+  }
+  return null
+}
+
+function boardBelongsToCurrentCycle(message) {
+  if (!state.registrationOpen || !state.cycleStartedAt || !state.cycleStartMessageId) return false
+  const recordedCycleMessageId = boardCycleMessageId(message)
+  if (recordedCycleMessageId) return recordedCycleMessageId === state.cycleStartMessageId
+  return message.createdTimestamp >= state.cycleStartedAt
 }
 
 async function findLiveBoard(channel, botUserId) {
@@ -501,8 +523,8 @@ async function initializeScrimAutomation(readyClient) {
   clientValue = readyClient
   const registeredChannel = await readableChannel(REGISTERED_TEAMS_CHANNEL_ID)
   const board = await findLiveBoard(registeredChannel, readyClient.user.id)
-  if (board) state.boardMessageId = board.id
   await reconstructCurrentCycle()
+  state.boardMessageId = board && boardBelongsToCurrentCycle(board) ? board.id : null
   await syncBoard()
   console.log(
     `Scrim automation ready: ${state.registrationOpen ? 'OPEN' : 'CLOSED'}, ` +
@@ -516,7 +538,7 @@ async function reply(message, content) {
 
 async function handleRegistration(message) {
   if (isScrimBanner(message)) {
-    openRegistration(message)
+    openRegistration(message, { createNewBoard: true })
     await syncBoard()
     return
   }
