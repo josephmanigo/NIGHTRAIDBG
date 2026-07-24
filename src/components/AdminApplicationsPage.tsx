@@ -76,7 +76,7 @@ function readable(value: string) {
 function requestError(reason: unknown, fallback: string) {
   const message = reason instanceof Error ? reason.message : ''
   return message === 'Failed to fetch'
-    ? 'The NightRaid server connection was interrupted. Please try again.'
+    ? 'The NIGHTRAID server connection was interrupted. Please try again.'
     : message || fallback
 }
 
@@ -304,7 +304,7 @@ export default function AdminApplicationsPage() {
 
   const removeMember = async () => {
     if (!selected || acting) return
-    const answer = window.prompt(`Why is ${selected.in_game_name} being removed from NightRaid?`)
+    const answer = window.prompt(`Why is ${selected.in_game_name} being removed from NIGHTRAID?`)
     if (answer === null) return
     const reason = answer.trim()
     if (reason.length < 2) {
@@ -312,9 +312,9 @@ export default function AdminApplicationsPage() {
       return
     }
     const kickFromDiscord = window.confirm(
-      'Also kick them from the NightRaid Discord server?\n\nOK = remove membership and kick from Discord.\nCancel = remove membership and clear game roles, but keep them in the server.',
+      'Also kick them from the NIGHTRAID Discord server?\n\nOK = remove membership and kick from Discord.\nCancel = remove membership and clear game roles, but keep them in the server.',
     )
-    if (!window.confirm(`Remove ${selected.in_game_name} from NightRaid now?`)) return
+    if (!window.confirm(`Remove ${selected.in_game_name} from NIGHTRAID now?`)) return
 
     setActing(true)
     setError('')
@@ -335,7 +335,7 @@ export default function AdminApplicationsPage() {
       if (payload.discordCleanup === 'FAILED') {
         setError(payload.message || 'The member was removed, but the Discord cleanup failed.')
       } else {
-        setNotice(payload.message || 'The member was removed from NightRaid.')
+        setNotice(payload.message || 'The member was removed from NIGHTRAID.')
       }
     } catch (reasonValue) {
       setError(requestError(reasonValue, 'Unable to remove this member.'))
@@ -403,7 +403,7 @@ export default function AdminApplicationsPage() {
     <PortalShell
       title="Application"
       accent="command"
-      kicker="Review complete applications and record the final NightRaid administrator decision."
+      kicker="Review complete applications and record the final NIGHTRAID administrator decision."
       showHeaderDivider={false}
       headerAction={(
         <button

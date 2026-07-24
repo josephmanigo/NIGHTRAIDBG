@@ -8,7 +8,7 @@ import { createExcelExport, recordExcelExport } from '../../../server/excel-sync
 import { hasTrustedOrigin, methodNotAllowed, noStore, requestBody } from '../../../server/http.js'
 
 function filename(selected: boolean) {
-  const prefix = selected ? 'NightRaid_Selected_Applicants' : 'NightRaid_Applicants'
+  const prefix = selected ? 'NIGHTRAID_Selected_Applicants' : 'NIGHTRAID_Applicants'
   return `${prefix}_${new Date().toISOString().slice(0, 10)}.xlsx`
 }
 

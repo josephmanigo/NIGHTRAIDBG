@@ -70,7 +70,7 @@ export default function AdminLoginPage() {
     <PortalShell
       title="Admin"
       accent="login"
-      kicker="Secure access to NightRaid Application Command."
+      kicker="Secure access to NIGHTRAID Application Command."
       showHeaderDivider={false}
     >
       <section className="relative mx-auto max-w-4xl overflow-hidden rounded-[2rem] border border-white/10 bg-white/[0.035] p-6 backdrop-blur-2xl sm:p-10 lg:p-12">
@@ -96,7 +96,7 @@ export default function AdminLoginPage() {
             </h2>
             {accessDenied && (
               <p className="mt-5 max-w-xl text-sm leading-relaxed text-bone/50">
-                {session?.discordUsername || 'This Discord account'} is not one of the authorized NightRaid administrators.
+                {session?.discordUsername || 'This Discord account'} is not one of the authorized NIGHTRAID administrators.
               </p>
             )}
 

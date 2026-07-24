@@ -1,6 +1,6 @@
-# NightRaid Phase 5 Messenger setup
+# NIGHTRAID Phase 5 Messenger setup
 
-Phase 5 sends each completed application and its AI recommendation to allowlisted NightRaid administrators through the Facebook Page, supports signed Approve/Reject/View actions, records decisions, and exposes safe delivery retries in the web administrator portal.
+Phase 5 sends each completed application and its AI recommendation to allowlisted NIGHTRAID administrators through the Facebook Page, supports signed Approve/Reject/View actions, records decisions, and exposes safe delivery retries in the web administrator portal.
 
 ## 1. Apply the database migration
 
@@ -17,13 +17,13 @@ The migration adds:
 
 Fresh databases can run the updated `database/phase1.sql` instead.
 
-## 2. Connect the NightRaid Facebook Page
+## 2. Connect the NIGHTRAID Facebook Page
 
 In Meta for Developers:
 
-1. Open or create the Meta app owned by the NightRaid organization.
+1. Open or create the Meta app owned by the NIGHTRAID organization.
 2. Add the **Messenger** product.
-3. Connect the official NightRaid Facebook Page.
+3. Connect the official NIGHTRAID Facebook Page.
 4. Generate a Page access token for that Page.
 5. Copy the App ID and App Secret from the app's basic settings.
 6. Copy the Page ID from the Page or Messenger settings.
@@ -78,7 +78,7 @@ The endpoint verifies `X-Hub-Signature-256` against `META_APP_SECRET` before par
 
 A Messenger administrator ID is a Page-scoped ID (PSID), not a public Facebook profile ID.
 
-1. After the webhook is active, have the administrator send a message to the NightRaid Page.
+1. After the webhook is active, have the administrator send a message to the NIGHTRAID Page.
 2. The event is safely recorded but ignored because the sender is not allowlisted yet.
 3. In Supabase SQL Editor, find the recent PSID:
 
@@ -100,7 +100,7 @@ insert into public.messenger_admins (
   can_reject
 ) values (
   'VERIFIED_PAGE_SCOPED_ID',
-  'NightRaid Administrator',
+  'NIGHTRAID Administrator',
   'ADMIN',
   true,
   true
@@ -122,7 +122,7 @@ Use test accounts and a test application before touching a real applicant:
 1. Run `database/phase5.sql`.
 2. Add all Phase 5 variables locally and in Vercel.
 3. Deploy and complete Meta webhook verification.
-4. Send a message from the administrator account to the NightRaid Page and register its PSID.
+4. Send a message from the administrator account to the NIGHTRAID Page and register its PSID.
 5. Submit a test application.
 6. Confirm Messenger receives the full summary and AI result.
 7. Confirm **View Full Form** requires the existing Discord administrator login.

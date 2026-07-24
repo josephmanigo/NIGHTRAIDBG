@@ -1,11 +1,11 @@
 import type { Json } from './database.types.js'
 import type { ExcelExportFilters } from './excel-data.js'
 import { filtersForAudit, loadExcelRecords } from './excel-data.js'
-import { buildNightRaidWorkbook, EXCEL_MIME } from './excel-workbook.js'
+import { buildNIGHTRAIDWorkbook, EXCEL_MIME } from './excel-workbook.js'
 import { getSupabaseAdmin } from './supabase.js'
 
 export const EXCEL_BUCKET = 'nightraid-excel'
-export const MASTER_WORKBOOK_PATH = 'NightRaid_Applicants.xlsx'
+export const MASTER_WORKBOOK_PATH = 'NIGHTRAID_Applicants.xlsx'
 
 export type ExcelExportType = 'MASTER_SYNC' | 'MANUAL_ALL' | 'MANUAL_FILTERED' | 'MANUAL_SELECTED'
 
@@ -50,7 +50,7 @@ export async function recordExcelExport(input: {
 
 export async function createExcelExport(filters: ExcelExportFilters, generatedBy: string) {
   const records = await loadExcelRecords(filters)
-  const buffer = await buildNightRaidWorkbook(records, { generatedBy, filters })
+  const buffer = await buildNIGHTRAIDWorkbook(records, { generatedBy, filters })
   return { records, buffer }
 }
 
@@ -78,7 +78,7 @@ export async function syncExcelRegister(triggerApplicationIds?: string[], genera
       })
     }
 
-    const buffer = await buildNightRaidWorkbook(records, { generatedBy, filters: {} })
+    const buffer = await buildNIGHTRAIDWorkbook(records, { generatedBy, filters: {} })
     const { error: uploadError } = await getSupabaseAdmin().storage
       .from(EXCEL_BUCKET)
       .upload(MASTER_WORKBOOK_PATH, buffer, { contentType: EXCEL_MIME, upsert: true, cacheControl: '0' })

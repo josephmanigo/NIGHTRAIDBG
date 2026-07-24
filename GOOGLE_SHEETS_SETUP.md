@@ -1,6 +1,6 @@
 # Google Sheets accepted-applicant synchronization
 
-NightRaid automatically adds an applicant to the `NIGHTRAID APPLICATION` Google Sheet after an administrator accepts the application. The application number is the unique key, so Discord onboarding retries update the same row instead of creating a duplicate.
+NIGHTRAID automatically adds an applicant to the `NIGHTRAID APPLICATION` Google Sheet after an administrator accepts the application. The application number is the unique key, so Discord onboarding retries update the same row instead of creating a duplicate.
 
 Target spreadsheet:
 
@@ -13,7 +13,7 @@ Target spreadsheet:
 2. Create or select a project.
 3. Enable **Google Sheets API**.
 4. Open **IAM & Admin → Service Accounts**.
-5. Create a service account for NightRaid.
+5. Create a service account for NIGHTRAID.
 6. Open the service account, choose **Keys → Add key → Create new key → JSON**, and download the JSON file.
 
 Never commit that JSON file or paste its private key into client-side `VITE_*` variables.

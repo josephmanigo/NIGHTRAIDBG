@@ -14,7 +14,7 @@ export const ACTIVE_MEMBER_STATUSES = ['APPROVED', 'DISCORD_JOIN_FAILED', 'COMPL
 
 export class MembershipConflictError extends Error {
   constructor() {
-    super('This player is not an active NightRaid member.')
+    super('This player is not an active NIGHTRAID member.')
   }
 }
 
@@ -143,7 +143,7 @@ export async function removeMember(input: {
         '# NIGHTRAID // MEMBERSHIP ENDED',
         `> **APPLICATION ${applicationNumber}**`,
         '',
-        'An administrator has removed you from the NightRaid roster.',
+        'An administrator has removed you from the NIGHTRAID roster.',
         `**Reason:** ${input.reason}`,
         '',
         'Unless a ban is active, you are welcome to submit a new application in the future.',
@@ -176,7 +176,7 @@ export async function leaveClan(input: { discordUserId: string; request?: Vercel
         '# NIGHTRAID // MEMBERSHIP CLOSED',
         `> **APPLICATION ${applicationNumber}**`,
         '',
-        `You have left NightRaid, ${inGameName}. Your game roles have been cleared and your membership is now closed.`,
+        `You have left NIGHTRAID, ${inGameName}. Your game roles have been cleared and your membership is now closed.`,
         '',
         'The door stays open: you are welcome to apply again any time.',
       ].join('\n'),

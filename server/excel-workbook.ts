@@ -69,7 +69,7 @@ function addApplicantsSheet(workbook: ExcelJS.Workbook, records: ExcelApplicatio
   const columns = [
     'Application ID', 'Submission Date', 'In Game Name', 'Discord Username', 'Discord User ID', 'Age Group', 'Gender',
     'Device', 'Games Applied For', 'Willing to Use Clan Tag', 'Play Frequency', 'Previous Clan', 'Reason for Leaving',
-    'Facebook Profile Link', 'Where They Found NightRaid', 'Already Joined Discord', 'Discord Membership Verified',
+    'Facebook Profile Link', 'Where They Found NIGHTRAID', 'Already Joined Discord', 'Discord Membership Verified',
     'Reason for Joining', 'AI Score', 'AI Recommendation', 'AI Confidence', 'AI Strengths', 'AI Concerns',
     'Application Status', 'Final Decision', 'Rejection Reason', 'Reviewed By', 'Review Date',
     'Discord Onboarding Status', 'Assigned Roles', 'Last Updated',
@@ -219,7 +219,7 @@ function addSummarySheet(workbook: ExcelJS.Workbook) {
   sheet.addRow([])
   sheet.addRow(['APPLICATIONS BY RECRUITMENT SOURCE', 'COUNT'])
   for (const source of ['Facebook', 'TikTok', 'Discord', 'Others']) {
-    sheet.addRow([source, { formula: `COUNTIF(ApplicantsTable[Where They Found NightRaid],"${source}*")`, result: 0 }])
+    sheet.addRow([source, { formula: `COUNTIF(ApplicantsTable[Where They Found NIGHTRAID],"${source}*")`, result: 0 }])
   }
   sheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 14 }
   sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF7F1D1D' } }
@@ -252,10 +252,10 @@ function addExportInformationSheet(workbook: ExcelJS.Workbook, records: ExcelApp
   return sheet
 }
 
-export async function buildNightRaidWorkbook(records: ExcelApplicationRecord[], metadata: WorkbookMetadata) {
+export async function buildNIGHTRAIDWorkbook(records: ExcelApplicationRecord[], metadata: WorkbookMetadata) {
   const workbook = new ExcelJS.Workbook()
-  workbook.creator = 'NightRaid Recruitment System'
-  workbook.company = 'NightRaid BG'
+  workbook.creator = 'NIGHTRAID Recruitment System'
+  workbook.company = 'NIGHTRAID BG'
   workbook.created = metadata.generatedAt ?? new Date()
   workbook.modified = metadata.generatedAt ?? new Date()
   workbook.calcProperties.fullCalcOnLoad = true

@@ -113,7 +113,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
       targetId: activeBan.id,
       request,
     })
-    return response.status(403).json({ message: 'This application cannot be accepted. Contact a NightRaid administrator.' })
+    return response.status(403).json({ message: 'This application cannot be accepted. Contact a NIGHTRAID administrator.' })
   }
 
   const number = applicationNumber()

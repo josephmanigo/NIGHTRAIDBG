@@ -34,4 +34,4 @@ create index if not exists ai_evaluations_application_created_idx
 alter table public.ai_evaluations enable row level security;
 
 comment on table public.ai_evaluations is
-  'Advisory AI application reviews. NightRaid administrators retain final decision authority.';
+  'Advisory AI application reviews. NIGHTRAID administrators retain final decision authority.';

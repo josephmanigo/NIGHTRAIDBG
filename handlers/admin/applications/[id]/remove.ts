@@ -33,8 +33,8 @@ export default async function handler(request: VercelRequest, response: VercelRe
     })
     const notes = [
       parsed.data.kickFromDiscord
-        ? 'The member was removed from NightRaid and kicked from the Discord server.'
-        : 'The member was removed from NightRaid and their game roles were cleared.',
+        ? 'The member was removed from NIGHTRAID and kicked from the Discord server.'
+        : 'The member was removed from NIGHTRAID and their game roles were cleared.',
       result.discordCleanup === 'FAILED' ? 'The Discord cleanup failed and may need manual attention.' : null,
       result.memberNotification === 'FAILED' ? 'The Discord DM could not be delivered.' : null,
       result.rosterRemoval === 'FAILED' ? 'Their Google Sheet roster row could not be deleted.' : null,

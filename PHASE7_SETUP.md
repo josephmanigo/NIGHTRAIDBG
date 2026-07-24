@@ -4,7 +4,7 @@ Phase 7 is implemented in the application. One Supabase migration and one deploy
 
 ## 1. Run the Supabase migration
 
-1. Open the Supabase dashboard for the NightRaid project.
+1. Open the Supabase dashboard for the NIGHTRAID project.
 2. Open **SQL Editor** and create a new query.
 3. Copy all of `database/phase7.sql` into the editor.
 4. Select **Run** and confirm that it completes without an error.

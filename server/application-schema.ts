@@ -46,7 +46,7 @@ export const clanApplicationSchema = z
       context.addIssue({
         code: 'custom',
         path: ['discoverySourceOther'],
-        message: 'Please specify where you found NightRaid.',
+        message: 'Please specify where you found NIGHTRAID.',
       })
     }
   })

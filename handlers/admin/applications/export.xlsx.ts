@@ -7,7 +7,7 @@ import { createExcelExport, recordExcelExport } from '../../../server/excel-sync
 import { methodNotAllowed, noStore } from '../../../server/http.js'
 
 function filename() {
-  return `NightRaid_Applicants_${new Date().toISOString().slice(0, 10)}.xlsx`
+  return `NIGHTRAID_Applicants_${new Date().toISOString().slice(0, 10)}.xlsx`
 }
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {

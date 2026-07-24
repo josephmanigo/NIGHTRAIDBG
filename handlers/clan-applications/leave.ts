@@ -16,12 +16,12 @@ export default async function handler(request: VercelRequest, response: VercelRe
       ...result,
       message:
         result.discordCleanup === 'COMPLETED'
-          ? 'You have left NightRaid. Your Discord game roles were cleared.'
-          : 'You have left NightRaid, but the Discord role cleanup failed. An administrator can finish it manually.',
+          ? 'You have left NIGHTRAID. Your Discord game roles were cleared.'
+          : 'You have left NIGHTRAID, but the Discord role cleanup failed. An administrator can finish it manually.',
     })
   } catch (reason) {
     if (reason instanceof MembershipConflictError) {
-      return response.status(409).json({ message: 'Your account is not an active NightRaid member.' })
+      return response.status(409).json({ message: 'Your account is not an active NIGHTRAID member.' })
     }
     console.error('Leaving the clan failed:', reason instanceof Error ? reason.message : 'Unknown error')
     return response.status(503).json({ message: 'Unable to leave the clan right now.' })

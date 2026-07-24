@@ -1,4 +1,4 @@
-# NightRaid Phase 4 AI evaluation setup
+# NIGHTRAID Phase 4 AI evaluation setup
 
 Phase 4 moderates the written application answers, produces a structured score and recommendation, saves the result, and shows it in the administrator portal. The recommendation is advisory only. It never approves or rejects an applicant.
 
@@ -28,7 +28,7 @@ The evaluator sends only these application fields:
 - Device and selected games
 - Clan-tag willingness and play frequency
 - Previous clan and reason for leaving
-- Reason for joining NightRaid
+- Reason for joining NIGHTRAID
 
 It does not send age group, sex, Facebook URL, Discord identity, or discovery-source information. Google states that paid-tier Gemini API content is not used to improve its products. Keep the submitted fields minimal and do not add identity fields to the model request.
 

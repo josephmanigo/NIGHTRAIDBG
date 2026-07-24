@@ -248,7 +248,7 @@ async function ensureRegister(configValue: GoogleSheetsConfig, token: string) {
     return
   }
   if (!HEADERS.every((header, index) => firstRow[index] === header)) {
-    throw new Error('The Google Sheet header row does not match the NightRaid accepted-applicant register.')
+    throw new Error('The Google Sheet header row does not match the NIGHTRAID accepted-applicant register.')
   }
 }
 

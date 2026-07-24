@@ -18,7 +18,7 @@ export const NAV_ITEMS: NavItem[] = [
   { id: 'events', label: 'Events & Tournaments', index: '05' },
   { id: 'achievements', label: 'Achievements', index: '06' },
   { id: 'merch', label: 'Merch', index: '07' },
-  { id: 'apply', label: 'Join NightRaid', index: '08' },
+  { id: 'apply', label: 'Join NIGHTRAID', index: '08' },
 ]
 
 export const SOCIAL_LINKS = [

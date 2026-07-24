@@ -50,9 +50,9 @@ const GAMES = [
 
 const CONSENTS = [
   { key: 'accurate', label: 'I confirm that the information I provided is accurate.' },
-  { key: 'rules', label: 'I agree to follow the NightRaid clan rules.' },
+  { key: 'rules', label: 'I agree to follow the NIGHTRAID clan rules.' },
   { key: 'falseInfo', label: 'I understand that false information may result in rejection.' },
-  { key: 'processing', label: 'I allow NightRaid to process and evaluate my application.' },
+  { key: 'processing', label: 'I allow NIGHTRAID to process and evaluate my application.' },
 ] as const
 
 type ConsentKey = (typeof CONSENTS)[number]['key']
@@ -344,12 +344,12 @@ export default function Application() {
       else if (!isFacebookUrl(data.facebookProfileUrl.trim())) {
         nextErrors.facebookProfileUrl = 'Use a valid facebook.com profile link beginning with https://.'
       }
-      if (!data.discoverySource) nextErrors.discoverySource = 'Tell us where you found NightRaid.'
+      if (!data.discoverySource) nextErrors.discoverySource = 'Tell us where you found NIGHTRAID.'
       if (data.discoverySource === 'Others' && !data.discoverySourceOther.trim()) {
         nextErrors.discoverySourceOther = 'Please specify where you found us.'
       }
       if (!data.alreadyJoinedDiscord) nextErrors.alreadyJoinedDiscord = 'Choose an option.'
-      if (!data.reasonForJoining.trim()) nextErrors.reasonForJoining = 'Tell us why you want to join NightRaid.'
+      if (!data.reasonForJoining.trim()) nextErrors.reasonForJoining = 'Tell us why you want to join NIGHTRAID.'
     }
 
     if (targetStep === 3) {
@@ -428,7 +428,7 @@ export default function Application() {
           accent="raid"
           tone="dark"
           align="center"
-          kicker="One form. One honest shot. Tell us how you play, what you stand for, and why NightRaid should be your next squad."
+          kicker="One form. One honest shot. Tell us how you play, what you stand for, and why NIGHTRAID should be your next squad."
         />
 
         <div data-reveal className="overflow-hidden rounded-[2rem] border border-bone/15 bg-[#080808]/90">
@@ -742,7 +742,7 @@ export default function Application() {
                           <FieldError>{errors.discoverySource}</FieldError>
                           {data.discoverySource === 'Others' && (
                             <label className="mt-3 block">
-                              <span className="sr-only">Please specify where you found NightRaid</span>
+                              <span className="sr-only">Please specify where you found NIGHTRAID</span>
                               <input
                                 type="text"
                                 value={data.discoverySourceOther}

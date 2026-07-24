@@ -302,7 +302,7 @@ export default function Hero() {
           aria-hidden="true"
           className="nr-signature pointer-events-none absolute left-1/2 top-[53%] z-20 opacity-0"
         >
-          <span className="nr-signature-word">NightRaid</span>
+          <span className="nr-signature-word">NIGHTRAID</span>
           <span className="nr-signature-swoop" />
         </div>
 

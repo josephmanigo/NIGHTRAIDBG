@@ -42,7 +42,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
   let downloadUrl: string | null = null
   if (latestResult.data?.status === 'COMPLETED') {
     const { data } = await supabase.storage.from(EXCEL_BUCKET).createSignedUrl(MASTER_WORKBOOK_PATH, 600, {
-      download: 'NightRaid_Applicants.xlsx',
+      download: 'NIGHTRAID_Applicants.xlsx',
     })
     downloadUrl = data?.signedUrl ?? null
   }

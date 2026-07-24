@@ -67,7 +67,7 @@ Previous clan: ${application.previous_clan}
 Reason for leaving:
 ${application.previous_clan_leaving_reason}
 
-Found NightRaid through: ${discovery}
+Found NIGHTRAID through: ${discovery}
 Discord: ${discord}
 
 Reason for joining:

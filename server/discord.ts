@@ -190,7 +190,7 @@ export async function addDiscordGuildMember(discordUserId: string, accessToken: 
       body: JSON.stringify({ access_token: accessToken, roles: roleIds }),
     },
   )
-  await discordSuccess(response, 'Adding the applicant to the NightRaid server')
+  await discordSuccess(response, 'Adding the applicant to the NIGHTRAID server')
   return response.status === 201
 }
 
@@ -199,7 +199,7 @@ export async function addDiscordMemberRole(discordUserId: string, roleId: string
     `${DISCORD_API}/guilds/${encodeURIComponent(env.discordGuildId())}/members/${encodeURIComponent(discordUserId)}/roles/${encodeURIComponent(roleId)}`,
     { method: 'PUT', headers: botHeaders() },
   )
-  await discordSuccess(response, 'Assigning a NightRaid role')
+  await discordSuccess(response, 'Assigning a NIGHTRAID role')
 }
 
 export async function removeDiscordMemberRole(discordUserId: string, roleId: string) {
@@ -208,7 +208,7 @@ export async function removeDiscordMemberRole(discordUserId: string, roleId: str
     { method: 'DELETE', headers: botHeaders() },
   )
   if (response.status === 404) return
-  await discordSuccess(response, 'Removing a NightRaid role')
+  await discordSuccess(response, 'Removing a NIGHTRAID role')
 }
 
 export async function removeDiscordGuildMember(discordUserId: string) {
@@ -217,7 +217,7 @@ export async function removeDiscordGuildMember(discordUserId: string) {
     { method: 'DELETE', headers: botHeaders() },
   )
   if (response.status === 404) return
-  await discordSuccess(response, 'Removing the member from the NightRaid server')
+  await discordSuccess(response, 'Removing the member from the NIGHTRAID server')
 }
 
 export async function sendDiscordDirectMessage(discordUserId: string, content: string) {
@@ -235,7 +235,7 @@ export async function sendDiscordDirectMessage(discordUserId: string, content: s
       allowed_mentions: { parse: [] },
     }),
   })
-  await discordSuccess(messageResponse, 'Sending the NightRaid direct message')
+  await discordSuccess(messageResponse, 'Sending the NIGHTRAID direct message')
 }
 
 export async function sendDiscordAdminAlert(content: string) {
@@ -246,7 +246,7 @@ export async function sendDiscordAdminAlert(content: string) {
     headers: botHeaders(true),
     body: JSON.stringify({ content, allowed_mentions: { parse: [] } }),
   })
-  await discordSuccess(response, 'Sending the NightRaid administrator alert')
+  await discordSuccess(response, 'Sending the NIGHTRAID administrator alert')
   return true
 }
 

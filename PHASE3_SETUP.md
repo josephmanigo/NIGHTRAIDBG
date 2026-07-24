@@ -1,6 +1,6 @@
-# NightRaid Phase 3 Discord setup
+# NIGHTRAID Phase 3 Discord setup
 
-Phase 3 verifies Discord membership when an application is submitted. After administrator approval, it adds the applicant to the NightRaid server, assigns every selected game role, sends a welcome DM, records the attempt, and exposes a safe retry action in the administrator portal.
+Phase 3 verifies Discord membership when an application is submitted. After administrator approval, it adds the applicant to the NIGHTRAID server, assigns every selected game role, sends a welcome DM, records the attempt, and exposes a safe retry action in the administrator portal.
 
 ## 1. Rotate the Discord credentials
 
@@ -20,17 +20,17 @@ The migration adds:
 
 Fresh databases can run the updated `database/phase1.sql`, which already includes the Phase 3 fields.
 
-## 3. Install the bot in NightRaid
+## 3. Install the bot in NIGHTRAID
 
 In the Discord Developer Portal:
 
-1. Open the NightRaid application.
+1. Open the NIGHTRAID application.
 2. Open **OAuth2 > URL Generator**.
 3. Select the `bot` scope.
 4. Grant only these bot permissions:
    - **Create Instant Invite** — required by Discord's Add Guild Member endpoint.
    - **Manage Roles** — required to assign the game roles.
-5. Open the generated URL and install the bot in the NightRaid server.
+5. Open the generated URL and install the bot in the NIGHTRAID server.
 
 In **Server Settings > Roles**, move the bot's role above every game role it must assign. Discord bots cannot manage roles above their highest role.
 

@@ -1,4 +1,4 @@
-# NightRaid Phase 6 — Excel Integration
+# NIGHTRAID Phase 6 — Excel Integration
 
 Phase 6 adds a private, automatically refreshed applicant workbook and secured administrator exports. Supabase remains the authoritative source of application data.
 
@@ -52,7 +52,7 @@ The master workbook is refreshed after:
 The private master file is stored at:
 
 ```text
-nightraid-excel/NightRaid_Applicants.xlsx
+nightraid-excel/NIGHTRAID_Applicants.xlsx
 ```
 
 If synchronization fails, the application remains safely stored in Supabase. The record is marked `FAILED`, the error is saved, and an administrator can retry from the dashboard.

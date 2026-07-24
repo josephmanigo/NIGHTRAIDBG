@@ -37,4 +37,4 @@ on conflict (id) do update set
   allowed_mime_types = excluded.allowed_mime_types;
 
 comment on table public.excel_exports is
-  'Audit records for automatic NightRaid workbook synchronization and administrator Excel exports.';
+  'Audit records for automatic NIGHTRAID workbook synchronization and administrator Excel exports.';

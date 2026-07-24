@@ -1,4 +1,4 @@
-# NightRaid Phase 1 setup
+# NIGHTRAID Phase 1 setup
 
 Phase 1 includes the complete application form, Discord sign-in, server-side validation, encrypted Discord token storage, Supabase persistence, duplicate active-application protection, and applicant status tracking. A basic administrator review page is also included as a head start on Phase 2.
 
@@ -74,7 +74,7 @@ The normal `npm run dev` command serves only the visual Vite frontend and cannot
 
 ## 6. Verify Phase 1
 
-1. Open `/apply` or scroll to **Join NightRaid** below Merch.
+1. Open `/apply` or scroll to **Join NIGHTRAID** below Merch.
 2. Select **Connect Discord** and authorize the application.
 3. Complete all four form steps and submit.
 4. Confirm the row appears in Supabase under `clan_applications` with status `PENDING_REVIEW`.

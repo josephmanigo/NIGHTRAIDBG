@@ -191,7 +191,7 @@ async function processEvent(event: MetaMessagingEvent) {
       await bestEffortMessengerReply(senderPsid, 'This application is no longer pending. Open the admin portal for its current status.')
     } else {
       console.error('Messenger action failed:', message)
-      await bestEffortMessengerReply(senderPsid, 'The action could not be completed safely. Use the NightRaid admin portal or try again.')
+      await bestEffortMessengerReply(senderPsid, 'The action could not be completed safely. Use the NIGHTRAID admin portal or try again.')
     }
   }
 }

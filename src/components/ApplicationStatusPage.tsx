@@ -88,7 +88,7 @@ export default function ApplicationStatusPage() {
 
   const leaveClan = async () => {
     if (!application || leaving) return
-    if (!window.confirm('Leave NightRaid?\n\nYour membership will be closed and your NightRaid game roles on Discord will be cleared. You can apply again later.')) {
+    if (!window.confirm('Leave NIGHTRAID?\n\nYour membership will be closed and your NIGHTRAID game roles on Discord will be cleared. You can apply again later.')) {
       return
     }
     setLeaving(true)
@@ -142,7 +142,7 @@ export default function ApplicationStatusPage() {
       ) : !application ? (
         <div className="rounded-[2rem] border border-bone/10 bg-black/30 p-7 sm:p-10">
           <h2 className="font-display text-3xl uppercase text-bone">No application found</h2>
-          <p className="mt-3 text-sm text-bone/50">No NightRaid application is connected to {session.discordUsername}.</p>
+          <p className="mt-3 text-sm text-bone/50">No NIGHTRAID application is connected to {session.discordUsername}.</p>
           <a href="/apply" className="ln-pill mt-7">Start an application</a>
         </div>
       ) : (
@@ -183,7 +183,7 @@ export default function ApplicationStatusPage() {
                 </span>
                 <strong className="mt-4 block font-display text-2xl uppercase text-bone">Membership closed</strong>
                 <p className="mt-3 max-w-xl text-sm leading-relaxed text-bone/50">
-                  You left NightRaid, <strong className="text-bone">{application.in_game_name}</strong>. Your game roles were cleared and this application is now archived. The door stays open whenever you want back in.
+                  You left NIGHTRAID, <strong className="text-bone">{application.in_game_name}</strong>. Your game roles were cleared and this application is now archived. The door stays open whenever you want back in.
                 </p>
                 <a href="/apply" className="ln-pill mt-6">Apply again</a>
               </div>
@@ -196,7 +196,7 @@ export default function ApplicationStatusPage() {
                 </span>
                 <strong className="mt-4 block font-display text-2xl uppercase text-bone">Membership ended</strong>
                 <p className="mt-3 max-w-xl text-sm leading-relaxed text-red-50/70">
-                  An administrator has removed you from the NightRaid roster. The recorded reason appears below. Unless a ban is active, you may submit a new application in the future.
+                  An administrator has removed you from the NIGHTRAID roster. The recorded reason appears below. Unless a ban is active, you may submit a new application in the future.
                 </p>
               </div>
             )}
@@ -233,7 +233,7 @@ export default function ApplicationStatusPage() {
                     <span className="rounded-full border border-blood/40 bg-blood/10 px-4 py-2 text-[0.55rem] font-extrabold uppercase tracking-[0.14em] text-red-200">Accepted</span>
                   </div>
                   <p className="mt-5 max-w-2xl text-sm leading-relaxed text-bone/60">
-                    Welcome to NightRaid, <strong className="text-bone">{application.in_game_name}</strong>.
+                    Welcome to NIGHTRAID, <strong className="text-bone">{application.in_game_name}</strong>.
                     {application.status === 'COMPLETED'
                       ? ' Your Discord onboarding is complete and your selected roles are ready.'
                       : ' Your Discord onboarding is now being completed by an administrator.'}
@@ -327,7 +327,7 @@ export default function ApplicationStatusPage() {
                     onClick={() => void leaveClan()}
                     className="inline-flex h-11 shrink-0 items-center gap-2 rounded-full border border-red-400/35 px-6 text-[0.62rem] font-extrabold uppercase tracking-[0.12em] text-red-300 transition-colors hover:bg-red-400/10 disabled:cursor-wait disabled:opacity-50"
                   >
-                    <DoorOpen className="h-4 w-4" /> {leaving ? 'Leaving...' : 'Leave NightRaid'}
+                    <DoorOpen className="h-4 w-4" /> {leaving ? 'Leaving...' : 'Leave NIGHTRAID'}
                   </button>
                 </div>
                 {leaveError && (

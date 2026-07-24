@@ -125,6 +125,6 @@ alter table public.messenger_webhook_events enable row level security;
 alter table public.application_decisions enable row level security;
 
 comment on table public.messenger_admins is
-  'Allowlisted Page-scoped Messenger identities authorized to review NightRaid applications.';
+  'Allowlisted Page-scoped Messenger identities authorized to review NIGHTRAID applications.';
 comment on table public.application_decisions is
   'Immutable administrator decision audit records from the web portal and Messenger.';
