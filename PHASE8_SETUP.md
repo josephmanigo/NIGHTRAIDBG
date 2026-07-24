@@ -58,10 +58,34 @@ The bot reads:
 | `DISCORD_GUILD_ID` | Yes for `/rules` | The NIGHTRAID server ID. |
 | `DISCORD_RULES_CHANNEL_ID` | No | Overrides the default NIGHTRAID rules channel (`1208605026868535387`). |
 | `SCRIM_REGISTRATION_OPENER_IDS` | No | Extra Discord user IDs allowed to open a scrim cycle with a GIF, separated by commas. EMS is already allowed. |
+| `DISCORD_APPLICATIONS_CHANNEL_ID` | Yes for application cards | The private channel where new application cards and decision buttons are posted. |
+| `APP_URL` | Yes for application cards | Production website URL, normally `https://nightraidbg.com`. |
+| `APPLICATION_SIGNING_SECRET` | Yes for application cards | The same signing secret configured in Vercel. |
+| `ADMIN_DISCORD_IDS` | Yes for application cards | The two authorized administrator Discord IDs, separated by commas. |
 
 To copy an ID: Discord **User Settings → Advanced → Developer Mode**, then right-click the server or channel → **Copy ID**.
 
 Put the nickname channel ID in `.env.local` (next to the existing variables) and on the host that runs the bot. Set `DISCORD_RULES_CHANNEL_ID` only if the official rules move to another channel.
+
+## Discord application review channel
+
+Create a private text channel such as `application-review`. Only the two NIGHTRAID administrators and the NIGHTRAID bot should be able to view it. Give the bot **View Channel**, **Send Messages**, **Embed Links**, **Read Message History**, and **Use Application Commands** in that channel.
+
+Copy the channel ID and configure the following values in **both** Vercel and the host that runs the long-lived bot:
+
+```text
+DISCORD_APPLICATIONS_CHANNEL_ID=123456789012345678
+APP_URL=https://nightraidbg.com
+APPLICATION_SIGNING_SECRET=<the same existing secret on both hosts>
+ADMIN_DISCORD_IDS=<first-admin-id>,<second-admin-id>
+```
+
+Deploy the website API first, then restart the long-lived Discord bot. Every new application will post a NIGHTRAID card in that channel:
+
+- **ACCEPT** runs the existing approval workflow, including Discord onboarding, applicant DM, nickname and game roles, Excel, and Google Sheets.
+- **REJECT** opens a required reason form, records the rejection, and sends that reason to the applicant through Discord.
+- **VIEW FULL FORM** opens the protected web admin portal.
+- Only Discord accounts listed in `ADMIN_DISCORD_IDS` can use the decision buttons. The bot signs each request with `APPLICATION_SIGNING_SECRET`, and the website verifies it before changing an application.
 
 ## Rules commands
 

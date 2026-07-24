@@ -26,6 +26,10 @@ interface DiscordChannel {
   id: string
 }
 
+interface DiscordMessage {
+  id: string
+}
+
 const DISCORD_API = 'https://discord.com/api/v10'
 export const MESSENGER_GROUP_CHAT_URL = 'https://m.me/ch/AbaeMdWdMHYbxpIE/'
 export const DISCORD_NICKNAME_SERVER_URL = 'https://discord.gg/Ay8uSSJS3N'
@@ -284,6 +288,15 @@ export async function sendDiscordAdminAlert(content: string) {
   })
   await discordSuccess(response, 'Sending the NIGHTRAID administrator alert')
   return true
+}
+
+export async function sendDiscordChannelMessage(channelId: string, payload: Record<string, unknown>) {
+  const response = await fetch(`${DISCORD_API}/channels/${encodeURIComponent(channelId)}/messages`, {
+    method: 'POST',
+    headers: botHeaders(true),
+    body: JSON.stringify(payload),
+  })
+  return discordJson<DiscordMessage>(response)
 }
 
 export async function sendDiscordWelcomeMessage(

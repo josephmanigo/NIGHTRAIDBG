@@ -22,6 +22,7 @@
     { "source": "/api/auth/:path*", "destination": "/api/router?_route=auth/:path*" },
     { "source": "/api/clan-applications", "destination": "/api/router?_route=clan-applications" },
     { "source": "/api/clan-applications/:path*", "destination": "/api/router?_route=clan-applications/:path*" },
+    { "source": "/api/discord/:path*", "destination": "/api/router?_route=discord/:path*" },
     { "source": "/api/webhooks/:path*", "destination": "/api/router?_route=webhooks/:path*" },
     { "source": "/apply", "destination": "/index.html" },
     { "source": "/application/status", "destination": "/index.html" },

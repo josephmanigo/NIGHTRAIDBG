@@ -30,6 +30,7 @@ import {
   GatewayIntentBits,
   Partials,
 } from 'discord.js'
+import { installApplicationReview } from './application-review.js'
 import { installScrimAutomation } from './scrim-automation.js'
 
 const required = (name) => {
@@ -264,6 +265,7 @@ const client = new Client({
 })
 
 installScrimAutomation(client)
+installApplicationReview(client)
 
 client.once(Events.ClientReady, async (readyClient) => {
   console.log(`Nickname bot connected as ${readyClient.user.tag}. Watching channel ${NICKNAME_CHANNEL_ID}.`)

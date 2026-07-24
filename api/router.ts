@@ -20,6 +20,7 @@ import session from '../handlers/auth/session.js'
 import submitApplication from '../handlers/clan-applications/index.js'
 import leaveClanMembership from '../handlers/clan-applications/leave.js'
 import myApplication from '../handlers/clan-applications/me.js'
+import discordApplicationAction from '../handlers/discord/application-action.js'
 import messengerWebhook from '../handlers/webhooks/messenger.js'
 import { singleQueryValue } from '../server/http.js'
 
@@ -40,6 +41,7 @@ const routes: Record<string, Handler> = {
   'clan-applications': submitApplication,
   'clan-applications/leave': leaveClanMembership,
   'clan-applications/me': myApplication,
+  'discord/application-action': discordApplicationAction,
   'webhooks/messenger': messengerWebhook,
 }
 

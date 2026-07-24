@@ -6,6 +6,7 @@ import { recordAuditEvent } from '../../server/audit.js'
 import { findActiveBan } from '../../server/ban-list.js'
 import { clanApplicationSchema } from '../../server/application-schema.js'
 import { fetchDiscordGuildMember } from '../../server/discord.js'
+import { notifyDiscordApplicationReview } from '../../server/discord-review-notifications.js'
 import { syncExcelRegister } from '../../server/excel-sync.js'
 import { getRequestOrigin, hasTrustedOrigin, methodNotAllowed, requestBody } from '../../server/http.js'
 import { notifyMessengerAdmins } from '../../server/messenger-notifications.js'
@@ -169,6 +170,18 @@ export default async function handler(request: VercelRequest, response: VercelRe
     request,
   })
 
+  let discordReviewStatus: 'COMPLETED' | 'FAILED' | 'SKIPPED' = 'SKIPPED'
+  try {
+    const notification = await notifyDiscordApplicationReview(application.id, getRequestOrigin(request))
+    discordReviewStatus = notification.status
+  } catch (reason) {
+    discordReviewStatus = 'FAILED'
+    console.error(
+      'Application was saved but the Discord review notification could not start:',
+      reason instanceof Error ? reason.message : 'Unknown error',
+    )
+  }
+
   let evaluationStatus: 'COMPLETED' | 'FAILED' = 'FAILED'
   try {
     const evaluation = await evaluateApplication(application.id)
@@ -192,6 +205,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
     applicationId: number,
     status: 'PENDING_REVIEW',
     evaluationStatus,
+    discordReviewStatus,
     messengerStatus,
     excelSyncStatus: excelSync.status,
   })

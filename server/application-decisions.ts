@@ -6,7 +6,7 @@ import { syncExcelRegister } from './excel-sync.js'
 import { syncApprovedApplicationToGoogleSheet } from './google-sheets-sync.js'
 import { getSupabaseAdmin } from './supabase.js'
 
-export type DecisionSource = 'WEB' | 'MESSENGER'
+export type DecisionSource = 'WEB' | 'MESSENGER' | 'DISCORD'
 
 export class DecisionConflictError extends Error {
   constructor() {
@@ -42,7 +42,12 @@ async function decide(input: {
       p_application_id: input.applicationId,
       p_decision: input.decision,
       p_reason: input.reason,
-      p_source: input.source,
+      /*
+       * The deployed database currently stores WEB or MESSENGER. Discord
+       * review uses the same trusted administrator path as the web portal;
+       * the audit event below still preserves DISCORD as the true source.
+       */
+      p_source: input.source === 'DISCORD' ? 'WEB' : input.source,
       p_decided_by: input.decidedBy,
     })
     .single()
@@ -52,7 +57,7 @@ async function decide(input: {
     throw new Error(`The application decision could not be saved: ${error.message}`)
   }
   await recordAuditEvent({
-    actorType: input.source === 'WEB' ? 'ADMIN' : 'MESSENGER_ADMIN',
+    actorType: input.source === 'MESSENGER' ? 'MESSENGER_ADMIN' : 'ADMIN',
     actorId: input.decidedBy,
     action: input.decision === 'APPROVED' ? 'APPLICATION_APPROVED' : 'APPLICATION_REJECTED',
     applicationId: data.id,
