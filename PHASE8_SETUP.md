@@ -1,6 +1,10 @@
-# NIGHTRAID Phase 8 — Nickname bot
+# NIGHTRAID Phase 8 — Discord bot
 
-Phase 8 adds a Discord bot process that watches the nickname channel. When a member sends a message there, the bot renames them to the message text and marks the message:
+Phase 8 adds a Discord bot process that manages nickname requests and the server's `/rules` command.
+
+## Nickname channel
+
+The bot watches the nickname channel. When a member sends a message there, the bot renames them to the message text and marks the message:
 
 - Member sends `Yepo` → their server nickname becomes `Yepo`.
 - The bot reacts with ✅ on the message once the rename is done (or if the nickname already matches), so everyone can see who has been renamed already.
@@ -51,11 +55,24 @@ The bot reads:
 | --- | --- | --- |
 | `DISCORD_BOT_TOKEN` | Yes | Already configured for the rest of the system. |
 | `DISCORD_NICKNAME_CHANNEL_ID` | Yes | The nickname channel's ID. |
-| `DISCORD_GUILD_ID` | No | When set, the bot ignores every other server. |
+| `DISCORD_GUILD_ID` | Yes for `/rules` | The NIGHTRAID server ID. |
+| `DISCORD_RULES_CHANNEL_ID` | No | Overrides the default NIGHTRAID rules channel (`1208605026868535387`). |
 
-To copy the channel ID: Discord **User Settings → Advanced → Developer Mode**, then right-click the nickname channel → **Copy Channel ID**.
+To copy an ID: Discord **User Settings → Advanced → Developer Mode**, then right-click the server or channel → **Copy ID**.
 
-Put `DISCORD_NICKNAME_CHANNEL_ID` in `.env.local` (next to the existing variables) or set it on the host that runs the bot.
+Put the nickname channel ID in `.env.local` (next to the existing variables) and on the host that runs the bot. Set `DISCORD_RULES_CHANNEL_ID` only if the official rules move to another channel.
+
+## `/rules` command
+
+When the bot starts, it registers `/rules` as an instant guild command in `DISCORD_GUILD_ID`. Members can run it in any channel where **Use Application Commands** is allowed, including the text chat attached to a voice channel.
+
+The response is a NIGHTRAID-styled embed:
+
+- Pinned messages in `DISCORD_RULES_CHANNEL_ID` are used first, ordered from oldest to newest.
+- If nothing is pinned, the latest 100 messages are used.
+- The response includes an **OPEN RULES CHANNEL** button.
+
+For predictable results, pin only the official rule messages and arrange the rules in the order they were originally posted. The bot needs **View Channel** and **Read Message History** in the rules channel. Keep **MESSAGE CONTENT INTENT** enabled so it can read the rule text.
 
 ## 4. Run the bot
 
@@ -67,6 +84,7 @@ The script loads `.env.local` / `.env` automatically when present. A successful 
 
 ```
 Nickname bot connected as NIGHTRAID#0000. Watching channel 123456789012345678.
+/rules is registered in NIGHTRAID. Rules source: 234567890123456789.
 ```
 
 Keep the process running (pm2, systemd, a Railway/Render worker, or a terminal that stays open). If it is offline, messages in the nickname channel are simply not processed — nothing else in the system depends on it.
@@ -77,3 +95,5 @@ Keep the process running (pm2, systemd, a Railway/Render worker, or a terminal t
 2. The member's nickname changes to the message text and the message receives ✅.
 3. Send the same name again — the bot answers with ✅ immediately without changing anything.
 4. Send a message as someone the bot cannot manage (for example the server owner) — the message receives ⚠️.
+5. Type `/rules` in a normal text channel and confirm the rules embed appears.
+6. Join a voice channel, open that voice channel's text chat, type `/rules`, and confirm the same rules embed appears.
