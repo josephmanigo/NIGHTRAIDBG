@@ -27,6 +27,7 @@ let clientValue = null
 let initialized = Promise.resolve()
 let operationQueue = Promise.resolve()
 let lastRenderedDate = ''
+const processedMessageIds = new Set()
 
 function cleanPart(value, maxLength) {
   return value
@@ -57,18 +58,27 @@ function makeTeam(tag, name) {
   }
 }
 
+function parseRegistrationLine(line) {
+  const match =
+    /^\s*[\u{1F1E6}-\u{1F1FF}]{2}\s*\|\s*(.{1,16}?)\s*-\s*(.{1,64}?)\s*$/u.exec(line)
+  return match ? makeTeam(match[1], match[2]) : null
+}
+
+export function validateRegistrationContent(content) {
+  const lines = content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+  if (lines.length === 0) return { valid: false, teams: [] }
+
+  const teams = lines.map(parseRegistrationLine)
+  if (teams.some((team) => !team)) return { valid: false, teams: [] }
+  return { valid: true, teams }
+}
+
 export function parseRegistrationContent(content) {
-  const teams = []
-  for (const rawLine of content.split(/\r?\n/)) {
-    const pipeIndex = rawLine.indexOf('|')
-    if (pipeIndex < 0) continue
-    const registration = rawLine.slice(pipeIndex + 1).trim()
-    const match = /^(.{1,16}?)\s*-\s*(.{1,64})$/.exec(registration)
-    if (!match) continue
-    const team = makeTeam(match[1], match[2])
-    if (team) teams.push(team)
-  }
-  return teams
+  const validation = validateRegistrationContent(content)
+  return validation.valid ? validation.teams : []
 }
 
 export function parseCancelContent(content) {
@@ -354,10 +364,10 @@ async function reconstructCurrentCycle() {
     (message) =>
       !message.author.bot &&
       message.createdTimestamp >= (state.cycleStartedAt ?? 0) &&
-      parseRegistrationContent(message.content).length > 0,
+      validateRegistrationContent(message.content).valid,
   )
   for (const message of registrations) {
-    for (const team of parseRegistrationContent(message.content)) registerTeam(team)
+    for (const team of validateRegistrationContent(message.content).teams) registerTeam(team)
   }
 
   const cancelChannel = await readableChannel(CANCEL_SLOT_CHANNEL_ID)
@@ -397,7 +407,10 @@ async function replayMessagesSince(timestamp) {
         resetBoard(message.createdTimestamp)
         continue
       }
-      for (const team of parseRegistrationContent(message.content)) registerTeam(team)
+      const registration = validateRegistrationContent(message.content)
+      if (registration.valid) {
+        for (const team of registration.teams) registerTeam(team)
+      }
       continue
     }
 
@@ -439,11 +452,15 @@ async function handleRegistration(message) {
     return
   }
 
-  const teams = parseRegistrationContent(message.content)
-  if (teams.length === 0) return
-  const results = teams.map(registerTeam)
+  const registration = validateRegistrationContent(message.content)
+  if (!registration.valid) {
+    await message.react('❌').catch(() => undefined)
+    return
+  }
+
+  const results = registration.teams.map(registerTeam)
   await syncBoard()
-  await message.react(results.some((result) => result.status !== 'duplicate') ? '✅' : '⚠️').catch(() => undefined)
+  await message.react(results.some((result) => result.status !== 'duplicate') ? '✅' : '❌').catch(() => undefined)
 }
 
 async function handleCancellation(message) {
@@ -500,6 +517,14 @@ function queue(task) {
     })
 }
 
+function claimMessage(messageId) {
+  if (processedMessageIds.has(messageId)) return false
+  processedMessageIds.add(messageId)
+  const expiryTimer = setTimeout(() => processedMessageIds.delete(messageId), 15 * 60 * 1000)
+  expiryTimer.unref()
+  return true
+}
+
 export function installScrimAutomation(client) {
   client.once(Events.ClientReady, (readyClient) => {
     initialized = initializeScrimAutomation(readyClient).catch((reason) => {
@@ -511,10 +536,12 @@ export function installScrimAutomation(client) {
   client.on(Events.MessageCreate, (message) => {
     if (message.author.bot || !message.inGuild()) return
     if (message.channelId === REGISTRATION_CHANNEL_ID) {
+      if (!claimMessage(message.id)) return
       queue(() => handleRegistration(message))
       return
     }
     if (message.channelId === CANCEL_SLOT_CHANNEL_ID) {
+      if (!claimMessage(message.id)) return
       queue(() => handleCancellation(message))
     }
   })

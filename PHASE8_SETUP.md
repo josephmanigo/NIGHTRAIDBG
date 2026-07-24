@@ -96,6 +96,13 @@ Each valid line in the registration channel is added in message order:
 
 One message may contain several valid lines. Slots are filled from `01A` through `25Y`; additional teams enter the waiting list in order. Posting a new registration banner GIF clears the previous cycle and starts a fresh real-time board.
 
+The bot validates the entire message before adding anything:
+
+- Every non-empty line must follow `FLAG | TAG - TEAM NAME`.
+- A fully valid message receives ✅ only after the live board is updated.
+- An invalid message receives ❌ and none of its teams are registered.
+- A duplicate-only message receives ❌ because it did not add a new team.
+
 ### Cancellation and waiting-list promotion
 
 Use this format in the cancellation channel:
@@ -117,6 +124,8 @@ MINE - TEAM TAG TEAM NAME
 The claiming team receives the canceled slot. If a waiting-list team was temporarily promoted, it returns to the front of the waiting list. Only the first valid claim is accepted.
 
 The live board is bot-owned, pinned, automatically edited after each change, and reconstructed after restarts. Its Philippine date is refreshed automatically. The bot needs **View Channel**, **Read Message History**, **Send Messages**, **Embed Links**, **Add Reactions**, and **Manage Messages** in the three channels.
+
+Run only one long-lived bot instance with a given Discord bot token. Starting the same bot locally while a hosted worker is active makes Discord deliver each registration and cancellation to both processes, which causes duplicate replies.
 
 ## 4. Run the bot
 
