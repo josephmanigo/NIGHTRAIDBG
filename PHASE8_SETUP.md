@@ -102,6 +102,8 @@ The bot validates the entire message before adding anything:
 - A fully valid message receives ✅ only after the live board is updated.
 - An invalid message receives ❌ and none of its teams are registered.
 - A duplicate-only message receives ❌ because it did not add a new team.
+- Editing a registration rebuilds the live board with the corrected tag or team name.
+- Deleting a registration removes every team submitted by that message and promotes the waiting list as needed.
 
 ### Cancellation and waiting-list promotion
 
@@ -122,6 +124,8 @@ MINE - TEAM TAG TEAM NAME
 ```
 
 The claiming team receives the canceled slot. If a waiting-list team was temporarily promoted, it returns to the front of the waiting list. Only the first valid claim is accepted.
+
+Editing a valid `MINE` reply rebuilds its claimed slot with the corrected team. Deleting the `MINE` reply removes that claim when the team came from the reply, then rebuilds the remaining slots and waiting list.
 
 The live board is bot-owned, pinned, automatically edited after each change, and reconstructed after restarts. Its Philippine date is refreshed automatically. The bot needs **View Channel**, **Read Message History**, **Send Messages**, **Embed Links**, **Add Reactions**, and **Manage Messages** in the three channels.
 

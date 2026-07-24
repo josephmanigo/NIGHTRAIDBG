@@ -20,7 +20,16 @@
  * inside the Vercel serverless functions. See PHASE8_SETUP.md.
  */
 import { createServer } from 'node:http'
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, Client, EmbedBuilder, Events, GatewayIntentBits } from 'discord.js'
+import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  Client,
+  EmbedBuilder,
+  Events,
+  GatewayIntentBits,
+  Partials,
+} from 'discord.js'
 import { installScrimAutomation } from './scrim-automation.js'
 
 const required = (name) => {
@@ -251,6 +260,7 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
   ],
+  partials: [Partials.Channel, Partials.Message],
 })
 
 installScrimAutomation(client)

@@ -7,6 +7,8 @@ const SCRIM_BANNER_URL =
   'https://cdn.discordapp.com/attachments/1271056489204940943/1391293235489673226/Copy_of_Simple_Full_Photo_Film_Production_LinkedIn_Banner.gif'
 const BOARD_MARKER = 'NIGHTRAID SCRIM BOARD • LIVE'
 const NIGHTRAID_RED = 0xed1c24
+const CHECK_MARK = '✅'
+const CROSS_MARK = '❌'
 const MAX_SLOTS = 25
 const MAX_WAITLIST_DISPLAY = 40
 const EMPTY_WAITLIST_ROWS = 4
@@ -136,6 +138,22 @@ function registerTeam(team) {
   return { status: 'waitlist', waitIndex: state.waitlist.length - 1, team }
 }
 
+function fromMessage(team, messageId, sourceType) {
+  return {
+    ...team,
+    sourceMessageId: messageId,
+    sourceType,
+  }
+}
+
+function registerTeamsFromMessage(teams, messageId) {
+  return teams.map((team) => registerTeam(fromMessage(team, messageId, 'registration')))
+}
+
+function hasTeamFromMessage(messageId) {
+  return [...state.slots, ...state.waitlist].some((team) => team?.sourceMessageId === messageId)
+}
+
 function cancelTeam(query, cancellationMessageId) {
   const found = findTeam(query)
   if (!found) return { status: 'not_found' }
@@ -175,12 +193,13 @@ function teamFromMineClaim(value) {
   return makeTeam(words[0], value)
 }
 
-function claimCanceledSlot(value, cancellationMessageId) {
+function claimCanceledSlot(value, cancellationMessageId, claimMessageId = null) {
   const pending = state.pendingCancellations.get(cancellationMessageId)
   if (!pending) return { status: 'not_available' }
 
-  const team = teamFromMineClaim(value)
-  if (!team) return { status: 'invalid_team' }
+  const parsedTeam = teamFromMineClaim(value)
+  if (!parsedTeam) return { status: 'invalid_team' }
+  const team = claimMessageId ? fromMessage(parsedTeam, claimMessageId, 'mine') : parsedTeam
 
   const existing = findTeam(`${team.tag} ${team.name}`)
   if (existing?.location === 'slot' && existing.index !== pending.slotIndex) {
@@ -352,7 +371,8 @@ async function syncBoard() {
 }
 
 async function reconstructCurrentCycle() {
-  resetBoard()
+  const knownCycleStartedAt = state.cycleStartedAt ?? 0
+  resetBoard(knownCycleStartedAt)
   const registrationChannel = await readableChannel(REGISTRATION_CHANNEL_ID)
   const messages = [...(await registrationChannel.messages.fetch({ limit: 100 })).values()].sort(
     (left, right) => left.createdTimestamp - right.createdTimestamp,
@@ -367,7 +387,7 @@ async function reconstructCurrentCycle() {
       validateRegistrationContent(message.content).valid,
   )
   for (const message of registrations) {
-    for (const team of validateRegistrationContent(message.content).teams) registerTeam(team)
+    registerTeamsFromMessage(validateRegistrationContent(message.content).teams, message.id)
   }
 
   const cancelChannel = await readableChannel(CANCEL_SLOT_CHANNEL_ID)
@@ -382,7 +402,7 @@ async function reconstructCurrentCycle() {
     }
     const mine = parseMineContent(message.content)
     const referenceId = message.reference?.messageId
-    if (mine && referenceId) claimCanceledSlot(mine, referenceId)
+    if (mine && referenceId) claimCanceledSlot(mine, referenceId, message.id)
   }
 }
 
@@ -409,7 +429,7 @@ async function replayMessagesSince(timestamp) {
       }
       const registration = validateRegistrationContent(message.content)
       if (registration.valid) {
-        for (const team of registration.teams) registerTeam(team)
+        registerTeamsFromMessage(registration.teams, message.id)
       }
       continue
     }
@@ -421,7 +441,7 @@ async function replayMessagesSince(timestamp) {
     }
     const mine = parseMineContent(message.content)
     const referenceId = message.reference?.messageId
-    if (mine && referenceId) claimCanceledSlot(mine, referenceId)
+    if (mine && referenceId) claimCanceledSlot(mine, referenceId, message.id)
   }
 }
 
@@ -454,13 +474,13 @@ async function handleRegistration(message) {
 
   const registration = validateRegistrationContent(message.content)
   if (!registration.valid) {
-    await message.react('❌').catch(() => undefined)
+    await message.react(CROSS_MARK).catch(() => undefined)
     return
   }
 
-  const results = registration.teams.map(registerTeam)
+  const results = registerTeamsFromMessage(registration.teams, message.id)
   await syncBoard()
-  await message.react(results.some((result) => result.status !== 'duplicate') ? '✅' : '❌').catch(() => undefined)
+  await message.react(results.some((result) => result.status !== 'duplicate') ? CHECK_MARK : CROSS_MARK).catch(() => undefined)
 }
 
 async function handleCancellation(message) {
@@ -491,7 +511,7 @@ async function handleCancellation(message) {
   const referencedMessage = await message.channel.messages.fetch(referenceId).catch(() => null)
   if (!referencedMessage || !parseCancelContent(referencedMessage.content)) return
 
-  const result = claimCanceledSlot(mine, referenceId)
+  const result = claimCanceledSlot(mine, referenceId, message.id)
   if (result.status !== 'claimed') {
     const reason =
       result.status === 'already_registered'
@@ -504,6 +524,42 @@ async function handleCancellation(message) {
   }
   await syncBoard()
   await reply(message, `✅ **${result.team.name}** now owns slot **${SLOT_CODES[result.slotIndex]}**.`)
+}
+
+async function setRegistrationReaction(message, accepted) {
+  const botUserId = clientValue.user.id
+  for (const emoji of [CHECK_MARK, CROSS_MARK]) {
+    const reaction = message.reactions.resolve(emoji)
+    if (reaction) await reaction.users.remove(botUserId).catch(() => undefined)
+  }
+  await message.react(accepted ? CHECK_MARK : CROSS_MARK).catch(() => undefined)
+}
+
+async function handleMessageMutation(message, deleted) {
+  let currentMessage = message
+  if (!deleted && currentMessage.partial) {
+    currentMessage = await currentMessage.fetch().catch(() => null)
+    if (!currentMessage) return
+  }
+  if (currentMessage.author?.bot) return
+
+  await reconstructCurrentCycle()
+  await syncBoard()
+
+  if (deleted || currentMessage.channelId !== REGISTRATION_CHANNEL_ID || isScrimBanner(currentMessage)) return
+  const registration = validateRegistrationContent(currentMessage.content)
+  await setRegistrationReaction(
+    currentMessage,
+    registration.valid && hasTeamFromMessage(currentMessage.id),
+  )
+}
+
+async function handleMessageUpdate(message) {
+  const currentMessage = message.partial ? await message.fetch().catch(() => null) : message
+  if (!currentMessage) return
+  const mutationKey = `update:${currentMessage.id}:${currentMessage.editedTimestamp ?? currentMessage.content}`
+  if (!claimMessage(mutationKey)) return
+  await handleMessageMutation(currentMessage, false)
 }
 
 function queue(task) {
@@ -544,6 +600,24 @@ export function installScrimAutomation(client) {
       if (!claimMessage(message.id)) return
       queue(() => handleCancellation(message))
     }
+  })
+
+  client.on(Events.MessageUpdate, (_oldMessage, newMessage) => {
+    if (
+      newMessage.channelId !== REGISTRATION_CHANNEL_ID &&
+      newMessage.channelId !== CANCEL_SLOT_CHANNEL_ID
+    ) {
+      return
+    }
+    queue(() => handleMessageUpdate(newMessage))
+  })
+
+  client.on(Events.MessageDelete, (message) => {
+    if (message.channelId !== REGISTRATION_CHANNEL_ID && message.channelId !== CANCEL_SLOT_CHANNEL_ID) {
+      return
+    }
+    if (!claimMessage(`delete:${message.id}`)) return
+    queue(() => handleMessageMutation(message, true))
   })
 
   const timer = setInterval(() => {
