@@ -5,6 +5,15 @@ const REGISTERED_TEAMS_CHANNEL_ID = '1260501981508669471'
 const CANCEL_SLOT_CHANNEL_ID = '1344620122094174281'
 const SCRIM_BANNER_URL =
   'https://cdn.discordapp.com/attachments/1271056489204940943/1391293235489673226/Copy_of_Simple_Full_Photo_Film_Production_LinkedIn_Banner.gif'
+const SCRIM_REGISTRATION_GIF_ASSET_ID = '1391293820695609416'
+const EMS_DISCORD_USER_ID = '294888876940460033'
+const SCRIM_REGISTRATION_OPENER_IDS = new Set([
+  EMS_DISCORD_USER_ID,
+  ...(process.env.SCRIM_REGISTRATION_OPENER_IDS ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean),
+])
 const BOARD_MARKER = 'NIGHTRAID SCRIM BOARD • LIVE'
 const NIGHTRAID_RED = 0xed1c24
 const CHECK_MARK = '✅'
@@ -21,7 +30,9 @@ const state = {
   slots: Array(MAX_SLOTS).fill(null),
   waitlist: [],
   boardMessageId: null,
+  registrationOpen: false,
   cycleStartedAt: null,
+  cycleStartMessageId: null,
   pendingCancellations: new Map(),
 }
 
@@ -93,14 +104,41 @@ export function parseMineContent(content) {
   return match ? cleanPart(match[1], 64) : null
 }
 
-function isScrimBanner(message) {
+function isGifUrl(value) {
+  return /(?:\.gif(?:$|[?#])|tenor\.com|giphy\.com)/i.test(value ?? '')
+}
+
+export function isScrimBanner(message) {
   if (parseRegistrationContent(message.content).length > 0) return false
-  const contentLooksLikeBanner = /\.gif(?:$|\?)/i.test(message.content) && /banner|scrim|registration/i.test(message.content)
-  const attachmentLooksLikeBanner = [...message.attachments.values()].some(
+  const signalValues = [
+    message.content,
+    ...[...message.attachments.values()].flatMap((attachment) => [attachment.name, attachment.url]),
+    ...message.embeds.flatMap((embed) => [
+      embed.url,
+      embed.image?.url,
+      embed.thumbnail?.url,
+      embed.video?.url,
+    ]),
+  ]
+  const contentLooksLikeGif = isGifUrl(message.content)
+  const attachmentLooksLikeGif = [...message.attachments.values()].some(
     (attachment) =>
-      attachment.contentType?.includes('gif') || /banner|scrim|registration/i.test(attachment.name ?? ''),
+      attachment.contentType?.includes('gif') ||
+      /\.gif$/i.test(attachment.name ?? '') ||
+      isGifUrl(attachment.url),
   )
-  return contentLooksLikeBanner || attachmentLooksLikeBanner
+  const embedLooksLikeGif = message.embeds.some(
+    (embed) =>
+      embed.type === 'gifv' ||
+      /tenor|giphy/i.test(embed.provider?.name ?? '') ||
+      [embed.url, embed.image?.url, embed.thumbnail?.url, embed.video?.url].some(isGifUrl),
+  )
+  const isGif = contentLooksLikeGif || attachmentLooksLikeGif || embedLooksLikeGif
+  const isAuthorizedSender = SCRIM_REGISTRATION_OPENER_IDS.has(message.author?.id)
+  const isOfficialSignal = signalValues.some((value) =>
+    value?.includes(SCRIM_REGISTRATION_GIF_ASSET_ID),
+  )
+  return isGif && (isAuthorizedSender || isOfficialSignal)
 }
 
 function teamVariants(team) {
@@ -225,11 +263,24 @@ function claimCanceledSlot(value, cancellationMessageId, claimMessageId = null) 
   return { status: 'claimed', slotIndex: pending.slotIndex, team }
 }
 
-function resetBoard(cycleStartedAt = Date.now()) {
+function resetBoard() {
   state.slots = Array(MAX_SLOTS).fill(null)
   state.waitlist = []
   state.pendingCancellations.clear()
-  state.cycleStartedAt = cycleStartedAt
+}
+
+function closeRegistration() {
+  resetBoard()
+  state.registrationOpen = false
+  state.cycleStartedAt = null
+  state.cycleStartMessageId = null
+}
+
+function openRegistration(message) {
+  resetBoard()
+  state.registrationOpen = true
+  state.cycleStartedAt = message.createdTimestamp
+  state.cycleStartMessageId = message.id
 }
 
 function manilaDate() {
@@ -371,19 +422,19 @@ async function syncBoard() {
 }
 
 async function reconstructCurrentCycle() {
-  const knownCycleStartedAt = state.cycleStartedAt ?? 0
-  resetBoard(knownCycleStartedAt)
+  closeRegistration()
   const registrationChannel = await readableChannel(REGISTRATION_CHANNEL_ID)
   const messages = [...(await registrationChannel.messages.fetch({ limit: 100 })).values()].sort(
     (left, right) => left.createdTimestamp - right.createdTimestamp,
   )
   const latestBanner = [...messages].reverse().find(isScrimBanner)
-  if (latestBanner) state.cycleStartedAt = latestBanner.createdTimestamp
+  if (!latestBanner) return
+  openRegistration(latestBanner)
 
   const registrations = messages.filter(
     (message) =>
       !message.author.bot &&
-      message.createdTimestamp >= (state.cycleStartedAt ?? 0) &&
+      message.createdTimestamp > state.cycleStartedAt &&
       validateRegistrationContent(message.content).valid,
   )
   for (const message of registrations) {
@@ -392,7 +443,7 @@ async function reconstructCurrentCycle() {
 
   const cancelChannel = await readableChannel(CANCEL_SLOT_CHANNEL_ID)
   const cancellations = [...(await cancelChannel.messages.fetch({ limit: 100 })).values()]
-    .filter((message) => !message.author.bot && message.createdTimestamp >= (state.cycleStartedAt ?? 0))
+    .filter((message) => !message.author.bot && message.createdTimestamp > state.cycleStartedAt)
     .sort((left, right) => left.createdTimestamp - right.createdTimestamp)
   for (const message of cancellations) {
     const cancel = parseCancelContent(message.content)
@@ -424,9 +475,10 @@ async function replayMessagesSince(timestamp) {
     const { message } = event
     if (event.type === 'registration') {
       if (isScrimBanner(message)) {
-        resetBoard(message.createdTimestamp)
+        openRegistration(message)
         continue
       }
+      if (!state.registrationOpen) continue
       const registration = validateRegistrationContent(message.content)
       if (registration.valid) {
         registerTeamsFromMessage(registration.teams, message.id)
@@ -449,15 +501,12 @@ async function initializeScrimAutomation(readyClient) {
   clientValue = readyClient
   const registeredChannel = await readableChannel(REGISTERED_TEAMS_CHANNEL_ID)
   const board = await findLiveBoard(registeredChannel, readyClient.user.id)
-  if (board) {
-    restoreBoard(board)
-    await replayMessagesSince(board.editedTimestamp ?? board.createdTimestamp)
-  } else {
-    await reconstructCurrentCycle()
-  }
+  if (board) state.boardMessageId = board.id
+  await reconstructCurrentCycle()
   await syncBoard()
   console.log(
-    `Scrim automation ready: ${state.slots.filter(Boolean).length} registered, ${state.waitlist.length} waiting.`,
+    `Scrim automation ready: ${state.registrationOpen ? 'OPEN' : 'CLOSED'}, ` +
+      `${state.slots.filter(Boolean).length} registered, ${state.waitlist.length} waiting.`,
   )
 }
 
@@ -467,13 +516,13 @@ async function reply(message, content) {
 
 async function handleRegistration(message) {
   if (isScrimBanner(message)) {
-    resetBoard(message.createdTimestamp)
+    openRegistration(message)
     await syncBoard()
     return
   }
 
   const registration = validateRegistrationContent(message.content)
-  if (!registration.valid) {
+  if (!state.registrationOpen || !registration.valid) {
     await message.react(CROSS_MARK).catch(() => undefined)
     return
   }
@@ -484,6 +533,8 @@ async function handleRegistration(message) {
 }
 
 async function handleCancellation(message) {
+  if (!state.registrationOpen) return
+
   const cancel = parseCancelContent(message.content)
   if (cancel) {
     const result = cancelTeam(cancel, message.id)
@@ -542,6 +593,16 @@ async function handleMessageMutation(message, deleted) {
     if (!currentMessage) return
   }
   if (currentMessage.author?.bot) return
+
+  if (
+    currentMessage.channelId === REGISTRATION_CHANNEL_ID &&
+    currentMessage.id === state.cycleStartMessageId &&
+    (deleted || !isScrimBanner(currentMessage))
+  ) {
+    closeRegistration()
+    await syncBoard()
+    return
+  }
 
   await reconstructCurrentCycle()
   await syncBoard()

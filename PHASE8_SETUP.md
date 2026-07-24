@@ -57,6 +57,7 @@ The bot reads:
 | `DISCORD_NICKNAME_CHANNEL_ID` | Yes | The nickname channel's ID. |
 | `DISCORD_GUILD_ID` | Yes for `/rules` | The NIGHTRAID server ID. |
 | `DISCORD_RULES_CHANNEL_ID` | No | Overrides the default NIGHTRAID rules channel (`1208605026868535387`). |
+| `SCRIM_REGISTRATION_OPENER_IDS` | No | Extra Discord user IDs allowed to open a scrim cycle with a GIF, separated by commas. EMS is already allowed. |
 
 To copy an ID: Discord **User Settings → Advanced → Developer Mode**, then right-click the server or channel → **Copy ID**.
 
@@ -95,6 +96,8 @@ Each valid line in the registration channel is added in message order:
 ```
 
 One message may contain several valid lines. Slots are filled from `01A` through `25Y`; additional teams enter the waiting list in order. Posting a new registration banner GIF clears the previous cycle and starts a fresh real-time board.
+
+Registration remains closed until EMS posts the official registration GIF in the team-registration channel. That GIF is the opening signal: the bot clears the previous slot list, starts a new cycle at the GIF's timestamp, and logs only team messages sent after it. Random GIFs from applicants do not restart the board. Additional trusted opener IDs can be added as a comma-separated `SCRIM_REGISTRATION_OPENER_IDS` environment variable.
 
 The bot validates the entire message before adding anything:
 
