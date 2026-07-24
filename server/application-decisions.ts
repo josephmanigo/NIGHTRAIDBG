@@ -2,10 +2,16 @@ import type { VercelRequest } from '@vercel/node'
 import { recordAuditEvent } from './audit.js'
 import {
   acceptedApplicantDiscordMessage,
+  addDiscordGuildMember,
   fetchDiscordGuildMember,
+  removeDiscordGuildMember,
   sendDiscordDirectMessage,
 } from './discord.js'
-import { onboardApprovedApplication, type DiscordOnboardingResult } from './discord-onboarding.js'
+import {
+  onboardApprovedApplication,
+  validDiscordAccessToken,
+  type DiscordOnboardingResult,
+} from './discord-onboarding.js'
 import { syncExcelRegister } from './excel-sync.js'
 import { syncApprovedApplicationToGoogleSheet } from './google-sheets-sync.js'
 import { getSupabaseAdmin } from './supabase.js'
@@ -23,15 +29,23 @@ type ApplicantNotificationResult =
   | { applicantNotification: 'PORTAL_ONLY'; notificationError?: never }
   | { applicantNotification: 'FAILED'; notificationError: string }
 
-async function notifyApplicant(discordUserId: string, message: string): Promise<ApplicantNotificationResult> {
+async function notifyApplicant(
+  discordUserId: string,
+  message: string,
+  options: { temporarilyJoinForDelivery?: boolean } = {},
+): Promise<ApplicantNotificationResult> {
+  let temporaryMemberAdded = false
   try {
     const member = await fetchDiscordGuildMember(discordUserId)
-    if (!member) return { applicantNotification: 'PORTAL_ONLY' }
+    if (!member) {
+      if (!options.temporarilyJoinForDelivery) return { applicantNotification: 'PORTAL_ONLY' }
+      const accessToken = await validDiscordAccessToken(discordUserId)
+      temporaryMemberAdded = await addDiscordGuildMember(discordUserId, accessToken, [])
+    }
   } catch (reason) {
-    console.warn(
-      'Applicant Discord membership check failed before notification:',
-      reason instanceof Error ? reason.message : 'Unknown Discord membership error',
-    )
+    const notificationError = reason instanceof Error ? reason.message.slice(0, 300) : 'Discord access failed.'
+    console.error('Applicant Discord access failed before notification:', notificationError)
+    return { applicantNotification: 'FAILED', notificationError }
   }
 
   try {
@@ -41,6 +55,17 @@ async function notifyApplicant(discordUserId: string, message: string): Promise<
     const notificationError = reason instanceof Error ? reason.message.slice(0, 300) : 'Discord notification failed.'
     console.error('Applicant Discord decision notification failed:', notificationError)
     return { applicantNotification: 'FAILED', notificationError }
+  } finally {
+    if (temporaryMemberAdded) {
+      try {
+        await removeDiscordGuildMember(discordUserId)
+      } catch (reason) {
+        console.error(
+          'Temporary rejected applicant could not be removed from Discord:',
+          reason instanceof Error ? reason.message : 'Unknown Discord removal error',
+        )
+      }
+    }
   }
 }
 
@@ -146,6 +171,7 @@ export async function rejectApplication(input: {
   const notification = await notifyApplicant(
     application.discord_user_id,
     `Thank you for applying to NIGHTRAID. Your application ${application.application_number} was not accepted at this time. Reason: ${input.reason}. You can review the recorded decision in the NIGHTRAID application status portal.`,
+    { temporarilyJoinForDelivery: true },
   )
   const excelSync = await syncExcelRegister([application.id], input.decidedBy)
   return { application, excelSync, ...notification }

@@ -82,9 +82,11 @@ The bot host does not need a new secret. It signs decision requests with its exi
 Deploy the website API first, update the bot to the same Git commit, then restart the long-lived Discord bot. Its startup logs must include `Discord application review interactions enabled.` Every new application will post a NIGHTRAID card in that channel:
 
 - **ACCEPT** runs the existing approval workflow, including Discord onboarding, applicant DM, nickname and game roles, Excel, and Google Sheets.
-- **REJECT** opens a required reason form, records the rejection, and sends that reason to the applicant through Discord.
+- **REJECT** opens a required reason form, records the rejection, and sends that reason to the applicant through Discord. If the applicant is not in the server, the system uses the applicant's authorized `guilds.join` access to add them temporarily, deliver the DM, and remove them again without assigning member roles.
 - **VIEW FULL FORM** opens the protected web admin portal.
 - Only Discord accounts listed in Vercel's `ADMIN_DISCORD_IDS` can use the decision buttons. The bot signs each request with its bot token, and the website verifies it before changing an application.
+
+Discord can still refuse a DM when the applicant has blocked the bot, disabled applicable DMs, revoked the app authorization, or allowed the OAuth token to expire without a refresh token. Those platform-level refusals cannot be bypassed; the recorded decision remains available in the application status portal.
 
 ## Rules commands
 

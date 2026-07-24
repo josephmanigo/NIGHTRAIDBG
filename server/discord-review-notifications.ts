@@ -29,10 +29,10 @@ function applicationEmbed(application: ClanApplicationRow, viewUrl: string) {
     application.discord_membership_verified === true
       ? 'Verified member'
       : application.discord_membership_verified === false
-        ? 'Not in server — rejection DM unavailable'
+        ? 'Not in server — temporary DM delivery enabled'
         : application.already_joined_discord
           ? 'Applicant says joined; verification unavailable'
-          : 'Not joined — rejection DM unavailable'
+          : 'Not joined — temporary DM delivery enabled'
 
   return {
     color: NIGHTRAID_RED,

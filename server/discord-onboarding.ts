@@ -27,7 +27,7 @@ function safeError(reason: unknown) {
   return message.slice(0, 500)
 }
 
-async function validAccessToken(discordUserId: string) {
+export async function validDiscordAccessToken(discordUserId: string) {
   const supabase = getSupabaseAdmin()
   const { data: connection, error } = await supabase
     .from('discord_connections')
@@ -114,7 +114,7 @@ export async function onboardApprovedApplication(applicationId: string): Promise
   const assignedRoles: string[] = []
   let memberPresent = false
   try {
-    const accessToken = await validAccessToken(application.discord_user_id)
+    const accessToken = await validDiscordAccessToken(application.discord_user_id)
     const roles = await resolveRoles(application.games)
     const memberCreated = await addDiscordGuildMember(
       application.discord_user_id,
