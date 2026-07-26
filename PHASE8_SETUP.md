@@ -4,21 +4,40 @@ Phase 8 adds a Discord bot process that manages nickname requests and the server
 
 ## Nickname channel
 
-The bot watches the nickname channel. When a member sends a message there, the bot renames them to the message text and marks the message:
+The bot watches the nickname channel. When a member sends a message there, the bot checks it against the channel's name format, renames them, and marks the message:
 
-- Member sends `Yepo` → their server nickname becomes `Yepo`.
+- Member sends `NIGHT • Yepo` → their server nickname becomes `NIGHT • Yepo`.
 - The bot reacts with ✅ on the message once the rename is done (or if the nickname already matches), so everyone can see who has been renamed already.
+- The bot reacts with ❌ when the message does not follow the name format. Nobody is renamed.
 - The bot reacts with ⚠️ when it cannot rename the member (the server owner, or someone with a role above the bot).
 
-Nicknames are trimmed to Discord's 32-character limit.
+## The name format
+
+The format posted in the channel is enforced by the bot (`bot/name-format.js`):
+
+| Who | Format | Example |
+| --- | --- | --- |
+| NIGHTRAID members | `NIGHT • Name` | `NIGHT • Ems` |
+| Other clan members | `TAG • NAME \| GAME` | `MRG • MIMAI \| BS` |
+| Handlers and reps | `TAG • NAME - GAME HANDLER/REP` | `SS • KULIT - BS HANDLER/REP` |
+
+- The clan tag is uppercased automatically, spacing around `•`, `|`, and `-` is normalised, and bullet look-alikes (`·`, `∙`, `●`) are accepted as `•` — small typing differences are corrected instead of rejected.
+- Everyone outside NIGHTRAID must state a game (`| BS`) or a role (`- BS HANDLER`, `- REP`, `- BS HANDLER/REP`). `MRG • MIMAI` alone gets ❌.
+- A NIGHTRAID name carries no game: `NIGHT • Ems | BS` gets ❌.
+- The game code is up to 8 letters or digits, so use the short code (`BS`, `FL`, `ML`), not the full game name.
+- The finished nickname must fit Discord's 32-character limit; anything longer gets ❌ instead of being silently cut.
+- Plain chatter in the channel (`hi guys`) has no `•`, so it gets ❌ and changes nothing.
+
+The reason for every ❌ is written to the bot's log, so check the host's console when a rejection is unclear.
 
 ## Renaming someone else (single or bulk)
 
 Mentioning a member renames **them** instead of the sender. Each mention is paired with the name written next to it, so one message can rename several people:
 
-- `ego @yepo` (or `@yepo ego`) sets @yepo's nickname to `ego`.
-- `ego @yepo ems @maloi` sets @yepo to `ego` **and** @maloi to `ems` in one message.
-- ✅ appears only when every mentioned member was renamed; if any of them could not be (or a mention had no name next to it), the message gets ⚠️ and the rest are still renamed.
+- `NIGHT • ego @yepo` (or `@yepo NIGHT • ego`) sets @yepo's nickname to `NIGHT • ego`.
+- `NIGHT • ego @yepo NIGHT • ems @maloi` renames @yepo **and** @maloi in one message.
+- Every name in the message is checked against the format before anyone is renamed: if one of them is wrong, or a mention has no name next to it, the message gets ❌ and **nobody** is renamed. Fix the message and send it again.
+- ✅ appears only when every mentioned member was renamed; if the bot is not allowed to rename one of them, the message gets ⚠️ and the rest are still renamed.
 - Anyone in the channel can rename themselves or mentioned members — there is no permission requirement. Restrict who can post in the nickname channel if that gets abused.
 - The reply-ping on a reply does not count as a mention — only mentions typed into the message body pick a target.
 - Discord's limits still apply to the target: the server owner and members with a role above the bot cannot be renamed (⚠️).
@@ -176,14 +195,16 @@ Keep the process running (pm2, systemd, a Railway/Render worker, or a terminal t
 
 ## 5. Test
 
-1. Send an in-game name in the nickname channel from a normal member account.
-2. The member's nickname changes to the message text and the message receives ✅.
+1. Send `NIGHT • Testname` in the nickname channel from a normal member account.
+2. The member's nickname changes to `NIGHT • Testname` and the message receives ✅.
 3. Send the same name again — the bot answers with ✅ immediately without changing anything.
-4. Send a message as someone the bot cannot manage (for example the server owner) — the message receives ⚠️.
-5. Type `/rules` in a normal text channel and confirm the rules embed appears.
-6. Join a voice channel, open that voice channel's text chat, type `/rules`, and confirm the same rules embed appears.
-7. Run `/nrules` and confirm **NIGHTRAID CLAN RULES** uses the configured clan-rules message.
-8. Run `/scrimrules` and confirm **SCRIM MECHANICS** includes both the mechanics text and requested image.
-9. Send two valid teams in one registration message and confirm both appear in consecutive slots.
-10. Fill the slots, register a waiting team, cancel a slotted team, and confirm the first waiting team is promoted.
-11. Reply `MINE - TAG TEAM NAME` to a cancellation and confirm the claimed team replaces the canceled slot.
+4. Send `Testname` and then `MRG • MIMAI` — both receive ❌ and no nickname changes.
+5. Send `MRG • MIMAI | BS` and `SS • KULIT - BS HANDLER/REP` — both receive ✅.
+6. Send a message as someone the bot cannot manage (for example the server owner) — the message receives ⚠️.
+7. Type `/rules` in a normal text channel and confirm the rules embed appears.
+8. Join a voice channel, open that voice channel's text chat, type `/rules`, and confirm the same rules embed appears.
+9. Run `/nrules` and confirm **NIGHTRAID CLAN RULES** uses the configured clan-rules message.
+10. Run `/scrimrules` and confirm **SCRIM MECHANICS** includes both the mechanics text and requested image.
+11. Send two valid teams in one registration message and confirm both appear in consecutive slots.
+12. Fill the slots, register a waiting team, cancel a slotted team, and confirm the first waiting team is promoted.
+13. Reply `MINE - TAG TEAM NAME` to a cancellation and confirm the claimed team replaces the canceled slot.

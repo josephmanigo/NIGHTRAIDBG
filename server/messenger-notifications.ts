@@ -1,4 +1,5 @@
 import { sendDiscordAdminAlert } from './discord.js'
+import { env } from './env.js'
 import { sendMessengerButtonTemplate, sendMessengerText, type MessengerButton } from './messenger.js'
 import { signMessengerAction } from './messenger-security.js'
 import { getSupabaseAdmin } from './supabase.js'
@@ -131,12 +132,15 @@ export async function notifyMessengerAdmins(applicationId: string, baseUrl: stri
     const viewUrl = new URL('/admin/applications', `${baseUrl.replace(/\/$/, '')}/`)
     viewUrl.searchParams.set('application', application.id)
     const details = applicationText(application)
+    /* Administrators rarely message the page, so most of these notifications
+     * land outside Meta's 24-hour standard messaging window. */
+    const sendOptions = { tag: env.metaMessageTag() }
 
     const results = await Promise.all(
       recipients.map(async (admin) => {
         const messageIds: string[] = []
         try {
-          messageIds.push(await sendMessengerText(admin.facebook_psid, details))
+          messageIds.push(await sendMessengerText(admin.facebook_psid, details, sendOptions))
           const buttons: MessengerButton[] = []
           if (admin.can_approve) {
             buttons.push({
@@ -158,6 +162,7 @@ export async function notifyMessengerAdmins(applicationId: string, baseUrl: stri
               admin.facebook_psid,
               `${application.application_number} · ${application.in_game_name}\nAdministrator decision required.`,
               buttons,
+              sendOptions,
             ),
           )
           await writeLog({

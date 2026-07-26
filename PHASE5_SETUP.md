@@ -52,6 +52,9 @@ APPLICATION_SIGNING_SECRET=your-separate-random-signing-secret
 
 # Optional fallback when Messenger delivery fails
 DISCORD_ADMIN_CHANNEL_ID=your-private-admin-channel-id
+
+# Optional: message tag used outside Meta's 24-hour window (default ACCOUNT_UPDATE)
+META_MESSAGE_TAG=ACCOUNT_UPDATE
 ```
 
 `APPLICATION_SIGNING_SECRET` signs every Messenger postback and must not reuse the session secret, token-encryption key, App Secret, or Page token.
@@ -113,7 +116,19 @@ Set `can_approve` or `can_reject` to `false` for view-only or limited reviewers.
 
 The implementation sends non-promotional administrator updates with `messaging_type: UPDATE`. A registered administrator must have interacted with the Page and must remain eligible under Meta's current messaging-window and permission policies. Development-mode apps generally work only for app roles and testers. Production delivery may require the applicable Messenger permission review and a live app.
 
-If Meta rejects delivery, the application remains `PENDING_REVIEW`, the error appears in `/admin/applications`, **Retry Messenger** becomes available, and an optional Discord administrator-channel alert is attempted.
+### The 24-hour window
+
+Meta only accepts an unprompted Page message within 24 hours of the recipient's last interaction with the Page. Administrators rarely message the Page, so most notifications fall outside that window and Meta answers:
+
+```text
+(#10) This message is sent outside of allowed window.
+```
+
+New application notifications therefore retry once with a message tag (`messaging_type: MESSAGE_TAG`) when — and only when — Meta reports that error. The tag comes from `META_MESSAGE_TAG` and defaults to `ACCOUNT_UPDATE`; the other values Meta accepts are `CONFIRMED_EVENT_UPDATE`, `POST_PURCHASE_UPDATE`, and `HUMAN_AGENT` (the last one needs the Human Agent permission). Replies inside a conversation are still sent without a tag, because the administrator's own tap already opened the window.
+
+Message tags are for non-promotional updates only. Repeated use outside Meta's stated tag purposes can cost the Page its messaging permissions, so keep the notification content limited to the application update itself.
+
+If Meta rejects delivery even with the tag, the application remains `PENDING_REVIEW`, the error appears in `/admin/applications`, **Retry Messenger** becomes available, and an optional Discord administrator-channel alert is attempted. The quickest manual fix is for the administrator to send the NIGHTRAID Page any message, which reopens the 24-hour window, then press **Retry Messenger**.
 
 ## 7. Test Phase 5
 

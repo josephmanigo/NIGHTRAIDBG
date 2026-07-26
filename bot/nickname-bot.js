@@ -2,14 +2,17 @@
  * NIGHTRAID Discord bot.
  *
  * Watches the nickname channel and renames anyone who chats there to the
- * message text, then reacts to the message:
+ * message text, as long as the text follows the channel's name format
+ * (`NIGHT • Ems`, `MRG • MIMAI | BS`, `SS • KULIT - BS HANDLER/REP`), then
+ * reacts to the message:
  *   ✅  the nickname was changed (or already matches)
+ *   ❌  the message does not follow the name format, so nobody was renamed
  *   ⚠️  the bot cannot rename this member (server owner, or a role above the bot)
  *
- * Mentioning someone renames them instead of the sender (`ego @yepo` sets
- * @yepo's nickname to `ego`), and several people can be renamed in one
- * message by pairing each name with a mention (`ego @yepo ems @maloi`).
- * Anyone may rename themselves or mentioned members.
+ * Mentioning someone renames them instead of the sender (`NIGHT • ego @yepo`
+ * sets @yepo's nickname), and several people can be renamed in one message by
+ * pairing each name with a mention. Anyone may rename themselves or mentioned
+ * members.
  *
  * Registers /rules in the NIGHTRAID server and answers it with the pinned
  * content from the official rules channel (or recent messages when no rules
@@ -31,6 +34,7 @@ import {
   Partials,
 } from 'discord.js'
 import { installApplicationReview } from './application-review.js'
+import { formatNickname } from './name-format.js'
 import { installScrimAutomation } from './scrim-automation.js'
 
 const required = (name) => {
@@ -44,7 +48,6 @@ const NICKNAME_CHANNEL_ID = required('DISCORD_NICKNAME_CHANNEL_ID')
 const GUILD_ID = process.env.DISCORD_GUILD_ID?.trim() || null
 const RULES_CHANNEL_ID = process.env.DISCORD_RULES_CHANNEL_ID?.trim() || '1208605026868535387'
 
-const NICKNAME_MAX_LENGTH = 32 // Discord's hard limit.
 const RULES_COMMAND_NAME = 'rules'
 const NIGHTRAID_RULES_COMMAND_NAME = 'nrules'
 const SCRIM_RULES_COMMAND_NAME = 'scrimrules'
@@ -65,14 +68,14 @@ const COMMAND_NAMES = new Set(COMMAND_DEFINITIONS.map((command) => command.name)
 
 const CHECK_MARK = '✅'
 const WARNING = '⚠️'
+const CROSS_MARK = '❌'
 
 function cleanName(value) {
   const name = value
     .replace(/[\r\n`]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
-  if (!name) return null
-  return name.slice(0, NICKNAME_MAX_LENGTH).trim() || null
+  return name || null
 }
 
 /* Pairs every mention with the name written next to it (the text before the
@@ -375,27 +378,46 @@ client.on(Events.MessageCreate, async (message) => {
      * appears in the content) rename the mentioned members. */
     const { requests, allNamed } = parseRenameTargets(message.content)
     if (requests.size > 0) {
+      /* Every requested name is checked before anyone is renamed, so a
+       * bulk message either follows the format or changes nothing. */
+      const checked = [...requests].map(([userId, name]) => [userId, formatNickname(name)])
+      const rejected = checked.filter(([, result]) => !result.ok)
+      if (!allNamed || rejected.length > 0) {
+        for (const [userId, result] of rejected) {
+          console.warn(`Name format rejected for user ${userId}: ${result.reason}.`)
+        }
+        if (!allNamed) console.warn('Name format rejected: a mention had no name next to it.')
+        await react(message, CROSS_MARK)
+        return
+      }
+
       const results = await Promise.all(
-        [...requests].map(async ([userId, name]) => {
+        checked.map(async ([userId, result]) => {
           try {
             const member = await message.guild.members.fetch(userId)
-            return await applyNickname(member, name)
+            return await applyNickname(member, result.nickname)
           } catch (reason) {
             console.error(`Could not rename user ${userId}:`, reason instanceof Error ? reason.message : reason)
             return false
           }
         }),
       )
-      await react(message, allNamed && results.every(Boolean) ? CHECK_MARK : WARNING)
+      await react(message, results.every(Boolean) ? CHECK_MARK : WARNING)
       return
     }
 
     /* Mention tokens are never part of a name; a message that only mentions
      * someone without a name is ignored rather than renaming the sender. */
-    const nickname = cleanName(message.content.replace(/<@!?\d+>/g, ' '))
-    if (!nickname) return
+    const requested = cleanName(message.content.replace(/<@!?\d+>/g, ' '))
+    if (!requested) return
+    const result = formatNickname(requested)
+    if (!result.ok) {
+      console.warn(`Name format rejected for ${message.author.tag}: ${result.reason}.`)
+      await react(message, CROSS_MARK)
+      return
+    }
     const author = message.member ?? (await message.guild.members.fetch(message.author.id))
-    await react(message, (await applyNickname(author, nickname)) ? CHECK_MARK : WARNING)
+    await react(message, (await applyNickname(author, result.nickname)) ? CHECK_MARK : WARNING)
   } catch (reason) {
     console.error(`Nickname change failed for a message from ${message.author.tag}:`, reason instanceof Error ? reason.message : reason)
     await react(message, WARNING)

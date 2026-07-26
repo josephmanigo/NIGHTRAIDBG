@@ -41,6 +41,15 @@ export const env = {
   metaPageId: () => required('META_PAGE_ID'),
   metaPageAccessToken: () => required('META_PAGE_ACCESS_TOKEN'),
   metaVerifyToken: () => required('META_VERIFY_TOKEN'),
+  /* Meta message tag used when a proactive notification falls outside the
+   * 24-hour standard messaging window. ACCOUNT_UPDATE covers non-recurring
+   * updates about an application. */
+  metaMessageTag: () => {
+    const tag = optional('META_MESSAGE_TAG') || 'ACCOUNT_UPDATE'
+    const allowed = ['ACCOUNT_UPDATE', 'CONFIRMED_EVENT_UPDATE', 'POST_PURCHASE_UPDATE', 'HUMAN_AGENT']
+    if (!allowed.includes(tag)) throw new Error(`META_MESSAGE_TAG must be one of: ${allowed.join(', ')}.`)
+    return tag
+  },
   metaGraphApiVersion: () => {
     const version = required('META_GRAPH_API_VERSION')
     if (!/^v\d+\.\d+$/.test(version)) throw new Error('META_GRAPH_API_VERSION must look like vXX.X.')
