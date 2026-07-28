@@ -15,6 +15,8 @@ const SCRIM_REGISTRATION_OPENER_IDS = new Set([
     .filter(Boolean),
 ])
 const BOARD_MARKER = 'NIGHTRAID SCRIM BOARD • LIVE'
+const BOARD_TITLE =
+  '<a:emoji_95:1499391444413321248> NIGHTRAID SCRIMMAGE SLOTLIST <:NIGHTRAID:1259926194862821561>'
 const NIGHTRAID_RED = 0xed1c24
 const CHECK_MARK = '1523256704836304926'
 const CROSS_MARK = '1531747505014837308'
@@ -316,20 +318,19 @@ function boardEmbeds() {
 
   const board = new EmbedBuilder()
     .setColor(NIGHTRAID_RED)
-    .setTitle('📣 NIGHTRAID SCRIMMAGE SLOT LIST')
+    .setTitle(BOARD_TITLE)
     .setDescription(
       [
         `📅 **DATE:** ${date}`,
         `⏰ **TIME:** ${process.env.SCRIM_TIME_LABEL?.trim() || '10:00 PM PH Time'}`,
         `📌 **ROUNDS:** ${process.env.SCRIM_ROUNDS_LABEL?.trim() || '4 Rounds | 1SB-1DV-2SI'}`,
         '',
-        '**SLOT LIST**',
+        '**SLOTLIST**',
         '```',
         ...slotLines,
         '```',
       ].join('\n'),
     )
-    .setImage(SCRIM_BANNER_URL)
 
   const waiting = new EmbedBuilder()
     .setColor(NIGHTRAID_RED)
@@ -381,8 +382,13 @@ function isLiveBoard(message, botUserId) {
   return message.embeds.some(
     (embed) =>
       embed.footer?.text?.startsWith(BOARD_MARKER) ||
+      embed.title === BOARD_TITLE ||
       embed.title === '📣 NIGHTRAID SCRIMMAGE SLOT LIST',
   )
+}
+
+function usesCurrentBoardLayout(message) {
+  return message.embeds.some((embed) => embed.title === BOARD_TITLE)
 }
 
 function boardCycleMessageId(message) {
@@ -437,6 +443,7 @@ async function syncBoard() {
     }
   }
 
+  await channel.send({ content: SCRIM_BANNER_URL, allowedMentions: { parse: [] } })
   const board = await channel.send(payload)
   state.boardMessageId = board.id
   await board.pin('Keep the live NIGHTRAID scrim slot board available after bot restarts.').catch(() => undefined)
@@ -524,7 +531,10 @@ async function initializeScrimAutomation(readyClient) {
   const registeredChannel = await readableChannel(REGISTERED_TEAMS_CHANNEL_ID)
   const board = await findLiveBoard(registeredChannel, readyClient.user.id)
   await reconstructCurrentCycle()
-  state.boardMessageId = board && boardBelongsToCurrentCycle(board) ? board.id : null
+  state.boardMessageId =
+    board && boardBelongsToCurrentCycle(board) && usesCurrentBoardLayout(board)
+      ? board.id
+      : null
   await syncBoard()
   console.log(
     `Scrim automation ready: ${state.registrationOpen ? 'OPEN' : 'CLOSED'}, ` +

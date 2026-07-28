@@ -141,7 +141,7 @@ Each valid line in the registration channel is added in message order:
 
 One message may contain several valid lines. Slots are filled from `01A` through `25Y`; additional teams enter the waiting list in order. Posting a new registration banner GIF closes the previous cycle and starts a fresh real-time board.
 
-Registration remains closed until EMS posts the official registration GIF in the team-registration channel. That GIF is the opening signal: the bot leaves the previous slot-list message unchanged as history, posts a separate new pinned board, starts a new cycle at the GIF's timestamp, and logs only team messages sent after it. Random GIFs from applicants do not restart the board. Additional trusted opener IDs can be added as a comma-separated `SCRIM_REGISTRATION_OPENER_IDS` environment variable.
+Registration remains closed until EMS posts the official registration GIF in the team-registration channel. That GIF is the opening signal: the bot leaves the previous slot-list message unchanged as history, posts the banner GIF first in the registered-teams channel, follows it with a separate new pinned board, starts a new cycle at the opening GIF's timestamp, and logs only team messages sent after it. Random GIFs from applicants do not restart the board. Additional trusted opener IDs can be added as a comma-separated `SCRIM_REGISTRATION_OPENER_IDS` environment variable.
 
 The bot validates the entire message before adding anything:
 
@@ -174,7 +174,7 @@ The claiming team receives the canceled slot. If a waiting-list team was tempora
 
 Editing a valid `MINE` reply rebuilds its claimed slot with the corrected team. Deleting the `MINE` reply removes that claim when the team came from the reply, then rebuilds the remaining slots and waiting list.
 
-The live board is bot-owned, pinned, automatically edited after each change, and reconstructed after restarts. Its Philippine date is refreshed automatically. The bot needs **View Channel**, **Read Message History**, **Send Messages**, **Embed Links**, **Add Reactions**, and **Manage Messages** in the three channels.
+The live board is bot-owned, pinned, automatically edited after each change, and reconstructed after restarts. A standalone banner GIF is posted immediately before every new board. Its Philippine date is refreshed automatically. The bot needs **View Channel**, **Read Message History**, **Send Messages**, **Embed Links**, **Add Reactions**, and **Manage Messages** in the three channels.
 
 Run only one long-lived bot instance with a given Discord bot token. Starting the same bot locally while a hosted worker is active makes Discord deliver each registration and cancellation to both processes, which causes duplicate replies.
 
