@@ -66,9 +66,9 @@ const COMMAND_DEFINITIONS = [
 ]
 const COMMAND_NAMES = new Set(COMMAND_DEFINITIONS.map((command) => command.name))
 
-const CHECK_MARK = '✅'
+const CHECK_MARK = '1523256704836304926'
 const WARNING = '⚠️'
-const CROSS_MARK = '❌'
+const CROSS_MARK = '1531747505014837308'
 
 function cleanName(value) {
   const name = value
