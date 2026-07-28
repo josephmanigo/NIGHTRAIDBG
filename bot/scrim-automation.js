@@ -321,9 +321,9 @@ function boardEmbeds() {
     .setTitle(BOARD_TITLE)
     .setDescription(
       [
-        `📅 **DATE:** ${date}`,
-        `⏰ **TIME:** ${process.env.SCRIM_TIME_LABEL?.trim() || '10:00 PM PH Time'}`,
-        `📌 **ROUNDS:** ${process.env.SCRIM_ROUNDS_LABEL?.trim() || '4 Rounds | 1SB-1DV-2SI'}`,
+        `<a:calendar3:1436064495939354634> **DATE:** ${date}`,
+        `<a:emoji_157:1259806144080248894> **TIME:** ${process.env.SCRIM_TIME_LABEL?.trim() || '10:00 PM PH Time'}`,
+        `<a:pinned:1240329558033436722> **ROUNDS:** ${process.env.SCRIM_ROUNDS_LABEL?.trim() || '4 Rounds | 1SB-1DV-2SI'}`,
         '',
         '**SLOTLIST**',
         '```',
