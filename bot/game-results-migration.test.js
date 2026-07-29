@@ -9,6 +9,7 @@ const PRODUCTION_WRITE_MIGRATION_URL = new URL('../database/phase12.sql', import
 const PLAYER_HISTORY_MIGRATION_URL = new URL('../database/phase13.sql', import.meta.url)
 const MVP_MIGRATION_URL = new URL('../database/phase14.sql', import.meta.url)
 const ADMIN_MIGRATION_URL = new URL('../database/phase15.sql', import.meta.url)
+const SCREENSHOT_DELETION_MIGRATION_URL = new URL('../database/phase16.sql', import.meta.url)
 
 test('defines the persistent submission schema and every required status', async () => {
   const sql = await readFile(MIGRATION_URL, 'utf8')
@@ -174,11 +175,24 @@ test('makes only canonical SHA-256 hashes unique, not perceptual hashes', async 
   const sql = await readFile(MIGRATION_URL, 'utf8')
   assert.match(
     sql,
-    /create unique index if not exists game_result_screenshots_canonical_sha256_idx[\s\S]*where status <> 'duplicate'/i,
+    /create unique index if not exists game_result_screenshots_canonical_sha256_idx[\s\S]*where status not in \('duplicate', 'deleted'\)/i,
   )
   assert.match(
     sql,
     /create index if not exists game_result_screenshots_perceptual_hash_idx[\s\S]*\(perceptual_hash\)/i,
   )
   assert.doesNotMatch(sql, /create unique index[^\n]*perceptual_hash/i)
+})
+
+test('releases deleted Discord screenshots without erasing confirmed score audits', async () => {
+  const sql = await readFile(SCREENSHOT_DELETION_MIGRATION_URL, 'utf8')
+  assert.match(sql, /tombstone_deleted_game_result_message/i)
+  assert.match(sql, /where status not in \('duplicate', 'deleted'\)/i)
+  assert.match(sql, /screenshot_url = ''/i)
+  assert.match(sql, /filename = '\[deleted Discord screenshot\]'/i)
+  assert.match(sql, /sha256 = encode\(digest\('deleted-sha256:'/i)
+  assert.match(sql, /status = 'deleted'/i)
+  assert.match(sql, /when v_submission\.status::text in \('confirmed', 'corrected'\)/i)
+  assert.match(sql, /grant execute[\s\S]*to service_role/i)
+  assert.doesNotMatch(sql, /\bdelete\s+from\b/i)
 })

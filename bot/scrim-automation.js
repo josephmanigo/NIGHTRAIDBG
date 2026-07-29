@@ -423,14 +423,16 @@ function boardContent() {
   ].join('\n')
 }
 
-function waitlistContent() {
-  const waitRows = Math.max(EMPTY_WAITLIST_ROWS, Math.min(state.waitlist.length, MAX_WAITLIST_DISPLAY))
+export function createWaitlistContent(waitlist) {
+  if (waitlist.length === 0) return null
+
+  const waitRows = Math.max(EMPTY_WAITLIST_ROWS, Math.min(waitlist.length, MAX_WAITLIST_DISPLAY))
   const waitLines = Array.from({ length: waitRows }, (_value, index) => {
     const number = String(index + 1).padStart(2, '0')
-    return `W${number}  : ${displayTeam(state.waitlist[index], MAX_WAITLIST_TEAM_NAME)}`.trimEnd()
+    return `W${number}  : ${displayTeam(waitlist[index], MAX_WAITLIST_TEAM_NAME)}`.trimEnd()
   })
-  if (state.waitlist.length > MAX_WAITLIST_DISPLAY) {
-    waitLines.push(`...   : +${state.waitlist.length - MAX_WAITLIST_DISPLAY} MORE TEAMS`)
+  if (waitlist.length > MAX_WAITLIST_DISPLAY) {
+    waitLines.push(`...   : +${waitlist.length - MAX_WAITLIST_DISPLAY} MORE TEAMS`)
   }
   return [
     '# WAIT LIST',
@@ -494,15 +496,18 @@ async function findLiveBoard(channel, botUserId) {
     .sort((left, right) => right.createdTimestamp - left.createdTimestamp)[0] ?? null
 }
 
-async function findLiveWaitlist(channel, botUserId, cycleMessageId) {
+async function findLiveWaitlists(channel, botUserId, board) {
   const recent = await channel.messages.fetch({ limit: 100 })
+  const cycleMessageId = boardCycleMessageId(board)
   return [...recent.values()]
     .filter(
       (message) =>
         isLiveWaitlist(message, botUserId) &&
-        (!cycleMessageId || boardCycleMessageId(message) === cycleMessageId),
+        (cycleMessageId
+          ? boardCycleMessageId(message) === cycleMessageId
+          : message.createdTimestamp >= board.createdTimestamp),
     )
-    .sort((left, right) => right.createdTimestamp - left.createdTimestamp)[0] ?? null
+    .sort((left, right) => right.createdTimestamp - left.createdTimestamp)
 }
 
 async function unpinLiveBoards(channel, botUserId) {
@@ -533,11 +538,14 @@ async function syncBoard() {
     embeds: [],
     allowedMentions: { parse: [] },
   }
-  const waitlistPayload = {
-    content: waitlistContent(),
-    embeds: [],
-    allowedMentions: { parse: [] },
-  }
+  const waitlistContent = createWaitlistContent(state.waitlist)
+  const waitlistPayload = waitlistContent
+    ? {
+        content: waitlistContent,
+        embeds: [],
+        allowedMentions: { parse: [] },
+      }
+    : null
 
   if (state.boardMessageId) {
     try {
@@ -550,12 +558,17 @@ async function syncBoard() {
       if (state.waitlistMessageId) {
         try {
           const waitlist = await channel.messages.fetch(state.waitlistMessageId)
-          await waitlist.edit(waitlistPayload)
+          if (waitlistPayload) {
+            await waitlist.edit(waitlistPayload)
+          } else {
+            await waitlist.delete()
+            state.waitlistMessageId = null
+          }
         } catch {
           state.waitlistMessageId = null
         }
       }
-      if (!state.waitlistMessageId) {
+      if (waitlistPayload && !state.waitlistMessageId) {
         const waitlist = await channel.send(waitlistPayload)
         state.waitlistMessageId = waitlist.id
       }
@@ -569,9 +582,13 @@ async function syncBoard() {
 
   await channel.send({ content: SCRIM_BANNER_URL, allowedMentions: { parse: [] } })
   const board = await channel.send(boardPayload)
-  const waitlist = await channel.send(waitlistPayload)
   state.boardMessageId = board.id
-  state.waitlistMessageId = waitlist.id
+  if (waitlistPayload) {
+    const waitlist = await channel.send(waitlistPayload)
+    state.waitlistMessageId = waitlist.id
+  } else {
+    state.waitlistMessageId = null
+  }
   return board
 }
 
@@ -665,20 +682,21 @@ async function initializeScrimAutomation(readyClient) {
   clientValue = readyClient
   const registeredChannel = await readableChannel(REGISTERED_TEAMS_CHANNEL_ID)
   const board = await findLiveBoard(registeredChannel, readyClient.user.id)
-  const waitlist = board
-    ? await findLiveWaitlist(registeredChannel, readyClient.user.id, boardCycleMessageId(board))
-    : null
+  const waitlists = board
+    ? await findLiveWaitlists(registeredChannel, readyClient.user.id, board)
+    : []
+  const waitlist = waitlists[0] ?? null
   await unpinLiveBoards(registeredChannel, readyClient.user.id)
   await reconstructCurrentCycle()
   const canReuseBoard =
     board && boardBelongsToCurrentCycle(board) && usesCurrentBoardLayout(board)
   state.boardMessageId = canReuseBoard ? board.id : null
-  state.waitlistMessageId =
-    canReuseBoard &&
-    waitlist &&
-    boardCycleMessageId(waitlist) === state.cycleStartMessageId
-      ? waitlist.id
-      : null
+  state.waitlistMessageId = canReuseBoard && waitlist ? waitlist.id : null
+  if (canReuseBoard && waitlists.length > 1) {
+    await Promise.all(
+      waitlists.slice(1).map((duplicate) => duplicate.delete().catch(() => undefined)),
+    )
+  }
   await syncBoard()
   console.log(
     `Scrim automation ready: ${state.registrationOpen ? 'OPEN' : 'CLOSED'}, ` +

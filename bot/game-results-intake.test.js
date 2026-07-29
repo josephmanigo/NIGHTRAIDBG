@@ -51,6 +51,36 @@ function testStore(database) {
     async findSubmissionByMessage(metadata) {
       return findSubmissionByMessage(metadata)
     },
+    async tombstoneDeletedMessage(metadata) {
+      const submissionId = database.messageIndex.get(messageKey(metadata))
+      if (!submissionId) {
+        return {
+          found: false,
+          screenshots_removed: 0,
+          submission_deleted: false,
+        }
+      }
+      const submission = database.submissions.get(submissionId)
+      const screenshotsRemoved =
+        submission.records.length + submission.duplicateRecords.length
+      for (const record of submission.records) {
+        database.screenshotHashes.delete(record.sha256)
+      }
+      const previousStatus = submission.status
+      if (!['confirmed', 'corrected'].includes(previousStatus)) {
+        submission.status = 'deleted'
+      }
+      submission.records = []
+      submission.duplicateRecords = []
+      return {
+        found: true,
+        submission_id: submissionId,
+        previous_status: previousStatus,
+        current_status: submission.status,
+        screenshots_removed: screenshotsRemoved,
+        submission_deleted: submission.status === 'deleted',
+      }
+    },
     async createPendingSubmission(metadata, records) {
       let submission = findSubmissionByMessage(metadata)
       if (!submission) {
@@ -462,6 +492,134 @@ test('blocks an exact duplicate screenshot in a later submission', async () => {
   assert.match(result.submission.duplicateRecords[0].sha256, /^[0-9a-f]{64}$/)
   assert.match(second.replies[0].content, /matches an exact file/)
   assert.equal(second.replies[0].components, undefined)
+})
+
+test('deleting a screenshot message removes its active hash so it can be submitted again', async () => {
+  const database = testDatabase()
+  const controller = intake({ database })
+  const original = message({
+    attachments: [attachment({ fingerprint: 'deleted-source-bytes' })],
+  })
+  const pending = await controller.handleMessage(original.message)
+
+  const deletion = await controller.handleMessageDelete({
+    id: MESSAGE_ID,
+    guildId: original.message.guildId,
+    channelId: CHANNEL_ID,
+  })
+
+  assert.equal(deletion.status, 'deleted')
+  assert.equal(deletion.deletion.screenshots_removed, 1)
+  assert.equal(controller.getPendingSubmission(MESSAGE_ID), null)
+  assert.equal(database.submissions.get(pending.submission.submissionId).status, 'deleted')
+  assert.equal(database.screenshotHashes.size, 0)
+
+  const replacementMessageId = '1532004107404051013'
+  const replacement = message({
+    messageId: replacementMessageId,
+    attachments: [
+      attachment({
+        id: '1532004107404053016',
+        fingerprint: 'deleted-source-bytes',
+      }),
+    ],
+  })
+  const resubmitted = await controller.handleMessage(replacement.message)
+
+  assert.equal(resubmitted.status, 'pending_round')
+  assert.equal(resubmitted.submission.records.length, 1)
+  assert.equal(resubmitted.submission.duplicateRecords.length, 0)
+})
+
+test('ignores deleted messages outside the screenshot channel', async () => {
+  const controller = intake()
+
+  const result = await controller.handleMessageDelete({
+    id: MESSAGE_ID,
+    guildId: '1208444297926545489',
+    channelId: OTHER_CHANNEL_ID,
+  })
+
+  assert.equal(result.status, 'ignored')
+})
+
+test('handles duplicate Discord deletion events only once', async () => {
+  const database = testDatabase()
+  const controller = intake({ database })
+  const input = message({
+    attachments: [attachment({ fingerprint: 'single-delete-event' })],
+  })
+  await controller.handleMessage(input.message)
+  const deletedMessage = {
+    id: MESSAGE_ID,
+    guildId: input.message.guildId,
+    channelId: CHANNEL_ID,
+  }
+
+  const first = await controller.handleMessageDelete(deletedMessage)
+  const repeated = await controller.handleMessageDelete(deletedMessage)
+
+  assert.equal(first.status, 'deleted')
+  assert.equal(repeated.status, 'already_deleted')
+})
+
+test('a delete that races screenshot hashing cannot leave a duplicate record behind', async () => {
+  const database = testDatabase()
+  let releaseHash
+  let hashingStarted
+  const started = new Promise((resolve) => {
+    hashingStarted = resolve
+  })
+  const controller = intake({
+    database,
+    hashAttachment: async (item) => {
+      hashingStarted()
+      await new Promise((resolve) => {
+        releaseHash = resolve
+      })
+      return testHashAttachment(item)
+    },
+  })
+  const input = message({
+    attachments: [attachment({ fingerprint: 'delete-during-hash' })],
+  })
+
+  const intakeResultPromise = controller.handleMessage(input.message)
+  await started
+  const deletion = await controller.handleMessageDelete({
+    id: MESSAGE_ID,
+    guildId: input.message.guildId,
+    channelId: CHANNEL_ID,
+  })
+  releaseHash()
+  const intakeResult = await intakeResultPromise
+
+  assert.equal(deletion.status, 'not_found')
+  assert.equal(intakeResult.status, 'deleted')
+  assert.equal(database.submissions.size, 0)
+  assert.equal(database.screenshotHashes.size, 0)
+})
+
+test('deleting a confirmed screenshot releases the photo but preserves confirmed results', async () => {
+  const database = testDatabase()
+  const controller = intake({ database })
+  const input = message({
+    attachments: [attachment({ fingerprint: 'confirmed-source-bytes' })],
+  })
+  const pending = await controller.handleMessage(input.message)
+  database.submissions.get(pending.submission.submissionId).status = 'confirmed'
+
+  const result = await controller.handleMessageDelete({
+    id: MESSAGE_ID,
+    guildId: input.message.guildId,
+    channelId: CHANNEL_ID,
+  })
+
+  assert.equal(result.status, 'deleted')
+  assert.equal(result.deletion.current_status, 'confirmed')
+  assert.equal(result.deletion.submission_deleted, false)
+  assert.equal(database.submissions.get(pending.submission.submissionId).status, 'confirmed')
+  assert.equal(database.screenshotHashes.size, 0)
 })
 
 test('keeps different overlapping screenshots even when their perceptual hashes match', async () => {

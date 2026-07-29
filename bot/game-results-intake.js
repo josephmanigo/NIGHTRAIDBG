@@ -223,6 +223,7 @@ export function createGameResultsIntake(options = {}) {
   const onOfficialSubmission = options.onOfficialSubmission
   const pendingSubmissions = new Map()
   const officialSubmissions = new Map()
+  const deletedMessageIds = new Set()
   const rateLimiter =
     options.rateLimiter
     ?? createSlidingWindowRateLimiter({
@@ -234,6 +235,12 @@ export function createGameResultsIntake(options = {}) {
   function initialize() {
     initializationPromise ??= Promise.resolve().then(() => store.initialize())
     return initializationPromise
+  }
+
+  function rememberDeletedMessage(messageId) {
+    deletedMessageIds.add(messageId)
+    const expiryTimer = setTimeout(() => deletedMessageIds.delete(messageId), 15 * 60 * 1_000)
+    expiryTimer.unref()
   }
 
   async function replyWithRoundSelection(message, submission, duplicateCount = 0) {
@@ -257,6 +264,7 @@ export function createGameResultsIntake(options = {}) {
     if (message.author?.bot || message.channelId !== channelId || !message.inGuild?.()) {
       return { status: 'ignored' }
     }
+    if (deletedMessageIds.has(message.id)) return { status: 'deleted' }
 
     const attachments = [...(message.attachments?.values?.() ?? [])]
     if (attachments.length === 0) return { status: 'ignored' }
@@ -314,7 +322,12 @@ export function createGameResultsIntake(options = {}) {
 
     try {
       await initialize()
+      if (deletedMessageIds.has(message.id)) return { status: 'deleted' }
       const existing = await store.findSubmissionByMessage(metadata)
+      if (deletedMessageIds.has(message.id)) {
+        if (existing) await store.tombstoneDeletedMessage(metadata)
+        return { status: 'deleted' }
+      }
       if (existing) {
         if (existing.status === 'duplicate') {
           await message.reply({
@@ -343,7 +356,12 @@ export function createGameResultsIntake(options = {}) {
         const hashes = await hashAttachment(validation.accepted[index], { maxFileSizeBytes })
         hashedRecords.push({ ...baseRecords[index], ...hashes })
       }
+      if (deletedMessageIds.has(message.id)) return { status: 'deleted' }
       const stored = await store.createPendingSubmission(metadata, hashedRecords)
+      if (deletedMessageIds.has(message.id)) {
+        await store.tombstoneDeletedMessage(metadata)
+        return { status: 'deleted' }
+      }
       const submission = stored.submission
       if (!submission) throw new Error('Persistent storage did not return the screenshot submission.')
 
@@ -394,6 +412,10 @@ export function createGameResultsIntake(options = {}) {
     }
 
     await initialize()
+    if (deletedMessageIds.has(selection.messageId)) {
+      await ephemeralReply(interaction, 'This screenshot message was deleted and cannot be submitted.')
+      return { status: 'deleted' }
+    }
     const submission =
       pendingSubmissions.get(selection.messageId)
       ?? await store.findSubmissionByMessage({
@@ -448,6 +470,36 @@ export function createGameResultsIntake(options = {}) {
       ? await onOfficialSubmission(officialSubmission, interaction)
       : null
     return { status: 'official', submission: officialSubmission, review }
+  }
+
+  async function handleMessageDelete(message) {
+    if (message.channelId !== channelId || !message.guildId || !message.id) {
+      return { status: 'ignored' }
+    }
+    if (deletedMessageIds.has(message.id)) return { status: 'already_deleted' }
+
+    rememberDeletedMessage(message.id)
+    await initialize()
+    const deletion = await store.tombstoneDeletedMessage({
+      guildId: message.guildId,
+      channelId: message.channelId,
+      messageId: message.id,
+    })
+    pendingSubmissions.delete(message.id)
+    officialSubmissions.delete(message.id)
+
+    if (!deletion.found) return { status: 'not_found' }
+
+    logRecord(logger, 'info', 'GAME_RESULTS_DISCORD_SOURCE_DELETED', {
+      guild_id: message.guildId,
+      channel_id: message.channelId,
+      message_id: message.id,
+      submission_id: deletion.submission_id ?? null,
+      previous_status: deletion.previous_status ?? null,
+      current_status: deletion.current_status ?? null,
+      screenshots_removed: deletion.screenshots_removed ?? 0,
+    })
+    return { status: 'deleted', deletion }
   }
 
   async function recoverPendingSubmissions(client) {
@@ -505,6 +557,7 @@ export function createGameResultsIntake(options = {}) {
     authorizedRoleIds,
     initialize,
     handleMessage,
+    handleMessageDelete,
     handleInteraction,
     recoverPendingSubmissions,
     getPendingSubmission: (messageId) => pendingSubmissions.get(messageId) ?? null,
@@ -547,6 +600,23 @@ export function installGameResultsIntake(client, options = {}) {
         )
       }
     })
+  })
+
+  const handleDeletedMessage = (message) => {
+    intake.handleMessageDelete(message).catch((reason) => {
+      options.errorReporter?.report('game_results_screenshot_deletion', reason)
+      if (!options.errorReporter) {
+        console.error(
+          'Game-results screenshot deletion failed:',
+          reason instanceof Error ? reason.message : reason,
+        )
+      }
+    })
+  }
+
+  client.on(Events.MessageDelete, handleDeletedMessage)
+  client.on(Events.MessageBulkDelete, (messages) => {
+    for (const message of messages.values()) handleDeletedMessage(message)
   })
 
   client.on(Events.InteractionCreate, (interaction) => {

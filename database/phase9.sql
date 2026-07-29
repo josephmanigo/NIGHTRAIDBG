@@ -65,7 +65,7 @@ create index if not exists game_result_screenshots_perceptual_hash_idx
 -- screenshot for an exact byte hash is canonical.
 create unique index if not exists game_result_screenshots_canonical_sha256_idx
   on public.game_result_screenshots (sha256)
-  where status <> 'duplicate';
+  where status not in ('duplicate', 'deleted');
 
 create or replace function public.set_game_result_submission_updated_at()
 returns trigger
@@ -95,7 +95,7 @@ comment on table public.game_result_submissions is
   'Discord game-result screenshot groups. A round remains null until the authorized uploader chooses one.';
 
 comment on column public.game_result_screenshots.sha256 is
-  'Exact file identity. A partial unique index blocks a second canonical byte-for-byte match.';
+  'Exact file identity. A partial unique index blocks a second active canonical byte-for-byte match.';
 
 comment on column public.game_result_screenshots.perceptual_hash is
   'Visual similarity signal for later review only; never an automatic duplicate constraint.';

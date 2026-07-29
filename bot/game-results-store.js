@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 
 const MIGRATION_FILE =
-  'database/phase9.sql through database/phase15.sql'
+  'database/phase9.sql through database/phase16.sql'
 const SUBMISSIONS_TABLE = 'game_result_submissions'
 const SCREENSHOTS_TABLE = 'game_result_screenshots'
 const SHEET_WRITE_AUDITS_TABLE = 'game_result_sheet_write_audits'
@@ -36,7 +36,10 @@ function submissionFromRow(row, screenshots = []) {
     messageId: row.message_id,
     discordUserId: row.user_id,
     round: row.round_number,
-    status: screenshot.status === 'duplicate' ? 'duplicate' : row.status,
+    status:
+      screenshot.status === 'duplicate' || screenshot.status === 'deleted'
+        ? screenshot.status
+        : row.status,
     duplicateOf: screenshot.duplicate_of,
   }))
   return {
@@ -57,8 +60,11 @@ function submissionFromRow(row, screenshots = []) {
     reviewUpdatedAt: row.review_updated_at ?? null,
     confirmedBy: row.confirmed_by ?? null,
     confirmedAt: row.confirmed_at ?? null,
-    records: screenshotRecords.filter((record) => record.status !== 'duplicate'),
+    records: screenshotRecords.filter(
+      (record) => record.status !== 'duplicate' && record.status !== 'deleted',
+    ),
     duplicateRecords: screenshotRecords.filter((record) => record.status === 'duplicate'),
+    deletedRecords: screenshotRecords.filter((record) => record.status === 'deleted'),
   }
 }
 
@@ -315,9 +321,31 @@ export function createSupabaseGameResultsStore(options = {}) {
       .select('*')
       .eq('sha256', sha256)
       .neq('status', 'duplicate')
+      .neq('status', 'deleted')
       .maybeSingle()
     if (error) throw new Error(safeDatabaseError(error, 'Could not check screenshot duplication.'))
     return data
+  }
+
+  async function tombstoneDeletedMessage({ guildId, channelId, messageId }) {
+    const { data, error } = await client.rpc('tombstone_deleted_game_result_message', {
+      p_guild_id: guildId,
+      p_channel_id: channelId,
+      p_message_id: messageId,
+    })
+    if (error) {
+      throw new Error(
+        safeDatabaseError(
+          error,
+          'Could not remove screenshots for the deleted Discord message.',
+        ),
+      )
+    }
+    return data ?? {
+      found: false,
+      screenshots_removed: 0,
+      submission_deleted: false,
+    }
   }
 
   async function existingScreenshotByAttachment(attachmentId) {
@@ -1108,6 +1136,7 @@ export function createSupabaseGameResultsStore(options = {}) {
     initializeAdmin,
     findSubmissionByMessage,
     findSubmissionById,
+    tombstoneDeletedMessage,
     createPendingSubmission,
     selectRound,
     saveReviewState,

@@ -69,7 +69,7 @@ Discord snowflakes at startup.
 
 ## Database preparation
 
-Apply migrations in order through `database/phase15.sql` in the Supabase SQL
+Apply migrations in order through `database/phase16.sql` in the Supabase SQL
 editor. The service-role credential is required because the tables remain
 service-role only. Before deployment, make a provider-level Supabase backup in
 addition to the bot's local JSON exports.
@@ -150,7 +150,7 @@ submission.
 Do not activate production until every item is checked:
 
 - [ ] Full tests, build, and API typecheck pass on the deployed commit.
-- [ ] Supabase migrations `phase9.sql` through `phase15.sql` are applied.
+- [ ] Supabase migrations `phase9.sql` through `phase16.sql` are applied.
 - [ ] A provider-level Supabase backup exists.
 - [ ] The bot created and can read a fresh local JSON backup.
 - [ ] Local backups are copied to protected off-host storage with retention.
