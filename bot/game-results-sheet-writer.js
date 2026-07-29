@@ -236,6 +236,9 @@ function confirmedTeams(submission) {
   }
   const round = payload.round_result?.submission?.round
   if (!ROUND_COLUMNS[round]) throw new Error('The confirmed round must be 1, 2, 3, or 4.')
+  const registeredSlotlistIsEnforced = Boolean(
+    payload.mapping_result?.source?.registered_teams,
+  )
   const teams = (payload.round_result.teams ?? []).map((team, index) => {
     const official = payload.mapping_result?.teams?.[index]?.mapping?.official_team
     if (
@@ -245,6 +248,14 @@ function confirmedTeams(submission) {
       || official.worksheet_row > TEAM_LAST_ROW_EXCLUSIVE
     ) {
       throw new Error(`Team ${index + 1} has no valid official score-sheet row.`)
+    }
+    if (
+      registeredSlotlistIsEnforced
+      && official.official_team_name_source !== 'discord_registered_team_slot'
+    ) {
+      throw new Error(
+        `Team ${index + 1} is not present in the registered slot list and cannot be tallied.`,
+      )
     }
     if (!Number.isInteger(team.rank) || team.rank < 1 || team.rank > 25) {
       throw new Error(`Team ${index + 1} has no valid confirmed rank.`)

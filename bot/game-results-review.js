@@ -208,6 +208,14 @@ function collectReviewIssues(roundResult, mappingResult, threshold) {
   if (!Number.isInteger(round) || round < 1 || round > 4) {
     issues.push(issue('invalid_round', 'blocking', 'submission.round', 'Round must be 1, 2, 3, or 4.'))
   }
+  if (teams.length === 0) {
+    issues.push(issue(
+      'no_registered_teams',
+      'blocking',
+      'teams',
+      'No screenshot teams are present in the registered slot list, so there is nothing to tally.',
+    ))
+  }
 
   teams.forEach((team, teamIndex) => {
     const teamPath = `teams[${teamIndex}]`
@@ -346,17 +354,105 @@ function collectReviewIssues(roundResult, mappingResult, threshold) {
   return issues
 }
 
+function remapTeamPath(path, teamIndexMap) {
+  const match = /^teams\[(\d+)\](.*)$/.exec(path ?? '')
+  if (!match) return path
+  const mappedIndex = teamIndexMap.get(Number(match[1]))
+  return mappedIndex === undefined ? null : `teams[${mappedIndex}]${match[2]}`
+}
+
+function filterToRegisteredSlotlist(roundResult, mappingResult) {
+  if (!mappingResult.source?.registered_teams) {
+    return {
+      roundResult: structuredClone(roundResult),
+      mappingResult,
+      excludedTeams: [],
+    }
+  }
+
+  const includedIndexes = []
+  const excludedTeams = []
+  ;(roundResult.teams ?? []).forEach((team, teamIndex) => {
+    const mappedTeam = mappingResult.teams?.[teamIndex]
+    const official = mappedTeam?.mapping?.official_team
+    const mappingStatus = mappedTeam?.mapping?.status
+    if (
+      ['mapped', 'mapped_manual'].includes(mappingStatus)
+      && official?.official_team_name_source === 'discord_registered_team_slot'
+    ) {
+      includedIndexes.push(teamIndex)
+      return
+    }
+    excludedTeams.push({
+      original_team_index: teamIndex,
+      rank: team.rank ?? null,
+      team_code: safeText(team.team_code, '') || null,
+      detected_team_name: safeText(
+        mappedTeam?.detected?.team_name ?? team.team_name,
+        '',
+      ) || null,
+      reason:
+        !['mapped', 'mapped_manual'].includes(mappingStatus)
+          ? 'unknown_team'
+          : 'not_in_registered_slotlist',
+      tally_status: 'excluded',
+    })
+  })
+
+  const teamIndexMap = new Map(
+    includedIndexes.map((originalIndex, filteredIndex) => [originalIndex, filteredIndex]),
+  )
+  const filteredRoundResult = structuredClone(roundResult)
+  filteredRoundResult.teams = includedIndexes.map((index) => roundResult.teams[index])
+  filteredRoundResult.conflicts = (roundResult.conflicts ?? []).flatMap((conflict) => {
+    const field = remapTeamPath(conflict.field, teamIndexMap)
+    return field === null ? [] : [{ ...conflict, field }]
+  })
+  filteredRoundResult.review_fields = (roundResult.review_fields ?? []).flatMap((field) => {
+    const remapped = remapTeamPath(field, teamIndexMap)
+    return remapped === null ? [] : [remapped]
+  })
+  filteredRoundResult.kill_total_validations = includedIndexes.flatMap((index) => {
+    const validation = roundResult.kill_total_validations?.[index]
+    return validation ? [validation] : []
+  })
+  filteredRoundResult.review_required =
+    filteredRoundResult.conflicts.length > 0
+    || filteredRoundResult.review_fields.length > 0
+
+  const filteredMappingResult = {
+    ...mappingResult,
+    teams: includedIndexes.map((index) => mappingResult.teams[index]),
+    excluded_teams: excludedTeams,
+    review_required:
+      mappingResult.scoring_validation?.status !== 'matched'
+      || includedIndexes.some((index) => mappingResult.teams[index]?.review_required),
+  }
+
+  return {
+    roundResult: filteredRoundResult,
+    mappingResult: filteredMappingResult,
+    excludedTeams,
+  }
+}
+
 export async function buildGameResultsReviewPayload({
   roundResult,
   teamMappingService,
   lowConfidenceThreshold = DEFAULT_LOW_CONFIDENCE_THRESHOLD,
 }) {
-  const mappingResult = await teamMappingService.mapRoundResult(roundResult)
-  const issues = collectReviewIssues(roundResult, mappingResult, lowConfidenceThreshold)
+  const rawMappingResult = await teamMappingService.mapRoundResult(roundResult)
+  const filtered = filterToRegisteredSlotlist(roundResult, rawMappingResult)
+  const issues = collectReviewIssues(
+    filtered.roundResult,
+    filtered.mappingResult,
+    lowConfidenceThreshold,
+  )
   return {
     schema_version: 'nightraid.discord-review.v1',
-    round_result: structuredClone(roundResult),
-    mapping_result: mappingResult,
+    round_result: filtered.roundResult,
+    mapping_result: filtered.mappingResult,
+    excluded_teams: filtered.excludedTeams,
     issues,
     blocking_issue_count: issues.filter((item) => item.severity === 'blocking').length,
     warning_count: issues.filter((item) => item.severity === 'warning').length,
@@ -467,6 +563,11 @@ export function renderGameResultsReview(submission) {
   lines.push(
     '',
     '**Submission checks**',
+    ...(payload?.excluded_teams?.length
+      ? [
+          `Not tallied because they are not in the registered slot list: **${payload.excluded_teams.length}**`,
+        ]
+      : []),
     ...issueSummary(payload?.issues ?? []),
     '',
     `Blocking issues: **${payload?.blocking_issue_count ?? 0}** • Confidence warnings: **${payload?.warning_count ?? 0}**`,

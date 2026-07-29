@@ -430,6 +430,25 @@ test('builds a Round 1 plan for only K22 PLACE and M22 KILLS', () => {
   )
 })
 
+test('refuses to tally a team that is not in the live registered slot list', () => {
+  const submission = rankOneSubmission()
+  submission.reviewPayload.mapping_result.source = {
+    registered_teams: {
+      type: 'discord_registered_team_slots',
+      channel_id: '1260501981508669471',
+    },
+  }
+
+  assert.throws(
+    () => buildSafeSheetWritePlan({
+      submission,
+      state: buildState(),
+      sheetConfig: sheetConfig(),
+    }),
+    /not present in the registered slot list/,
+  )
+})
+
 test('defaults to test mode and production must be explicitly enabled', () => {
   const testClient = createGameResultsSheetClient()
   assert.equal(testClient.config.mode, 'test')

@@ -75,7 +75,12 @@ function roundResult(teams = [team()]) {
   }
 }
 
-function mappingService({ unknownCodes = new Set(), calls } = {}) {
+function mappingService({
+  unknownCodes = new Set(),
+  unregisteredCodes = new Set(),
+  calls,
+  registeredSlotlist = false,
+} = {}) {
   return {
     async mapRoundResult(result) {
       calls?.push(structuredClone(result))
@@ -87,6 +92,14 @@ function mappingService({ unknownCodes = new Set(), calls } = {}) {
           worksheet_name: 'Copy of New',
           access: 'read_only',
           formulas_are_authoritative: true,
+          ...(registeredSlotlist
+            ? {
+                registered_teams: {
+                  type: 'discord_registered_team_slots',
+                  channel_id: '1260501981508669471',
+                },
+              }
+            : {}),
         },
         scoring_validation: {
           status: 'matched',
@@ -96,6 +109,7 @@ function mappingService({ unknownCodes = new Set(), calls } = {}) {
         teams: result.teams.map((item) => {
           const code = item.team_code
           const unknown = !code || unknownCodes.has(code)
+          const unregistered = unregisteredCodes.has(code)
           const slot = code?.charCodeAt(0) - 64
           return {
             detected: {
@@ -113,16 +127,23 @@ function mappingService({ unknownCodes = new Set(), calls } = {}) {
                     slot_code: `${slot}-${code}`,
                     slot_number: slot,
                     team_code: code,
-                    official_team_name: `Official ${code}`,
+                    official_team_name: unregistered ? null : `Official ${code}`,
+                    official_team_name_source: registeredSlotlist && !unregistered
+                      ? 'discord_registered_team_slot'
+                      : null,
                   },
               manual_selection: item.official_team_selection ?? null,
               created_new_team_row: false,
             },
             name_validation: {
-              status: item.team_name ? 'exact' : 'not_provided',
+              status: unregistered
+                ? 'not_available'
+                : item.team_name
+                  ? 'exact'
+                  : 'not_provided',
               detected_name: item.team_name ?? null,
-              official_name: unknown ? null : `Official ${code}`,
-              similarity: item.team_name ? 1 : null,
+              official_name: unknown || unregistered ? null : `Official ${code}`,
+              similarity: item.team_name && !unregistered ? 1 : null,
               suggestions: [],
             },
             review_required: unknown,
@@ -311,6 +332,62 @@ test('collects every required review problem and confidence warning', async () =
   assert.ok(payload.blocking_issue_count > 0)
   assert.ok(payload.warning_count > 0)
   assert.equal(payload.spreadsheet_write_performed, false)
+})
+
+test('excludes screenshot teams that are not in the live registered slot list', async () => {
+  const registered = team({ rank: 1, code: 'A', name: 'Official A' })
+  const unregistered = team({
+    rank: 2,
+    code: 'Z',
+    name: 'Unknown Team',
+    players: [
+      player('Z1', null, null),
+      player('Z2', null, null),
+    ],
+  })
+  const emptySlot = team({ rank: 3, code: 'B', name: 'Empty Slot Team' })
+  const result = roundResult([registered, unregistered, emptySlot])
+  result.conflicts.push({
+    type: 'field_conflict',
+    field: 'teams[1].players[0].name',
+  })
+
+  const payload = await buildGameResultsReviewPayload({
+    roundResult: result,
+    teamMappingService: mappingService({
+      unknownCodes: new Set(['Z']),
+      unregisteredCodes: new Set(['B']),
+      registeredSlotlist: true,
+    }),
+  })
+
+  assert.equal(payload.round_result.teams.length, 1)
+  assert.equal(payload.round_result.teams[0].team_code, 'A')
+  assert.equal(payload.mapping_result.teams.length, 1)
+  assert.equal(payload.excluded_teams.length, 2)
+  assert.equal(payload.excluded_teams[0].team_code, 'Z')
+  assert.equal(payload.excluded_teams[0].reason, 'unknown_team')
+  assert.equal(payload.excluded_teams[1].team_code, 'B')
+  assert.equal(payload.excluded_teams[1].reason, 'not_in_registered_slotlist')
+  assert.equal(payload.issues.some((item) => item.type === 'unknown_team'), false)
+  assert.equal(payload.issues.some((item) => item.type === 'unreadable_player_name'), false)
+  assert.equal(payload.issues.some((item) => item.type === 'conflicting_screenshot_values'), false)
+  assert.equal(payload.blocking_issue_count, 0)
+})
+
+test('blocks a submission when every screenshot team is outside the registered slot list', async () => {
+  const payload = await buildGameResultsReviewPayload({
+    roundResult: roundResult([team({ code: 'Z', name: 'Unknown Team' })]),
+    teamMappingService: mappingService({
+      unknownCodes: new Set(['Z']),
+      registeredSlotlist: true,
+    }),
+  })
+
+  assert.equal(payload.round_result.teams.length, 0)
+  assert.equal(payload.excluded_teams.length, 1)
+  assert.equal(payload.issues.some((item) => item.type === 'no_registered_teams'), true)
+  assert.equal(payload.blocking_issue_count, 1)
 })
 
 test('renders a plain Markdown paginated preview with team and player details', async () => {
