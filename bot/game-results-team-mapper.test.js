@@ -5,10 +5,12 @@ import {
   parseScoreSheetSnapshot,
 } from './game-results-scoresheet-source.js'
 import {
+  applyRegisteredTeamNames,
   createTeamMappingService,
   teamNameSimilarity,
   validateScoreSheetRules,
 } from './game-results-team-mapper.js'
+import { createRegisteredTeamSnapshot } from './scrim-automation.js'
 
 const expectedPoints = (place) => {
   if (place === 1) return 20
@@ -197,6 +199,68 @@ test('maps O, M, R, H, and B through the official slot suffix and row', async ()
   )
   assert.equal(result.review_required, false)
   assert.equal(result.spreadsheet_write_performed, false)
+})
+
+test('uses the screenshot letter to resolve the current registered team name', async () => {
+  const sheetSnapshot = fixtureSnapshot()
+  sheetSnapshot.official_teams.forEach((team) => {
+    team.official_team_name = null
+  })
+  const slots = Array(25).fill(null)
+  slots[14] = {
+    tag: 'NR',
+    name: 'NIGHTRAID',
+    sourceMessageId: 'registration-message-1',
+  }
+  const registeredSnapshot = createRegisteredTeamSnapshot(slots, {
+    registrationOpen: true,
+    cycleStartMessageId: 'cycle-message-1',
+  })
+  const service = createTeamMappingService({
+    scoreSheetSource: sourceFor(sheetSnapshot),
+    registeredTeamSource: sourceFor(registeredSnapshot),
+  })
+  const result = await service.mapRoundResult(roundTeams([{
+    rank: 1,
+    team_code: 'O',
+    team_name: 'NR - NIGHTRAID',
+    team_total_kills: 65,
+    players: [
+      { slot: 'O1' },
+      { slot: 'O2' },
+      { slot: 'O3' },
+      { slot: 'O4' },
+    ],
+  }]))
+  const official = result.teams[0].mapping.official_team
+
+  assert.equal(official.slot_code, '15-O')
+  assert.equal(official.worksheet_row, 22)
+  assert.equal(official.official_team_name, 'NR - NIGHTRAID')
+  assert.equal(official.official_team_name_source, 'discord_registered_team_slot')
+  assert.equal(official.registered_team_tag, 'NR')
+  assert.equal(result.teams[0].mapping.status, 'mapped')
+  assert.equal(result.teams[0].name_validation.status, 'exact')
+  assert.equal(result.review_required, false)
+})
+
+test('registered names only apply when both the letter and slot number match', () => {
+  const sheetSnapshot = fixtureSnapshot()
+  const registeredSnapshot = {
+    source: { type: 'test' },
+    teams: [{
+      slot_number: 14,
+      slot_code: '14-N',
+      team_code: 'O',
+      official_team_name: 'WRONG SLOT TEAM',
+      team_tag: 'WRONG',
+    }],
+  }
+  const result = applyRegisteredTeamNames(sheetSnapshot, registeredSnapshot)
+  const officialO = result.official_teams.find((team) => team.team_code === 'O')
+
+  assert.equal(officialO.official_team_name, null)
+  assert.equal(officialO.official_team_name_source, null)
 })
 
 test('uses fuzzy names only as suggestions and never changes the code mapping', async () => {

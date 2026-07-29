@@ -136,6 +136,35 @@ function detectedTeamName(team) {
   )
 }
 
+function registeredTeamForSheetRow(sheetTeam, registeredTeams) {
+  return registeredTeams.find((team) =>
+    extractCode(team.team_code ?? team.slot_code) === sheetTeam.team_code
+    && Number(team.slot_number) === Number(sheetTeam.slot_number))
+}
+
+export function applyRegisteredTeamNames(snapshot, registeredSnapshot) {
+  if (!registeredSnapshot) return snapshot
+  const registeredTeams = registeredSnapshot.teams ?? []
+  return {
+    ...snapshot,
+    source: {
+      ...snapshot.source,
+      registered_teams: registeredSnapshot.source ?? null,
+    },
+    official_teams: (snapshot.official_teams ?? []).map((sheetTeam) => {
+      const registeredTeam = registeredTeamForSheetRow(sheetTeam, registeredTeams)
+      return {
+        ...sheetTeam,
+        official_team_name: clean(registeredTeam?.official_team_name),
+        official_team_name_source: registeredTeam
+          ? 'discord_registered_team_slot'
+          : null,
+        registered_team_tag: clean(registeredTeam?.team_tag),
+      }
+    }),
+  }
+}
+
 function resolveOfficialSelection(team, officialTeams) {
   const value = clean(team.official_team_selection)
   if (!value) return { value: null, candidates: [] }
@@ -317,6 +346,8 @@ function serializeOfficialTeam(team) {
     slot_number: team.slot_number,
     team_code: team.team_code,
     official_team_name: team.official_team_name,
+    official_team_name_source: team.official_team_name_source ?? 'score_sheet',
+    registered_team_tag: team.registered_team_tag ?? null,
   }
 }
 
@@ -324,13 +355,18 @@ export function createTeamMappingService(options = {}) {
   const scoreSheetSource =
     options.scoreSheetSource
     ?? createGameResultsScoreSheetSource(options.scoreSheet)
+  const registeredTeamSource = options.registeredTeamSource ?? null
   const fuzzyThreshold = options.fuzzyThreshold ?? 0.7
 
   async function mapRoundResult(roundResult) {
     if (!roundResult || !Array.isArray(roundResult.teams)) {
       throw new Error('A round result with a teams array is required.')
     }
-    const snapshot = await scoreSheetSource.readSnapshot()
+    const [sheetSnapshot, registeredSnapshot] = await Promise.all([
+      scoreSheetSource.readSnapshot(),
+      registeredTeamSource?.readSnapshot?.() ?? null,
+    ])
+    const snapshot = applyRegisteredTeamNames(sheetSnapshot, registeredSnapshot)
     const scoringValidation = validateScoreSheetRules(snapshot)
     const teams = roundResult.teams.map((team) => {
       const mapping = mappingForTeam(

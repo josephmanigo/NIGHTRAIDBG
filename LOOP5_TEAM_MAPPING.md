@@ -33,6 +33,11 @@ GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY=...
 
 - A screenshot team code is matched to the suffix of the official slot code,
   such as `O` to `15-O`.
+- At runtime, that same letter and slot number resolve the current team name
+  from the Discord registered-team board. For example, the team occupying
+  registered slot `15-O` supplies the official name for screenshot code `O`.
+- The spreadsheet row and formulas remain authoritative. Discord supplies
+  only the current registered team name for the matching letter and slot.
 - Player slots such as `O1` can suggest the same mapping when the main team
   code is missing, but this remains review-only.
 - Conflicting, missing, duplicated, or unknown codes require manual review.

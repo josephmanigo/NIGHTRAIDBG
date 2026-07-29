@@ -51,6 +51,41 @@ let operationQueue = Promise.resolve()
 let lastRenderedDate = ''
 const processedMessageIds = new Set()
 
+function registeredTeamDisplayName(team) {
+  return `${team.tag} - ${team.name}`
+}
+
+export function createRegisteredTeamSnapshot(
+  slots,
+  {
+    registrationOpen = false,
+    cycleStartMessageId = null,
+  } = {},
+) {
+  return {
+    source: {
+      type: 'discord_registered_team_slots',
+      channel_id: REGISTERED_TEAMS_CHANNEL_ID,
+      registration_open: registrationOpen,
+      cycle_start_message_id: cycleStartMessageId,
+    },
+    teams: slots.flatMap((team, index) => {
+      if (!team) return []
+      const slotNumber = index + 1
+      const teamCode = String.fromCharCode(65 + index)
+      return [{
+        slot_number: slotNumber,
+        slot_code: `${slotNumber}-${teamCode}`,
+        team_code: teamCode,
+        team_tag: team.tag,
+        team_name: team.name,
+        official_team_name: registeredTeamDisplayName(team),
+        source_message_id: team.sourceMessageId ?? null,
+      }]
+    }),
+  }
+}
+
 function cleanPart(value, maxLength) {
   return value
     .replace(/[`*_~]/g, '')
@@ -856,4 +891,16 @@ export function installScrimAutomation(client) {
     queue(() => syncBoard())
   }, 60 * 60 * 1000)
   timer.unref()
+
+  return {
+    registeredTeamSource: {
+      async readSnapshot() {
+        await initialized
+        return createRegisteredTeamSnapshot(state.slots, {
+          registrationOpen: state.registrationOpen,
+          cycleStartMessageId: state.cycleStartMessageId,
+        })
+      },
+    },
+  }
 }

@@ -51,6 +51,7 @@ import { createStructuredLogger, createErrorReporter } from './game-results-runt
 import { createGameResultsSheetClient } from './game-results-sheet-client.js'
 import { createSafeGameResultsSheetWriter } from './game-results-sheet-writer.js'
 import { createSupabaseGameResultsStore } from './game-results-store.js'
+import { createTeamMappingService } from './game-results-team-mapper.js'
 import { formatNickname } from './name-format.js'
 import { containsLinkKeyword, NIGHTRAID_SERVER_INVITE_URL } from './server-link.js'
 import { installScrimAutomation } from './scrim-automation.js'
@@ -339,7 +340,7 @@ const client = new Client({
   partials: [Partials.Channel, Partials.Message],
 })
 
-installScrimAutomation(client)
+const scrimAutomation = installScrimAutomation(client)
 installApplicationReview(client)
 const gameResultsLogger = createStructuredLogger()
 const gameResultsErrorReporter = createErrorReporter({
@@ -373,6 +374,9 @@ const gameResultsSheetWriter = createSafeGameResultsSheetWriter({
   sheetClient: gameResultsSheetClient,
   backupService: gameResultsBackupService,
 })
+const gameResultsTeamMappingService = createTeamMappingService({
+  registeredTeamSource: scrimAutomation.registeredTeamSource,
+})
 installGameResultsMvpWorkflow(client, {
   store: gameResultsStore,
   backupService: gameResultsBackupService,
@@ -381,6 +385,7 @@ installGameResultsMvpWorkflow(client, {
 })
 const gameResultsReview = installGameResultsReview(client, {
   store: gameResultsStore,
+  teamMappingService: gameResultsTeamMappingService,
   scoreSheetMode: gameResultsSheetWriter.config.mode,
   scoreSheetWorksheet: gameResultsSheetWriter.config.worksheetName,
   writeApprovedSubmission: (submission, actorUserId, writeOptions) =>
