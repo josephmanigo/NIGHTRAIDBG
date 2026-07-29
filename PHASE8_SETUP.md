@@ -117,7 +117,7 @@ When the bot starts, it registers the rules commands as instant guild commands i
 | `/nrules` | **NIGHTRAID CLAN RULES** | Message `1443300854613544993` |
 | `/scrimrules` | **SCRIM MECHANICS** plus its official image | Text message `1522987468532744332` and image message `1522987523335524442` |
 
-Discord requires lowercase slash-command names, so the NIGHTRAID clan command is `/nrules`, not `/Nrules`. Every response uses plain Discord Markdown rather than embeds. Long fetched rules are split into ordered continuation messages, and the final message contains Markdown links back to the source and any official image.
+Discord requires lowercase slash-command names, so the NIGHTRAID clan command is `/nrules`, not `/Nrules`. Every response uses plain Discord Markdown rather than embeds. Long fetched rules are split into ordered continuation messages. `/rules` and `/nrules` end with Markdown links to their sources; `/scrimrules` preserves the fetched mechanics formatting and uploads the official point-system image as a visible attachment beneath the text.
 
 For predictable results, pin only the official rule messages and arrange the rules in the order they were originally posted. The bot needs **View Channel** and **Read Message History** in the rules channel. Keep **MESSAGE CONTENT INTENT** enabled so it can read the rule text.
 

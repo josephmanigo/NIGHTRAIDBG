@@ -368,12 +368,6 @@ function displayTeam(team, maxNameLength = MAX_DISPLAY_TEAM_NAME) {
   return `${team.tag.padEnd(5)} - ${displayName}`
 }
 
-function cycleMarker(marker) {
-  return state.cycleStartMessageId
-    ? `${marker} • CYCLE ${state.cycleStartMessageId}`
-    : marker
-}
-
 function boardContent() {
   const date = manilaDate()
   lastRenderedDate = date
@@ -391,8 +385,6 @@ function boardContent() {
     '```',
     ...slotLines,
     '```',
-    '',
-    `||${cycleMarker(BOARD_MARKER)}||`,
   ].join('\n')
 }
 
@@ -410,14 +402,13 @@ function waitlistContent() {
     '```',
     ...waitLines,
     '```',
-    '',
-    `||${cycleMarker(WAITLIST_MARKER)}||`,
   ].join('\n')
 }
 
 function isLiveBoard(message, botUserId) {
   if (message.author.id !== botUserId) return false
   return (
+    message.content.startsWith(`# ${BOARD_TITLE}`) ||
     message.content.includes(BOARD_MARKER) ||
     message.embeds.some(
       (embed) =>
@@ -433,7 +424,10 @@ function usesCurrentBoardLayout(message) {
 }
 
 function isLiveWaitlist(message, botUserId) {
-  return message.author.id === botUserId && message.content.includes(WAITLIST_MARKER)
+  return (
+    message.author.id === botUserId &&
+    (message.content.startsWith('# WAIT LIST') || message.content.includes(WAITLIST_MARKER))
+  )
 }
 
 function boardCycleMessageId(message) {

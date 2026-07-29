@@ -158,16 +158,16 @@ function truncateResponseContent(content) {
   return `${content.slice(0, RULES_DESCRIPTION_LIMIT - 72).trimEnd()}\n\n*More details are available in the source channel.*`
 }
 
-function splitRulesContent(content) {
+function splitRulesContent(content, bodyLimit = RULES_MESSAGE_BODY_LIMIT) {
   const chunks = []
   let remaining = content
 
-  while (remaining.length > RULES_MESSAGE_BODY_LIMIT) {
-    let splitAt = remaining.lastIndexOf('\n\n', RULES_MESSAGE_BODY_LIMIT)
-    if (splitAt < RULES_MESSAGE_BODY_LIMIT / 2) {
-      splitAt = remaining.lastIndexOf('\n', RULES_MESSAGE_BODY_LIMIT)
+  while (remaining.length > bodyLimit) {
+    let splitAt = remaining.lastIndexOf('\n\n', bodyLimit)
+    if (splitAt < bodyLimit / 2) {
+      splitAt = remaining.lastIndexOf('\n', bodyLimit)
     }
-    if (splitAt < RULES_MESSAGE_BODY_LIMIT / 2) splitAt = RULES_MESSAGE_BODY_LIMIT
+    if (splitAt < bodyLimit / 2) splitAt = bodyLimit
     chunks.push(remaining.slice(0, splitAt).trim())
     remaining = remaining.slice(splitAt).trim()
   }
@@ -182,29 +182,44 @@ function buildPlainMarkdownResponses({
   footer,
   sourceUrl,
   sourceLabel,
-  imageUrl,
 }) {
-  const chunks = splitRulesContent(description)
+  const chunks = splitRulesContent(
+    description,
+    sourceUrl || footer ? RULES_MESSAGE_BODY_LIMIT : 1_900,
+  )
   return chunks.map((chunk, index) => {
-    const lines = [
-      `# ${index === 0 ? title : `${title} • CONTINUED`}`,
-      '',
-      chunk,
-    ]
+    const lines = title
+      ? [`# ${index === 0 ? title : `${title} • CONTINUED`}`, '', chunk]
+      : [chunk]
     if (index === chunks.length - 1) {
-      lines.push('', `[${sourceLabel}](${sourceUrl})`)
-      if (imageUrl) lines.push(`[OPEN IMAGE](${imageUrl})`)
-      lines.push(`-# ${footer}`)
+      if (sourceUrl && sourceLabel) lines.push('', `[${sourceLabel}](${sourceUrl})`)
+      if (footer) lines.push(`-# ${footer}`)
     }
     const content = lines.join('\n')
     if (content.length > 2_000) {
-      throw new Error(`Plain Discord response exceeded 2,000 characters for ${title}.`)
+      throw new Error(`Plain Discord response exceeded 2,000 characters for ${title || 'fetched content'}.`)
     }
     return content
   })
 }
 
-async function sendPlainInteractionResponse(interaction, contents) {
+async function downloadDiscordAttachment(attachment, fallbackName) {
+  const response = await fetch(attachment.url)
+  if (!response.ok) {
+    throw new Error(`Discord attachment download failed with status ${response.status}.`)
+  }
+  const data = Buffer.from(await response.arrayBuffer())
+  if (data.length > 10 * 1_024 * 1_024) {
+    throw new Error('The Discord attachment is larger than 10 MiB.')
+  }
+  return {
+    attachment: data,
+    name: attachment.name || fallbackName,
+    description: 'Official NIGHTRAID scrim point system',
+  }
+}
+
+async function sendPlainInteractionResponse(interaction, contents, finalFiles = []) {
   const [first, ...remaining] = contents
   await interaction.editReply({
     content: first,
@@ -212,14 +227,16 @@ async function sendPlainInteractionResponse(interaction, contents) {
     components: [],
     flags: MessageFlags.SuppressEmbeds,
     allowedMentions: { parse: [] },
+    ...(remaining.length === 0 && finalFiles.length > 0 ? { files: finalFiles } : {}),
   })
-  for (const content of remaining) {
+  for (let index = 0; index < remaining.length; index++) {
     await interaction.followUp({
-      content,
+      content: remaining[index],
       embeds: [],
       components: [],
       flags: MessageFlags.SuppressEmbeds,
       allowedMentions: { parse: [] },
+      ...(index === remaining.length - 1 && finalFiles.length > 0 ? { files: finalFiles } : {}),
     })
   }
 }
@@ -268,7 +285,7 @@ function buildExactMessageResponse({
   title,
   footer,
   buttonLabel,
-  imageUrl,
+  showSourceDetails = true,
 }) {
   const content = messages.map(messageText).filter(Boolean).join('\n\n')
   const description = truncateResponseContent(content || `Open <#${channelId}> to view this information.`)
@@ -276,10 +293,9 @@ function buildExactMessageResponse({
   return buildPlainMarkdownResponses({
     description,
     title,
-    footer,
-    sourceUrl,
-    sourceLabel: buttonLabel,
-    imageUrl,
+    footer: showSourceDetails ? footer : null,
+    sourceUrl: showSourceDetails ? sourceUrl : null,
+    sourceLabel: showSourceDetails ? buttonLabel : null,
   })
 }
 
@@ -368,7 +384,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
       channel.messages.fetch(SCRIM_RULES_MESSAGE_ID),
       channel.messages.fetch(SCRIM_RULES_IMAGE_MESSAGE_ID),
     ])
-    const imageUrl = imageMessage.attachments.find((attachment) => attachment.contentType?.startsWith('image/'))?.url
+    const imageAttachment = imageMessage.attachments.find(
+      (attachment) => attachment.contentType?.startsWith('image/'),
+    )
+    if (!imageAttachment) throw new Error('The official scrim rules image is missing.')
+    const imageFile = await downloadDiscordAttachment(imageAttachment, 'nightraid-scrim-point-system.png')
     await sendPlainInteractionResponse(
       interaction,
       buildExactMessageResponse({
@@ -376,11 +396,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
         guildId: interaction.guildId,
         channelId: SCRIM_RULES_CHANNEL_ID,
         sourceMessageId: SCRIM_RULES_MESSAGE_ID,
-        title: 'SCRIM MECHANICS',
+        title: null,
         footer: 'Official NIGHTRAID scrim mechanics',
         buttonLabel: 'OPEN SCRIM RULES',
-        imageUrl,
+        showSourceDetails: false,
       }),
+      [imageFile],
     )
   } catch (reason) {
     console.error(`/${interaction.commandName} failed:`, reason instanceof Error ? reason.message : reason)
