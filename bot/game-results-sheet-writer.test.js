@@ -603,6 +603,31 @@ test('creates the backup before writing and verifies Round 1 recalculation', asy
   )
 })
 
+test('automatic score-only tally records missing player history without undoing PLACE and KILLS', async () => {
+  const submission = rankOneSubmission()
+  submission.reviewPayload.round_result.teams[0].players = []
+  const store = memoryStore(submission)
+  const sheetClient = memorySheetClient()
+  const writer = createSafeGameResultsSheetWriter({ store, sheetClient })
+
+  const result = await writer.writeConfirmedSubmission(
+    store.current(),
+    'submitter-1',
+    { allowMissingPlayerHistory: true },
+  )
+
+  assert.equal(result.status, 'verified')
+  assert.equal(store.current().status, 'confirmed')
+  assert.equal(store.current().reviewPayload.player_history.status, 'unavailable')
+  assert.match(
+    store.current().reviewPayload.player_history.error,
+    /has no player rows to preserve/,
+  )
+  assert.equal(store.histories().length, 0)
+  assert.equal(sheetClient.values.get(key(21, 10)), 1)
+  assert.equal(sheetClient.values.get(key(21, 12)), 65)
+})
+
 test('production mode uses the same safe input map and verifies New', async () => {
   const store = memoryStore()
   const sheetClient = memorySheetClient({ config: { mode: 'production' } })

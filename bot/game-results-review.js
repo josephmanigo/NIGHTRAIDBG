@@ -15,6 +15,15 @@ import { createTeamMappingService } from './game-results-team-mapper.js'
 const CUSTOM_ID_PREFIX = 'nr-gr-review'
 const DISCORD_MESSAGE_LIMIT = 2_000
 const DEFAULT_LOW_CONFIDENCE_THRESHOLD = 0.75
+const DEFAULT_AUTOMATIC_READ_ATTEMPTS = 2
+const AUTOMATIC_WARNING_TYPES = new Set([
+  'incomplete_player_roster',
+  'unreadable_player_slot',
+  'unreadable_player_name',
+  'unreadable_kills',
+  'player_kill_sum_mismatch',
+  'team_name_mismatch',
+])
 const EDITABLE_STATUSES = new Set([
   'needs_review',
   'corrected',
@@ -61,6 +70,17 @@ function configuredConfidenceThreshold(value) {
     throw new Error('GAME_RESULTS_LOW_CONFIDENCE_THRESHOLD must be between 0 and 1.')
   }
   return threshold
+}
+
+function configuredAutomaticReadAttempts(value) {
+  if (value === undefined || value === null || value === '') {
+    return DEFAULT_AUTOMATIC_READ_ATTEMPTS
+  }
+  const attempts = Number(value)
+  if (!Number.isInteger(attempts) || attempts < 1 || attempts > 3) {
+    throw new Error('GAME_RESULTS_AUTOMATIC_READ_ATTEMPTS must be 1, 2, or 3.')
+  }
+  return attempts
 }
 
 function safeText(value, fallback = 'Unreadable') {
@@ -460,6 +480,30 @@ export async function buildGameResultsReviewPayload({
   }
 }
 
+export function prepareAutomaticTallyPayload(payload) {
+  const issues = (payload.issues ?? []).map((item) => {
+    const playerOnlyConflict =
+      item.type === 'conflicting_screenshot_values'
+      && (
+        item.path?.includes('.players[')
+        || item.message?.startsWith('Screenshot player-kill values conflict:')
+      )
+    if (!AUTOMATIC_WARNING_TYPES.has(item.type) && !playerOnlyConflict) return item
+    return {
+      ...item,
+      severity: 'warning',
+      message: `${item.message} PLACE and displayed team KILLS remain eligible for automatic tally.`,
+    }
+  })
+  return {
+    ...payload,
+    issues,
+    blocking_issue_count: issues.filter((item) => item.severity === 'blocking').length,
+    warning_count: issues.filter((item) => item.severity === 'warning').length,
+    automatic_tally: true,
+  }
+}
+
 const ISSUE_LABELS = {
   missing_rank: 'Missing ranks',
   duplicate_rank: 'Duplicate ranks',
@@ -838,6 +882,10 @@ export function createGameResultsReviewWorkflow(options = {}) {
     ?? process.env.MINIMUM_CONFIDENCE
     ?? process.env.GAME_RESULTS_LOW_CONFIDENCE_THRESHOLD,
   )
+  const automaticReadAttempts = configuredAutomaticReadAttempts(
+    options.automaticReadAttempts
+    ?? process.env.GAME_RESULTS_AUTOMATIC_READ_ATTEMPTS,
+  )
   const administratorIds = configuredIds(
     options.administratorIds ?? process.env.ADMIN_DISCORD_IDS,
   )
@@ -966,23 +1014,39 @@ export function createGameResultsReviewWorkflow(options = {}) {
         status: 'processing',
         allowedStatuses: ['pending', 'processing', 'failed'],
       })
-      const roundResult = await roundReader.readSubmission(submission)
-      const payload = await buildPayload(roundResult)
+      let payload
+      let attemptsUsed = 0
+      for (let attempt = 1; attempt <= automaticReadAttempts; attempt += 1) {
+        attemptsUsed = attempt
+        const roundResult = await roundReader.readSubmission(submission)
+        payload = prepareAutomaticTallyPayload(await buildPayload(roundResult))
+        if (payload.blocking_issue_count === 0) break
+      }
 
       if (payload.blocking_issue_count > 0) {
-        const needsReview = await store.saveReviewState({
+        const failed = await store.saveReviewState({
           submissionId: submission.submissionId,
           payload,
           page: 0,
-          status: 'needs_review',
+          status: 'failed',
           updatedBy: submission.discordUserId,
           expectedVersion: submission.reviewVersion ?? 0,
         })
-        const posted = await postPersistentReview(needsReview, interaction)
+        await interaction.followUp({
+          content: [
+            `# Round ${submission.round} automatic tally stopped`,
+            `The screenshots were read ${attemptsUsed} time${attemptsUsed === 1 ? '' : 's'}, but required PLACE, KILLS, or registered slot letters are still unreadable.`,
+            `**${payload.blocking_issue_count}** required check${payload.blocking_issue_count === 1 ? '' : 's'} failed. No spreadsheet cells were changed.`,
+            `Send clearer full leaderboard screenshots again with \`ROUND ${submission.round}\`.`,
+          ].join('\n'),
+          components: [],
+          allowedMentions: { parse: [] },
+        })
         return {
-          status: 'automatic_review_required',
-          submission: posted,
+          status: 'automatic_tally_failed',
+          submission: failed,
           blockingIssueCount: payload.blocking_issue_count,
+          attemptsUsed,
         }
       }
 
@@ -1009,7 +1073,10 @@ export function createGameResultsReviewWorkflow(options = {}) {
         const sheetWrite = await writeApprovedSubmission(
           approved,
           submission.discordUserId,
-          { correctionAuthorized: false },
+          {
+            correctionAuthorized: false,
+            allowMissingPlayerHistory: true,
+          },
         )
         const teamCount = sheetWrite.submission.reviewPayload?.round_result?.teams?.length ?? 0
         const excludedCount =
@@ -1036,12 +1103,12 @@ export function createGameResultsReviewWorkflow(options = {}) {
             safeText(reason instanceof Error ? reason.message : reason),
             `No unverified retry was attempted on ${scoreSheetWorksheet}.`,
           ].join('\n'),
+          components: [],
           allowedMentions: { parse: [] },
         })
-        const posted = await postPersistentReview(approved, interaction)
         return {
           status: 'sheet_write_failed',
-          submission: posted,
+          submission: approved,
           reason,
         }
       }

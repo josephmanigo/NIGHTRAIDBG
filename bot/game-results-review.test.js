@@ -553,19 +553,98 @@ test('automatically writes a valid labeled round without confirmation controls',
   assert.equal(writes[0].approved.reviewPayload.excluded_teams.length, 1)
   assert.equal(writes[0].actorUserId, SUBMITTER_ID)
   assert.equal(writes[0].writeOptions.correctionAuthorized, false)
+  assert.equal(writes[0].writeOptions.allowMissingPlayerHistory, true)
   assert.equal(automaticInteraction.followUps.length, 1)
   assert.match(automaticInteraction.followUps[0].content, /tallied automatically/)
   assert.equal(automaticInteraction.followUps[0].components, undefined)
 })
 
-test('automatic tally falls back to persistent review when validation is unsafe', async () => {
+test('automatic tally retries once and writes without review when the second read succeeds', async () => {
+  const store = memoryStore()
+  const automaticInteraction = interaction()
+  let reads = 0
+  let writes = 0
+  const workflow = createGameResultsReviewWorkflow({
+    store,
+    automaticReadAttempts: 2,
+    roundReader: {
+      readSubmission: async () => {
+        reads += 1
+        return reads === 1 ? roundResult([]) : roundResult([team({ code: 'A' })])
+      },
+    },
+    teamMappingService: mappingService({ registeredSlotlist: true }),
+    writeApprovedSubmission: async (approved) => {
+      writes += 1
+      return {
+        status: 'verified',
+        submission: { ...approved, status: 'confirmed' },
+      }
+    },
+  })
+
+  const result = await workflow.startAutomaticTally(
+    store.current(),
+    automaticInteraction.value,
+  )
+
+  assert.equal(result.status, 'confirmed')
+  assert.equal(reads, 2)
+  assert.equal(writes, 1)
+  assert.equal(automaticInteraction.followUps.length, 1)
+  assert.match(automaticInteraction.followUps[0].content, /tallied automatically/)
+  assert.equal(automaticInteraction.followUps[0].components, undefined)
+})
+
+test('automatic tally writes displayed PLACE and KILLS without requiring player review', async () => {
+  const store = memoryStore()
+  const automaticInteraction = interaction()
+  let approvedSubmission
+  const workflow = createGameResultsReviewWorkflow({
+    store,
+    roundReader: {
+      readSubmission: async () => roundResult([
+        team({ code: 'A', players: [] }),
+      ]),
+    },
+    teamMappingService: mappingService({ registeredSlotlist: true }),
+    writeApprovedSubmission: async (approved) => {
+      approvedSubmission = approved
+      return {
+        status: 'verified',
+        submission: { ...approved, status: 'confirmed' },
+      }
+    },
+  })
+
+  const result = await workflow.startAutomaticTally(
+    store.current(),
+    automaticInteraction.value,
+  )
+
+  assert.equal(result.status, 'confirmed')
+  assert.equal(approvedSubmission.reviewPayload.blocking_issue_count, 0)
+  assert.ok(approvedSubmission.reviewPayload.warning_count > 0)
+  assert.equal(approvedSubmission.reviewPayload.round_result.teams[0].team_code, 'A')
+  assert.equal(automaticInteraction.followUps.length, 1)
+  assert.equal(automaticInteraction.followUps[0].components, undefined)
+})
+
+test('automatic tally stops without persistent review when required score data stays unsafe', async () => {
   const store = memoryStore()
   let writes = 0
+  let reads = 0
   const automaticInteraction = interaction()
   const invalidTeam = team({ totalKills: null })
   const workflow = createGameResultsReviewWorkflow({
     store,
-    roundReader: { readSubmission: async () => roundResult([invalidTeam]) },
+    automaticReadAttempts: 2,
+    roundReader: {
+      readSubmission: async () => {
+        reads += 1
+        return roundResult([invalidTeam])
+      },
+    },
     teamMappingService: mappingService(),
     writeApprovedSubmission: async () => {
       writes += 1
@@ -578,13 +657,16 @@ test('automatic tally falls back to persistent review when validation is unsafe'
     automaticInteraction.value,
   )
 
-  assert.equal(result.status, 'automatic_review_required')
+  assert.equal(result.status, 'automatic_tally_failed')
+  assert.equal(result.attemptsUsed, 2)
+  assert.equal(reads, 2)
   assert.equal(writes, 0)
-  assert.equal(store.current().status, 'needs_review')
+  assert.equal(store.current().status, 'failed')
   assert.ok(result.blockingIssueCount > 0)
   assert.equal(automaticInteraction.followUps.length, 1)
-  assert.match(automaticInteraction.followUps[0].content, /GAME-RESULT REVIEW/)
-  assert.equal(automaticInteraction.followUps[0].components.length, 2)
+  assert.match(automaticInteraction.followUps[0].content, /automatic tally stopped/)
+  assert.doesNotMatch(automaticInteraction.followUps[0].content, /GAME-RESULT REVIEW/)
+  assert.deepEqual(automaticInteraction.followUps[0].components, [])
 })
 
 test('persistent navigation works after creating a new workflow instance', async () => {

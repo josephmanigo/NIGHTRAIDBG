@@ -281,6 +281,9 @@ test('Gemini is the primary reader and receives structured original/enhanced ima
   assert.equal(imageParts.every((part) => Boolean(part.data && part.mime_type)), true)
   assert.equal(requests[0].body.store, false)
   assert.equal(requests[0].body.generation_config.thinking_level, 'low')
+  assert.match(requests[0].body.system_instruction, /A means registered slot 1/)
+  assert.match(requests[0].body.system_instruction, /Discord registered-team slot list/)
+  assert.match(requests[0].body.system_instruction, /top-to-bottom order/)
   assert.equal(requests[0].body.response_format.mime_type, 'application/json')
   assert.equal(requests[0].body.response_format.schema.type, 'object')
   assert.equal(

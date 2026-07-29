@@ -589,24 +589,39 @@ export function createSafeGameResultsSheetWriter(options = {}) {
         verification,
         error: null,
       })
-      const historyPayload = buildConfirmedPlayerHistory({
-        submission,
-        audit,
-        approvedBy: actorUserId,
-      })
-      const history = await store.recordConfirmedPlayerHistory(historyPayload)
+      let history = null
+      let playerHistoryError = null
+      try {
+        const historyPayload = buildConfirmedPlayerHistory({
+          submission,
+          audit,
+          approvedBy: actorUserId,
+        })
+        history = await store.recordConfirmedPlayerHistory(historyPayload)
+      } catch (reason) {
+        if (writeOptions.allowMissingPlayerHistory !== true) throw reason
+        playerHistoryError = compactError(reason)
+      }
       const payload = {
         ...submission.reviewPayload,
         spreadsheet_write_performed: true,
         correction_mode: false,
         correction_authorized_by: correctionRequested ? actorUserId : null,
-        player_history: {
-          snapshot_id: history.snapshotId,
-          player_count: history.playerCount,
-          record_kind: history.recordKind,
-          score_sheet_mode: plan.mode,
-          round: plan.round,
-        },
+        player_history: history
+          ? {
+              status: 'recorded',
+              snapshot_id: history.snapshotId,
+              player_count: history.playerCount,
+              record_kind: history.recordKind,
+              score_sheet_mode: plan.mode,
+              round: plan.round,
+            }
+          : {
+              status: 'unavailable',
+              error: playerHistoryError,
+              score_sheet_mode: plan.mode,
+              round: plan.round,
+            },
         score_sheet_write: {
           audit_id: audit.auditId,
           mode: plan.mode,

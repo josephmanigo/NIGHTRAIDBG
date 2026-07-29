@@ -914,6 +914,7 @@ export function installScrimAutomation(client) {
     registeredTeamSource: {
       async readSnapshot() {
         await initialized
+        await operationQueue
         return createRegisteredTeamSnapshot(state.slots, {
           registrationOpen: state.registrationOpen,
           cycleStartMessageId: state.cycleStartMessageId,
