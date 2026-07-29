@@ -87,7 +87,7 @@ Put the nickname channel ID in `.env.local` (next to the existing variables) and
 
 ## Discord application review channel
 
-Create a private text channel such as `application-review`. Only the two NIGHTRAID administrators and the NIGHTRAID bot should be able to view it. Give the bot **View Channel**, **Send Messages**, **Embed Links**, **Read Message History**, and **Use Application Commands** in that channel.
+Create a private text channel such as `application-review`. Only the two NIGHTRAID administrators and the NIGHTRAID bot should be able to view it. Give the bot **View Channel**, **Send Messages**, **Read Message History**, and **Use Application Commands** in that channel.
 
 Copy the channel ID and configure these values in **Vercel**:
 
@@ -98,7 +98,7 @@ ADMIN_DISCORD_IDS=<first-admin-id>,<second-admin-id>
 
 The bot host does not need a new secret. It signs decision requests with its existing `DISCORD_BOT_TOKEN`; Vercel verifies the signature, channel ID, and administrator ID. `DISCORD_APPLICATIONS_CHANNEL_ID`, `ADMIN_DISCORD_IDS`, and `APP_URL` may also be placed on the bot host for earlier local validation, but they are not required there.
 
-Deploy the website API first, update the bot to the same Git commit, then restart the long-lived Discord bot. Its startup logs must include `Discord application review interactions enabled.` Every new application will post a NIGHTRAID card in that channel:
+Deploy the website API first, update the bot to the same Git commit, then restart the long-lived Discord bot. Its startup logs must include `Discord application review interactions enabled.` Every new application will post a plain Discord Markdown review message in that channel:
 
 - **ACCEPT** runs the existing approval workflow, including Discord onboarding, applicant DM, nickname and game roles, Excel, and Google Sheets.
 - **REJECT** opens a required reason form, records the rejection, and sends that reason to the applicant through Discord. If the applicant is not in the server, the system uses the applicant's authorized `guilds.join` access to add them temporarily, deliver the DM, and remove them again without assigning member roles.
@@ -117,9 +117,19 @@ When the bot starts, it registers the rules commands as instant guild commands i
 | `/nrules` | **NIGHTRAID CLAN RULES** | Message `1443300854613544993` |
 | `/scrimrules` | **SCRIM MECHANICS** plus its official image | Text message `1522987468532744332` and image message `1522987523335524442` |
 
-Discord requires lowercase slash-command names, so the NIGHTRAID clan command is `/nrules`, not `/Nrules`. Every response uses a NIGHTRAID-styled embed and includes a button linking back to its source message or channel.
+Discord requires lowercase slash-command names, so the NIGHTRAID clan command is `/nrules`, not `/Nrules`. Every response uses plain Discord Markdown rather than embeds. Long fetched rules are split into ordered continuation messages, and the final message contains Markdown links back to the source and any official image.
 
 For predictable results, pin only the official rule messages and arrange the rules in the order they were originally posted. The bot needs **View Channel** and **Read Message History** in the rules channel. Keep **MESSAGE CONTENT INTENT** enabled so it can read the rule text.
+
+## Server-link trigger
+
+In any NIGHTRAID server channel the bot can read, a message containing the whole word `link` (case-insensitive) receives a direct plain-Markdown reply with the permanent invite:
+
+```text
+https://discord.gg/ufwJ7wWu9H
+```
+
+Words such as `linked` or `linking` do not activate the trigger. Link-trigger messages in the nickname, registration, or cancellation channels bypass those channels' normal validation.
 
 ## Scrim registration automation
 
@@ -139,9 +149,9 @@ Each valid line in the registration channel is added in message order:
 🇵🇭 | TAG - TEAM NAME
 ```
 
-One message may contain several valid lines. Slots are filled from `01A` through `25Y`; additional teams enter the waiting list in order. Posting a new registration banner GIF closes the previous cycle and starts a fresh real-time board.
+One message may contain several valid lines. Every new cycle starts with `APXS - APEX SYNDICATE` reserved in `01A`; normal registrations fill the remaining slots from `02B` through `25Y`, then enter the waiting list in order. APXS can still cancel its reserved slot through the normal cancellation flow. Posting a new registration banner GIF closes the previous cycle and starts a fresh real-time board.
 
-Registration remains closed until EMS posts the official registration GIF in the team-registration channel. That GIF is the opening signal: the bot leaves the previous slot-list message unchanged as history, posts the banner GIF first in the registered-teams channel, follows it with a separate new pinned board, starts a new cycle at the opening GIF's timestamp, and logs only team messages sent after it. Random GIFs from applicants do not restart the board. Additional trusted opener IDs can be added as a comma-separated `SCRIM_REGISTRATION_OPENER_IDS` environment variable.
+Registration remains closed until EMS posts the official registration GIF in the team-registration channel. That GIF is the opening signal: the bot leaves the previous slot-list message unchanged as history, posts the banner GIF first in the registered-teams channel, follows it with a plain-text slot-list message and a plain-text waiting-list message, starts a new cycle at the opening GIF's timestamp, and logs only team messages sent after it. Random GIFs from applicants do not restart the board. Additional trusted opener IDs can be added as a comma-separated `SCRIM_REGISTRATION_OPENER_IDS` environment variable.
 
 The bot validates the entire message before adding anything:
 
@@ -152,7 +162,7 @@ The bot validates the entire message before adding anything:
 - Editing a registration rebuilds the live board with the corrected tag or team name.
 - Deleting a registration removes every team submitted by that message and promotes the waiting list as needed.
 
-### Cancellation and waiting-list promotion
+### Cancellation and MINE-only slots
 
 Use this format in the cancellation channel:
 
@@ -160,7 +170,16 @@ Use this format in the cancellation channel:
 CANCEL - TEAM NAME
 ```
 
-The team is removed. If it owned a slot, the first waiting-list team is immediately promoted into that exact slot.
+The team is removed. If it owned a slot, that slot stays empty and is locked for a `MINE` reply. The waiting list is not promoted, and later registrations skip the locked slot.
+
+An administrator can open one or several numbered slots directly:
+
+```text
+AVAILABLE SLOT 1
+AVAILABLE SLOT 1, 2, 3 & 4
+```
+
+The current teams in those slots are removed. The listed slots remain locked for `MINE` replies in the same order, without promoting the waiting list.
 
 ### Claiming a canceled slot
 
@@ -170,11 +189,11 @@ Reply directly to the `CANCEL - TEAM NAME` message:
 MINE - TEAM TAG TEAM NAME
 ```
 
-The claiming team receives the canceled slot. If a waiting-list team was temporarily promoted, it returns to the front of the waiting list. Only the first valid claim is accepted.
+The claiming team receives the first still-open slot created by the referenced cancellation or `AVAILABLE SLOT` message. A team claiming from the waiting list is removed from that list. For a multi-slot `AVAILABLE SLOT` message, valid replies fill its slots in the order listed.
 
 Editing a valid `MINE` reply rebuilds its claimed slot with the corrected team. Deleting the `MINE` reply removes that claim when the team came from the reply, then rebuilds the remaining slots and waiting list.
 
-The live board is bot-owned, pinned, automatically edited after each change, and reconstructed after restarts. A standalone banner GIF is posted immediately before every new board. Its Philippine date is refreshed automatically. The bot needs **View Channel**, **Read Message History**, **Send Messages**, **Embed Links**, **Add Reactions**, and **Manage Messages** in the three channels.
+The live board is bot-owned, unpinned, rendered as normal Discord text instead of embeds, automatically edited after each change, and reconstructed after restarts. A standalone banner GIF is posted immediately before every new board. Its Philippine date is refreshed automatically. The bot needs **View Channel**, **Read Message History**, **Send Messages**, **Embed Links**, **Add Reactions**, and **Manage Messages** in the three channels.
 
 Run only one long-lived bot instance with a given Discord bot token. Starting the same bot locally while a hosted worker is active makes Discord deliver each registration and cancellation to both processes, which causes duplicate replies.
 
@@ -201,10 +220,11 @@ Keep the process running (pm2, systemd, a Railway/Render worker, or a terminal t
 4. Send `Testname` and then `MRG • MIMAI` — both receive ❌ and no nickname changes.
 5. Send `MRG • MIMAI | BS` and `SS • KULIT - BS HANDLER/REP` — both receive ✅.
 6. Send a message as someone the bot cannot manage (for example the server owner) — the message receives ⚠️.
-7. Type `/rules` in a normal text channel and confirm the rules embed appears.
-8. Join a voice channel, open that voice channel's text chat, type `/rules`, and confirm the same rules embed appears.
+7. Type `/rules` in a normal text channel and confirm the plain Markdown rules messages appear.
+8. Join a voice channel, open that voice channel's text chat, type `/rules`, and confirm the same plain Markdown messages appear.
 9. Run `/nrules` and confirm **NIGHTRAID CLAN RULES** uses the configured clan-rules message.
 10. Run `/scrimrules` and confirm **SCRIM MECHANICS** includes both the mechanics text and requested image.
-11. Send two valid teams in one registration message and confirm both appear in consecutive slots.
-12. Fill the slots, register a waiting team, cancel a slotted team, and confirm the first waiting team is promoted.
-13. Reply `MINE - TAG TEAM NAME` to a cancellation and confirm the claimed team replaces the canceled slot.
+11. Send `link`, `LINK`, and `Can I get the link please?` and confirm each receives the permanent NIGHTRAID invite without an embed preview.
+12. Send two valid teams in one registration message and confirm both appear in consecutive slots.
+13. Fill the slots, register a waiting team, cancel a slotted team, and confirm the waiting list is not promoted.
+14. Reply `MINE - TAG TEAM NAME` to a cancellation and confirm the claimed team takes the canceled slot.

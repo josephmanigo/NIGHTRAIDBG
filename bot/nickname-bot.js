@@ -24,17 +24,15 @@
  */
 import { createServer } from 'node:http'
 import {
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
   Client,
-  EmbedBuilder,
   Events,
   GatewayIntentBits,
+  MessageFlags,
   Partials,
 } from 'discord.js'
 import { installApplicationReview } from './application-review.js'
 import { formatNickname } from './name-format.js'
+import { containsLinkKeyword, NIGHTRAID_SERVER_INVITE_URL } from './server-link.js'
 import { installScrimAutomation } from './scrim-automation.js'
 
 const required = (name) => {
@@ -57,8 +55,7 @@ const SCRIM_RULES_CHANNEL_ID = '1260371856268202125'
 const SCRIM_RULES_MESSAGE_ID = '1522987468532744332'
 const SCRIM_RULES_IMAGE_MESSAGE_ID = '1522987523335524442'
 const RULES_DESCRIPTION_LIMIT = 5_600
-const RULES_EMBED_LIMIT = 3_800
-const NIGHTRAID_RED = 0xed1c24
+const RULES_MESSAGE_BODY_LIMIT = 1_200
 const COMMAND_DEFINITIONS = [
   { name: RULES_COMMAND_NAME, description: 'Show the official NIGHTRAID rules.' },
   { name: NIGHTRAID_RULES_COMMAND_NAME, description: 'Show the NIGHTRAID clan rules.' },
@@ -165,16 +162,66 @@ function splitRulesContent(content) {
   const chunks = []
   let remaining = content
 
-  while (remaining.length > RULES_EMBED_LIMIT && chunks.length < 1) {
-    let splitAt = remaining.lastIndexOf('\n\n', RULES_EMBED_LIMIT)
-    if (splitAt < RULES_EMBED_LIMIT / 2) splitAt = remaining.lastIndexOf('\n', RULES_EMBED_LIMIT)
-    if (splitAt < RULES_EMBED_LIMIT / 2) splitAt = RULES_EMBED_LIMIT
+  while (remaining.length > RULES_MESSAGE_BODY_LIMIT) {
+    let splitAt = remaining.lastIndexOf('\n\n', RULES_MESSAGE_BODY_LIMIT)
+    if (splitAt < RULES_MESSAGE_BODY_LIMIT / 2) {
+      splitAt = remaining.lastIndexOf('\n', RULES_MESSAGE_BODY_LIMIT)
+    }
+    if (splitAt < RULES_MESSAGE_BODY_LIMIT / 2) splitAt = RULES_MESSAGE_BODY_LIMIT
     chunks.push(remaining.slice(0, splitAt).trim())
     remaining = remaining.slice(splitAt).trim()
   }
 
   if (remaining) chunks.push(remaining)
   return chunks
+}
+
+function buildPlainMarkdownResponses({
+  description,
+  title,
+  footer,
+  sourceUrl,
+  sourceLabel,
+  imageUrl,
+}) {
+  const chunks = splitRulesContent(description)
+  return chunks.map((chunk, index) => {
+    const lines = [
+      `# ${index === 0 ? title : `${title} • CONTINUED`}`,
+      '',
+      chunk,
+    ]
+    if (index === chunks.length - 1) {
+      lines.push('', `[${sourceLabel}](${sourceUrl})`)
+      if (imageUrl) lines.push(`[OPEN IMAGE](${imageUrl})`)
+      lines.push(`-# ${footer}`)
+    }
+    const content = lines.join('\n')
+    if (content.length > 2_000) {
+      throw new Error(`Plain Discord response exceeded 2,000 characters for ${title}.`)
+    }
+    return content
+  })
+}
+
+async function sendPlainInteractionResponse(interaction, contents) {
+  const [first, ...remaining] = contents
+  await interaction.editReply({
+    content: first,
+    embeds: [],
+    components: [],
+    flags: MessageFlags.SuppressEmbeds,
+    allowedMentions: { parse: [] },
+  })
+  for (const content of remaining) {
+    await interaction.followUp({
+      content,
+      embeds: [],
+      components: [],
+      flags: MessageFlags.SuppressEmbeds,
+      allowedMentions: { parse: [] },
+    })
+  }
 }
 
 async function fetchRulesMessages(channel) {
@@ -196,23 +243,13 @@ function buildRulesResponse(messages, guildId) {
     .join('\n\n')
   const rulesChannelUrl = `https://discord.com/channels/${guildId}/${RULES_CHANNEL_ID}`
   const description = truncateResponseContent(content || `Read the official rules in <#${RULES_CHANNEL_ID}>.`)
-  const embeds = splitRulesContent(description).map((chunk, index) =>
-    new EmbedBuilder()
-      .setColor(NIGHTRAID_RED)
-      .setTitle(index === 0 ? 'NIGHTRAID RULES' : 'NIGHTRAID RULES • CONTINUED')
-      .setDescription(chunk)
-      .setFooter({ text: 'Official NIGHTRAID rules' }),
-  )
-  const components = [
-    new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setLabel('OPEN RULES CHANNEL')
-        .setStyle(ButtonStyle.Link)
-        .setURL(rulesChannelUrl),
-    ),
-  ]
-
-  return { embeds, components, allowedMentions: { parse: [] } }
+  return buildPlainMarkdownResponses({
+    description,
+    title: 'NIGHTRAID RULES',
+    footer: 'Official NIGHTRAID rules',
+    sourceUrl: rulesChannelUrl,
+    sourceLabel: 'OPEN RULES CHANNEL',
+  })
 }
 
 async function fetchReadableChannel(channelId) {
@@ -235,26 +272,15 @@ function buildExactMessageResponse({
 }) {
   const content = messages.map(messageText).filter(Boolean).join('\n\n')
   const description = truncateResponseContent(content || `Open <#${channelId}> to view this information.`)
-  const embeds = splitRulesContent(description).map((chunk, index) =>
-    new EmbedBuilder()
-      .setColor(NIGHTRAID_RED)
-      .setTitle(index === 0 ? title : `${title} • CONTINUED`)
-      .setDescription(chunk)
-      .setFooter({ text: footer }),
-  )
-  if (imageUrl) embeds.at(-1)?.setImage(imageUrl)
-
   const sourceUrl = `https://discord.com/channels/${guildId}/${channelId}/${sourceMessageId}`
-  const components = [
-    new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setLabel(buttonLabel)
-        .setStyle(ButtonStyle.Link)
-        .setURL(sourceUrl),
-    ),
-  ]
-
-  return { embeds, components, allowedMentions: { parse: [] } }
+  return buildPlainMarkdownResponses({
+    description,
+    title,
+    footer,
+    sourceUrl,
+    sourceLabel: buttonLabel,
+    imageUrl,
+  })
 }
 
 const client = new Client({
@@ -312,14 +338,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.commandName === RULES_COMMAND_NAME) {
       const channel = await fetchReadableChannel(RULES_CHANNEL_ID)
       const messages = await fetchRulesMessages(channel)
-      await interaction.editReply(buildRulesResponse(messages, interaction.guildId))
+      await sendPlainInteractionResponse(
+        interaction,
+        buildRulesResponse(messages, interaction.guildId),
+      )
       return
     }
 
     if (interaction.commandName === NIGHTRAID_RULES_COMMAND_NAME) {
       const channel = await fetchReadableChannel(NIGHTRAID_CLAN_RULES_CHANNEL_ID)
       const message = await channel.messages.fetch(NIGHTRAID_CLAN_RULES_MESSAGE_ID)
-      await interaction.editReply(
+      await sendPlainInteractionResponse(
+        interaction,
         buildExactMessageResponse({
           messages: [message],
           guildId: interaction.guildId,
@@ -339,7 +369,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
       channel.messages.fetch(SCRIM_RULES_IMAGE_MESSAGE_ID),
     ])
     const imageUrl = imageMessage.attachments.find((attachment) => attachment.contentType?.startsWith('image/'))?.url
-    await interaction.editReply(
+    await sendPlainInteractionResponse(
+      interaction,
       buildExactMessageResponse({
         messages: [message],
         guildId: interaction.guildId,
@@ -370,8 +401,20 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
 client.on(Events.MessageCreate, async (message) => {
   if (message.author.bot || !message.inGuild()) return
-  if (message.channelId !== NICKNAME_CHANNEL_ID) return
   if (GUILD_ID && message.guildId !== GUILD_ID) return
+
+  if (containsLinkKeyword(message.content)) {
+    await message.reply({
+      content: `# NIGHTRAID SERVER LINK\n${NIGHTRAID_SERVER_INVITE_URL}`,
+      flags: MessageFlags.SuppressEmbeds,
+      allowedMentions: { parse: [], repliedUser: true },
+    }).catch((reason) => {
+      console.error('Could not reply with the NIGHTRAID server link:', reason instanceof Error ? reason.message : reason)
+    })
+    return
+  }
+
+  if (message.channelId !== NICKNAME_CHANNEL_ID) return
 
   try {
     /* Mentions typed into the message (a reply's automatic ping never

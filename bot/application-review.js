@@ -1,8 +1,8 @@
 import { createHmac } from 'node:crypto'
 import {
   ActionRowBuilder,
-  EmbedBuilder,
   Events,
+  MessageFlags,
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
@@ -11,8 +11,7 @@ import {
 const UUID_PATTERN = '[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}'
 const BUTTON_PATTERN = new RegExp(`^nr-review:(approve|reject):(${UUID_PATTERN})$`, 'i')
 const MODAL_PATTERN = new RegExp(`^nr-review:reject-submit:(${UUID_PATTERN}):(\\d{16,22})$`, 'i')
-const APPROVED_COLOR = 0x35d399
-const REJECTED_COLOR = 0xed1c24
+const DISCORD_MESSAGE_LIMIT = 2_000
 
 function adminIds() {
   return new Set(
@@ -64,25 +63,55 @@ async function sendDecision(appUrl, botToken, body) {
   return payload
 }
 
-function decisionEmbeds(message, outcome, adminLabel, reason) {
-  if (!message.embeds.length) return []
-  const first = EmbedBuilder.from(message.embeds[0])
-  const existingFields = (first.data.fields ?? []).filter((field) => field.name !== 'FINAL DECISION')
+function embedMarkdown(embed) {
+  const parts = []
+  if (embed.author?.name) parts.push(`-# ${embed.author.name}`)
+  if (embed.title) {
+    parts.push(embed.url ? `## [${embed.title}](${embed.url})` : `## ${embed.title}`)
+  }
+  if (embed.description) parts.push(embed.description)
+  for (const field of embed.fields) {
+    parts.push(`**${field.name}**\n${field.value}`)
+  }
+  if (embed.image?.url) parts.push(`[OPEN IMAGE](${embed.image.url})`)
+  if (embed.footer?.text) parts.push(`-# ${embed.footer.text}`)
+  return parts.join('\n\n')
+}
+
+function messageMarkdown(message) {
+  return [
+    message.content,
+    ...message.embeds.map(embedMarkdown),
+  ]
+    .map((part) => part?.trim())
+    .filter(Boolean)
+    .join('\n\n')
+}
+
+function decisionContent(message, outcome, adminLabel, reason) {
+  const baseContent = messageMarkdown(message)
+    .split(/\n\n## FINAL DECISION\b/i)[0]
+    .replace(/\n-# PENDING REVIEW[^\n]*$/i, '')
+    .trim()
   const details =
     outcome === 'APPROVED'
-      ? `Approved by **${adminLabel}**`
-      : `Rejected by **${adminLabel}**\nReason: ${reason}`
-  first
-    .setColor(outcome === 'APPROVED' ? APPROVED_COLOR : REJECTED_COLOR)
-    .setFields(...existingFields, { name: 'FINAL DECISION', value: details.slice(0, 1_024), inline: false })
-    .setFooter({ text: `${outcome} • Decision recorded in NIGHTRAID` })
-  return [first, ...message.embeds.slice(1).map((embed) => EmbedBuilder.from(embed))]
+      ? `✅ **APPROVED**\nApproved by **${adminLabel}**`
+      : `❌ **REJECTED**\nRejected by **${adminLabel}**\n**Reason:** ${reason}`
+  const decision = `## FINAL DECISION\n${details}\n-# ${outcome} • Decision recorded in NIGHTRAID`
+  const baseLimit = Math.max(0, DISCORD_MESSAGE_LIMIT - decision.length - 2)
+  const fittedBase =
+    baseContent.length <= baseLimit
+      ? baseContent
+      : `${baseContent.slice(0, Math.max(0, baseLimit - 16)).trimEnd()}\n*…truncated*`
+  return [fittedBase, decision].filter(Boolean).join('\n\n')
 }
 
 async function markDecision(message, outcome, adminLabel, reason) {
   await message.edit({
-    embeds: decisionEmbeds(message, outcome, adminLabel, reason),
+    content: decisionContent(message, outcome, adminLabel, reason),
+    embeds: [],
     components: [],
+    flags: MessageFlags.SuppressEmbeds,
     allowedMentions: { parse: [] },
   })
 }

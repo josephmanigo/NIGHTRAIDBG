@@ -3,8 +3,9 @@ import { sendDiscordChannelMessage } from './discord.js'
 import { env } from './env.js'
 import { getSupabaseAdmin } from './supabase.js'
 
-const NIGHTRAID_RED = 0xed1c24
-const DISCORD_FIELD_LIMIT = 1_024
+const DISCORD_MESSAGE_LIMIT = 2_000
+const DISCORD_TEXT_LIMIT = 240
+const SUPPRESS_EMBEDS_FLAG = 1 << 2
 
 export interface DiscordReviewNotificationResult {
   status: 'COMPLETED' | 'FAILED' | 'SKIPPED'
@@ -12,7 +13,7 @@ export interface DiscordReviewNotificationResult {
   error?: string
 }
 
-function safeText(value: string | null | undefined, fallback = 'Not provided', limit = DISCORD_FIELD_LIMIT) {
+function safeText(value: string | null | undefined, fallback = 'Not provided', limit = DISCORD_TEXT_LIMIT) {
   const text = (value || fallback)
     .replace(/```/g, "'''")
     .replace(/\s+/g, ' ')
@@ -20,7 +21,7 @@ function safeText(value: string | null | undefined, fallback = 'Not provided', l
   return (text || fallback).slice(0, limit)
 }
 
-function applicationEmbed(application: ClanApplicationRow, viewUrl: string) {
+function applicationMarkdown(application: ClanApplicationRow, viewUrl: string) {
   const discovery =
     application.discovery_source === 'Others'
       ? application.discovery_source_other || 'Other'
@@ -34,67 +35,32 @@ function applicationEmbed(application: ClanApplicationRow, viewUrl: string) {
           ? 'Applicant says joined; verification unavailable'
           : 'Not joined — temporary DM delivery enabled'
 
-  return {
-    color: NIGHTRAID_RED,
-    author: { name: 'NIGHTRAID // APPLICATION COMMAND' },
-    title: `NEW APPLICATION • ${application.application_number}`,
-    url: viewUrl,
-    description: `**${safeText(application.in_game_name, 'UNKNOWN IGN', 120)}** submitted a new membership application.`,
-    fields: [
-      {
-        name: 'DISCORD',
-        value: `<@${application.discord_user_id}>\n${safeText(application.discord_username, 'Unknown account', 200)}`,
-        inline: true,
-      },
-      {
-        name: 'PROFILE',
-        value: `${application.age_group === 'AGE_18_OR_ABOVE' ? '18 or above' : 'Under 18'} • ${safeText(application.sex, 'Unspecified', 80)} • ${safeText(application.device, 'Unknown device', 80)}`,
-        inline: true,
-      },
-      {
-        name: 'DIVISIONS',
-        value: safeText(application.games.join(', ')),
-        inline: true,
-      },
-      {
-        name: 'ACTIVITY',
-        value: safeText(application.play_frequency),
-        inline: true,
-      },
-      {
-        name: 'CLAN TAG',
-        value: application.willing_to_use_clan_tag ? 'Willing' : 'Not willing',
-        inline: true,
-      },
-      {
-        name: 'DISCORD CHECK',
-        value: discordStatus,
-        inline: true,
-      },
-      {
-        name: 'PREVIOUS CLAN',
-        value: safeText(application.previous_clan),
-        inline: false,
-      },
-      {
-        name: 'REASON FOR LEAVING',
-        value: safeText(application.previous_clan_leaving_reason),
-        inline: false,
-      },
-      {
-        name: 'FOUND NIGHTRAID THROUGH',
-        value: safeText(discovery),
-        inline: false,
-      },
-      {
-        name: 'REASON FOR JOINING',
-        value: safeText(application.reason_for_joining),
-        inline: false,
-      },
-    ],
-    footer: { text: 'PENDING REVIEW • Authorized NIGHTRAID administrators only' },
-    timestamp: application.submitted_at,
-  }
+  const body = [
+    '# NIGHTRAID // APPLICATION COMMAND',
+    `## NEW APPLICATION • ${application.application_number}`,
+    `**${safeText(application.in_game_name, 'UNKNOWN IGN', 100)}** submitted a new membership application.`,
+    '',
+    `**DISCORD:** <@${application.discord_user_id}> • ${safeText(application.discord_username, 'Unknown account', 100)}`,
+    `**PROFILE:** ${application.age_group === 'AGE_18_OR_ABOVE' ? '18 or above' : 'Under 18'} • ${safeText(application.sex, 'Unspecified', 50)} • ${safeText(application.device, 'Unknown device', 70)}`,
+    `**DIVISIONS:** ${safeText(application.games.join(', '), 'Not provided', 140)}`,
+    `**ACTIVITY:** ${safeText(application.play_frequency, 'Not provided', 100)}`,
+    `**CLAN TAG:** ${application.willing_to_use_clan_tag ? 'Willing' : 'Not willing'}`,
+    `**DISCORD CHECK:** ${discordStatus}`,
+    '',
+    `**PREVIOUS CLAN:** ${safeText(application.previous_clan, 'Not provided', 120)}`,
+    `**REASON FOR LEAVING:** ${safeText(application.previous_clan_leaving_reason, 'Not provided', 180)}`,
+    `**FOUND NIGHTRAID THROUGH:** ${safeText(discovery, 'Not provided', 120)}`,
+    `**REASON FOR JOINING:** ${safeText(application.reason_for_joining, 'Not provided', 260)}`,
+  ].join('\n')
+  const suffix =
+    `\n\n[VIEW FULL FORM](${viewUrl})` +
+    '\n-# PENDING REVIEW • Authorized NIGHTRAID administrators only'
+  const bodyLimit = DISCORD_MESSAGE_LIMIT - suffix.length
+  const fittedBody =
+    body.length <= bodyLimit
+      ? body
+      : `${body.slice(0, Math.max(0, bodyLimit - 16)).trimEnd()}\n*…truncated*`
+  return `${fittedBody}${suffix}`
 }
 
 export async function notifyDiscordApplicationReview(
@@ -117,7 +83,8 @@ export async function notifyDiscordApplicationReview(
     const viewUrl = new URL('/admin/applications', `${baseUrl.replace(/\/$/, '')}/`)
     viewUrl.searchParams.set('application', application.id)
     const message = await sendDiscordChannelMessage(channelId, {
-      embeds: [applicationEmbed(application, viewUrl.toString())],
+      content: applicationMarkdown(application, viewUrl.toString()),
+      flags: SUPPRESS_EMBEDS_FLAG,
       components: [
         {
           type: 1,

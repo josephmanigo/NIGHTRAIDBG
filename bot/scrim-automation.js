@@ -1,4 +1,5 @@
-import { EmbedBuilder, Events } from 'discord.js'
+import { Events, PermissionFlagsBits } from 'discord.js'
+import { containsLinkKeyword } from './server-link.js'
 
 const REGISTRATION_CHANNEL_ID = '1260139820836065300'
 const REGISTERED_TEAMS_CHANNEL_ID = '1260501981508669471'
@@ -17,12 +18,16 @@ const SCRIM_REGISTRATION_OPENER_IDS = new Set([
 const BOARD_MARKER = 'NIGHTRAID SCRIM BOARD • LIVE'
 const BOARD_TITLE =
   '<a:emoji_95:1499391444413321248> NIGHTRAID SCRIMMAGE SLOTLIST <:NIGHTRAID:1259926194862821561>'
-const NIGHTRAID_RED = 0xed1c24
+const WAITLIST_MARKER = 'NIGHTRAID SCRIM WAITLIST • LIVE'
 const CHECK_MARK = '1523256704836304926'
 const CROSS_MARK = '1531747505014837308'
 const MAX_SLOTS = 25
 const MAX_WAITLIST_DISPLAY = 40
 const EMPTY_WAITLIST_ROWS = 4
+const MAX_DISPLAY_TEAM_NAME = 32
+const MAX_WAITLIST_TEAM_NAME = 24
+const RESERVED_SLOT_TEAM = Object.freeze({ tag: 'APXS', name: 'APEX SYNDICATE' })
+const RESERVED_SLOT_TEAM_KEY = 'apxs apex syndicate'
 const SLOT_CODES = Array.from(
   { length: MAX_SLOTS },
   (_value, index) => `${String(index + 1).padStart(2, '0')}${String.fromCharCode(65 + index)}`,
@@ -32,10 +37,12 @@ const state = {
   slots: Array(MAX_SLOTS).fill(null),
   waitlist: [],
   boardMessageId: null,
+  waitlistMessageId: null,
   registrationOpen: false,
   cycleStartedAt: null,
   cycleStartMessageId: null,
   pendingCancellations: new Map(),
+  mineOnlySlots: new Set(),
 }
 
 let clientValue = null
@@ -106,6 +113,31 @@ export function parseMineContent(content) {
   return match ? cleanPart(match[1], 64) : null
 }
 
+export function parseAvailableSlots(content) {
+  const match = /^\s*AVAILABLE\s+SLOTS?\s*[-:]?\s*(.*?)\s*$/i.exec(content)
+  if (!match) return null
+
+  const slotText = match[1]
+  const numberTokens = slotText.match(/\d{1,2}/g) ?? []
+  const unusedText = slotText
+    .replace(/\d{1,2}[A-Y]?/gi, '')
+    .replace(/\band\b/gi, '')
+    .replace(/[\s,&-]/g, '')
+  if (unusedText || numberTokens.length === 0) return []
+
+  const slotIndexes = numberTokens.map(Number).map((slotNumber) => slotNumber - 1)
+  if (slotIndexes.some((slotIndex) => slotIndex < 0 || slotIndex >= MAX_SLOTS)) return []
+  return [...new Set(slotIndexes)]
+}
+
+function isScrimAdmin(message) {
+  return (
+    message.guild?.ownerId === message.author?.id ||
+    message.member?.permissions.has(PermissionFlagsBits.Administrator) ||
+    message.member?.permissions.has(PermissionFlagsBits.ManageGuild)
+  )
+}
+
 function isGifUrl(value) {
   return /(?:\.gif(?:$|[?#])|tenor\.com|giphy\.com)/i.test(value ?? '')
 }
@@ -169,7 +201,10 @@ function hasTeam(team) {
 
 function registerTeam(team) {
   if (hasTeam(team)) return { status: 'duplicate', team }
-  const slotIndex = state.slots.findIndex((entry) => !entry)
+  if (team.key === RESERVED_SLOT_TEAM_KEY) return { status: 'duplicate', team }
+  const slotIndex = state.slots.findIndex(
+    (entry, index) => !entry && !state.mineOnlySlots.has(index),
+  )
   if (slotIndex >= 0) {
     state.slots[slotIndex] = team
     return { status: 'slot', slotIndex, team }
@@ -194,6 +229,19 @@ function hasTeamFromMessage(messageId) {
   return [...state.slots, ...state.waitlist].some((team) => team?.sourceMessageId === messageId)
 }
 
+function openSlotsForMine(slotIndexes, sourceMessageId) {
+  const openedSlotSet = new Set(slotIndexes)
+  for (const [messageId, pending] of state.pendingCancellations) {
+    pending.slotIndexes = pending.slotIndexes.filter((slotIndex) => !openedSlotSet.has(slotIndex))
+    if (pending.slotIndexes.length === 0) state.pendingCancellations.delete(messageId)
+  }
+  for (const slotIndex of slotIndexes) {
+    state.slots[slotIndex] = null
+    state.mineOnlySlots.add(slotIndex)
+  }
+  state.pendingCancellations.set(sourceMessageId, { slotIndexes: [...slotIndexes] })
+}
+
 function cancelTeam(query, cancellationMessageId) {
   const found = findTeam(query)
   if (!found) return { status: 'not_found' }
@@ -203,19 +251,21 @@ function cancelTeam(query, cancellationMessageId) {
     return { status: 'waitlist_removed', team: found.team, waitIndex: found.index }
   }
 
-  const promotedTeam = state.waitlist.shift() ?? null
-  state.slots[found.index] = promotedTeam
-  state.pendingCancellations.set(cancellationMessageId, {
-    slotIndex: found.index,
-    canceledTeam: found.team,
-    promotedTeamKey: promotedTeam?.key ?? null,
-  })
+  openSlotsForMine([found.index], cancellationMessageId)
   return {
     status: 'slot_removed',
     slotIndex: found.index,
     team: found.team,
-    promotedTeam,
   }
+}
+
+function makeSlotsAvailable(slotIndexes, sourceMessageId) {
+  const openings = slotIndexes.map((slotIndex) => ({
+    slotIndex,
+    removedTeam: state.slots[slotIndex],
+  }))
+  openSlotsForMine(slotIndexes, sourceMessageId)
+  return openings
 }
 
 function teamFromMineClaim(value) {
@@ -230,45 +280,53 @@ function teamFromMineClaim(value) {
 
   const words = value.split(/\s+/).filter(Boolean)
   if (words.length < 2) return null
-  return makeTeam(words[0], value)
+  return makeTeam(words[0], words.slice(1).join(' '))
 }
 
 function claimCanceledSlot(value, cancellationMessageId, claimMessageId = null) {
   const pending = state.pendingCancellations.get(cancellationMessageId)
   if (!pending) return { status: 'not_available' }
+  const slotIndex = pending.slotIndexes.find(
+    (index) => state.mineOnlySlots.has(index) && !state.slots[index],
+  )
+  if (slotIndex === undefined) {
+    state.pendingCancellations.delete(cancellationMessageId)
+    return { status: 'not_available' }
+  }
 
   const parsedTeam = teamFromMineClaim(value)
   if (!parsedTeam) return { status: 'invalid_team' }
   const team = claimMessageId ? fromMessage(parsedTeam, claimMessageId, 'mine') : parsedTeam
 
   const existing = findTeam(`${team.tag} ${team.name}`)
-  if (existing?.location === 'slot' && existing.index !== pending.slotIndex) {
+  if (existing?.location === 'slot' && existing.index !== slotIndex) {
     return { status: 'already_registered', team: existing.team, slotIndex: existing.index }
   }
-  if (existing?.location === 'slot' && existing.index === pending.slotIndex) {
-    state.pendingCancellations.delete(cancellationMessageId)
-    return { status: 'claimed', slotIndex: pending.slotIndex, team: existing.team }
+  if (existing?.location === 'slot' && existing.index === slotIndex) {
+    state.mineOnlySlots.delete(slotIndex)
+    if (!pending.slotIndexes.some((index) => state.mineOnlySlots.has(index) && !state.slots[index])) {
+      state.pendingCancellations.delete(cancellationMessageId)
+    }
+    return { status: 'claimed', slotIndex, team: existing.team }
   }
   if (existing?.location === 'waitlist') {
     state.waitlist.splice(existing.index, 1)
   }
 
-  const currentTeam = state.slots[pending.slotIndex]
-  if (currentTeam && currentTeam.key === pending.promotedTeamKey) {
-    state.waitlist.unshift(currentTeam)
-  } else if (currentTeam && currentTeam.key !== team.key) {
-    return { status: 'not_available' }
+  state.slots[slotIndex] = team
+  state.mineOnlySlots.delete(slotIndex)
+  if (!pending.slotIndexes.some((index) => state.mineOnlySlots.has(index) && !state.slots[index])) {
+    state.pendingCancellations.delete(cancellationMessageId)
   }
-
-  state.slots[pending.slotIndex] = team
-  state.pendingCancellations.delete(cancellationMessageId)
-  return { status: 'claimed', slotIndex: pending.slotIndex, team }
+  return { status: 'claimed', slotIndex, team }
 }
 
 function resetBoard() {
   state.slots = Array(MAX_SLOTS).fill(null)
+  state.slots[0] = makeTeam(RESERVED_SLOT_TEAM.tag, RESERVED_SLOT_TEAM.name)
   state.waitlist = []
   state.pendingCancellations.clear()
+  state.mineOnlySlots.clear()
 }
 
 function closeRegistration() {
@@ -280,7 +338,10 @@ function closeRegistration() {
 
 function openRegistration(message, { createNewBoard = false } = {}) {
   resetBoard()
-  if (createNewBoard) state.boardMessageId = null
+  if (createNewBoard) {
+    state.boardMessageId = null
+    state.waitlistMessageId = null
+  }
   state.registrationOpen = true
   state.cycleStartedAt = message.createdTimestamp
   state.cycleStartMessageId = message.id
@@ -298,100 +359,86 @@ function manilaDate() {
   return `${part('month')} ${part('day')}, ${part('year')} (${part('weekday').toUpperCase()})`
 }
 
-function displayTeam(team) {
+function displayTeam(team, maxNameLength = MAX_DISPLAY_TEAM_NAME) {
   if (!team) return ''
-  return `${team.tag.padEnd(5)} - ${team.name}`
+  const displayName =
+    team.name.length > maxNameLength
+      ? `${team.name.slice(0, maxNameLength - 1)}…`
+      : team.name
+  return `${team.tag.padEnd(5)} - ${displayName}`
 }
 
-function boardEmbeds() {
+function cycleMarker(marker) {
+  return state.cycleStartMessageId
+    ? `${marker} • CYCLE ${state.cycleStartMessageId}`
+    : marker
+}
+
+function boardContent() {
   const date = manilaDate()
   lastRenderedDate = date
-  const slotLines = SLOT_CODES.map((code, index) => `${code} : ${displayTeam(state.slots[index])}`.trimEnd())
+  const slotLines = SLOT_CODES.map(
+    (code, index) => `${code}  : ${displayTeam(state.slots[index])}`.trimEnd(),
+  )
+  return [
+    `# ${BOARD_TITLE}`,
+    '',
+    `<a:calendar:1436064495939354634> **DATE:** ${date}`,
+    `<a:emoji_157:1259806144080248894> **TIME:** ${process.env.SCRIM_TIME_LABEL?.trim() || '10:00 PM PH Time'}`,
+    `<a:pinned:1240329558033436722> **ROUNDS:** ${process.env.SCRIM_ROUNDS_LABEL?.trim() || '4 Rounds | 1SB-1DV-2SI'}`,
+    '',
+    '# SLOTLIST',
+    '```',
+    ...slotLines,
+    '```',
+    '',
+    `||${cycleMarker(BOARD_MARKER)}||`,
+  ].join('\n')
+}
+
+function waitlistContent() {
   const waitRows = Math.max(EMPTY_WAITLIST_ROWS, Math.min(state.waitlist.length, MAX_WAITLIST_DISPLAY))
   const waitLines = Array.from({ length: waitRows }, (_value, index) => {
     const number = String(index + 1).padStart(2, '0')
-    return `W${number} : ${displayTeam(state.waitlist[index])}`.trimEnd()
+    return `W${number}  : ${displayTeam(state.waitlist[index], MAX_WAITLIST_TEAM_NAME)}`.trimEnd()
   })
   if (state.waitlist.length > MAX_WAITLIST_DISPLAY) {
-    waitLines.push(`...  : +${state.waitlist.length - MAX_WAITLIST_DISPLAY} MORE TEAMS`)
+    waitLines.push(`...   : +${state.waitlist.length - MAX_WAITLIST_DISPLAY} MORE TEAMS`)
   }
-
-  const board = new EmbedBuilder()
-    .setColor(NIGHTRAID_RED)
-    .setTitle(BOARD_TITLE)
-    .setDescription(
-      [
-        `<a:calendar:1436064495939354634> **DATE:** ${date}`,
-        `<a:emoji_157:1259806144080248894> **TIME:** ${process.env.SCRIM_TIME_LABEL?.trim() || '10:00 PM PH Time'}`,
-        `<a:pinned:1240329558033436722> **ROUNDS:** ${process.env.SCRIM_ROUNDS_LABEL?.trim() || '4 Rounds | 1SB-1DV-2SI'}`,
-        '',
-        '**SLOTLIST**',
-        '```',
-        ...slotLines,
-        '```',
-      ].join('\n'),
-    )
-
-  const waiting = new EmbedBuilder()
-    .setColor(NIGHTRAID_RED)
-    .setTitle('WAIT LIST')
-    .setDescription(['```', ...waitLines, '```'].join('\n'))
-    .setFooter({
-      text: state.cycleStartMessageId
-        ? `${BOARD_MARKER} • CYCLE ${state.cycleStartMessageId}`
-        : BOARD_MARKER,
-    })
-    .setTimestamp()
-
-  return [board, waiting]
-}
-
-function parseBoardTeam(value) {
-  const match = /^(.{1,16}?)\s*-\s*(.{1,64})$/.exec(value.trim())
-  return match ? makeTeam(match[1], match[2]) : null
-}
-
-function restoreBoard(message) {
-  const descriptions = message.embeds.map((embed) => embed.description ?? '').join('\n')
-  const slots = Array(MAX_SLOTS).fill(null)
-  const waitlist = []
-
-  for (const rawLine of descriptions.split(/\r?\n/)) {
-    const line = rawLine.trim()
-    const slotMatch = /^(\d{2})([A-Y])\s*:\s*(.*)$/.exec(line)
-    if (slotMatch) {
-      const index = Number(slotMatch[1]) - 1
-      if (index >= 0 && index < MAX_SLOTS) slots[index] = parseBoardTeam(slotMatch[3])
-      continue
-    }
-    const waitMatch = /^W(\d{2})\s*:\s*(.*)$/.exec(line)
-    if (waitMatch) {
-      const team = parseBoardTeam(waitMatch[2])
-      if (team) waitlist.push(team)
-    }
-  }
-
-  state.slots = slots
-  state.waitlist = waitlist
-  state.boardMessageId = message.id
-  state.cycleStartedAt = message.createdTimestamp
+  return [
+    '# WAIT LIST',
+    '```',
+    ...waitLines,
+    '```',
+    '',
+    `||${cycleMarker(WAITLIST_MARKER)}||`,
+  ].join('\n')
 }
 
 function isLiveBoard(message, botUserId) {
   if (message.author.id !== botUserId) return false
-  return message.embeds.some(
-    (embed) =>
-      embed.footer?.text?.startsWith(BOARD_MARKER) ||
-      embed.title === BOARD_TITLE ||
-      embed.title === '📣 NIGHTRAID SCRIMMAGE SLOT LIST',
+  return (
+    message.content.includes(BOARD_MARKER) ||
+    message.embeds.some(
+      (embed) =>
+        embed.footer?.text?.startsWith(BOARD_MARKER) ||
+        embed.title === BOARD_TITLE ||
+        embed.title === '📣 NIGHTRAID SCRIMMAGE SLOT LIST',
+    )
   )
 }
 
 function usesCurrentBoardLayout(message) {
-  return message.embeds.some((embed) => embed.title === BOARD_TITLE)
+  return message.embeds.length === 0 && message.content.startsWith(`# ${BOARD_TITLE}`)
+}
+
+function isLiveWaitlist(message, botUserId) {
+  return message.author.id === botUserId && message.content.includes(WAITLIST_MARKER)
 }
 
 function boardCycleMessageId(message) {
+  const contentMatch = /• CYCLE (\d+)\|\|$/.exec(message.content)
+  if (contentMatch) return contentMatch[1]
   for (const embed of message.embeds) {
     const match = /• CYCLE (\d+)$/.exec(embed.footer?.text ?? '')
     if (match) return match[1]
@@ -407,17 +454,39 @@ function boardBelongsToCurrentCycle(message) {
 }
 
 async function findLiveBoard(channel, botUserId) {
-  const pins = await channel.messages.fetchPins({ limit: 50 })
-  const pinnedBoard = pins.items
-    .map((item) => item.message)
-    .filter((message) => isLiveBoard(message, botUserId))
-    .sort((left, right) => right.createdTimestamp - left.createdTimestamp)[0]
-  if (pinnedBoard) return pinnedBoard
-
-  const recent = await channel.messages.fetch({ limit: 100 })
-  return [...recent.values()]
+  const [pins, recent] = await Promise.all([
+    channel.messages.fetchPins({ limit: 50 }),
+    channel.messages.fetch({ limit: 100 }),
+  ])
+  const candidates = new Map(recent)
+  for (const item of pins.items) candidates.set(item.message.id, item.message)
+  return [...candidates.values()]
     .filter((message) => isLiveBoard(message, botUserId))
     .sort((left, right) => right.createdTimestamp - left.createdTimestamp)[0] ?? null
+}
+
+async function findLiveWaitlist(channel, botUserId, cycleMessageId) {
+  const recent = await channel.messages.fetch({ limit: 100 })
+  return [...recent.values()]
+    .filter(
+      (message) =>
+        isLiveWaitlist(message, botUserId) &&
+        (!cycleMessageId || boardCycleMessageId(message) === cycleMessageId),
+    )
+    .sort((left, right) => right.createdTimestamp - left.createdTimestamp)[0] ?? null
+}
+
+async function unpinLiveBoards(channel, botUserId) {
+  const pins = await channel.messages.fetchPins({ limit: 50 })
+  const liveBoards = pins.items
+    .map((item) => item.message)
+    .filter((message) => isLiveBoard(message, botUserId))
+  await Promise.all(
+    liveBoards.map((message) =>
+      message.unpin('The live scrim board is now maintained as an unpinned plain message.')
+        .catch(() => undefined),
+    ),
+  )
 }
 
 async function readableChannel(channelId) {
@@ -430,23 +499,50 @@ async function readableChannel(channelId) {
 
 async function syncBoard() {
   const channel = await readableChannel(REGISTERED_TEAMS_CHANNEL_ID)
-  const payload = { embeds: boardEmbeds(), allowedMentions: { parse: [] } }
+  const boardPayload = {
+    content: boardContent(),
+    embeds: [],
+    allowedMentions: { parse: [] },
+  }
+  const waitlistPayload = {
+    content: waitlistContent(),
+    embeds: [],
+    allowedMentions: { parse: [] },
+  }
 
   if (state.boardMessageId) {
     try {
       const board = await channel.messages.fetch(state.boardMessageId)
-      await board.edit(payload)
+      await board.edit(boardPayload)
+      if (board.pinned) {
+        await board.unpin('The live scrim board is now maintained as an unpinned plain message.')
+          .catch(() => undefined)
+      }
+      if (state.waitlistMessageId) {
+        try {
+          const waitlist = await channel.messages.fetch(state.waitlistMessageId)
+          await waitlist.edit(waitlistPayload)
+        } catch {
+          state.waitlistMessageId = null
+        }
+      }
+      if (!state.waitlistMessageId) {
+        const waitlist = await channel.send(waitlistPayload)
+        state.waitlistMessageId = waitlist.id
+      }
       return board
     } catch (reason) {
       console.warn('The previous scrim board could not be edited; creating a new one.')
       state.boardMessageId = null
+      state.waitlistMessageId = null
     }
   }
 
   await channel.send({ content: SCRIM_BANNER_URL, allowedMentions: { parse: [] } })
-  const board = await channel.send(payload)
+  const board = await channel.send(boardPayload)
+  const waitlist = await channel.send(waitlistPayload)
   state.boardMessageId = board.id
-  await board.pin('Keep the live NIGHTRAID scrim slot board available after bot restarts.').catch(() => undefined)
+  state.waitlistMessageId = waitlist.id
   return board
 }
 
@@ -475,6 +571,11 @@ async function reconstructCurrentCycle() {
     .filter((message) => !message.author.bot && message.createdTimestamp > state.cycleStartedAt)
     .sort((left, right) => left.createdTimestamp - right.createdTimestamp)
   for (const message of cancellations) {
+    const availableSlots = parseAvailableSlots(message.content)
+    if (availableSlots?.length && isScrimAdmin(message)) {
+      makeSlotsAvailable(availableSlots, message.id)
+      continue
+    }
     const cancel = parseCancelContent(message.content)
     if (cancel) {
       cancelTeam(cancel, message.id)
@@ -515,6 +616,11 @@ async function replayMessagesSince(timestamp) {
       continue
     }
 
+    const availableSlots = parseAvailableSlots(message.content)
+    if (availableSlots?.length && isScrimAdmin(message)) {
+      makeSlotsAvailable(availableSlots, message.id)
+      continue
+    }
     const cancel = parseCancelContent(message.content)
     if (cancel) {
       cancelTeam(cancel, message.id)
@@ -530,10 +636,19 @@ async function initializeScrimAutomation(readyClient) {
   clientValue = readyClient
   const registeredChannel = await readableChannel(REGISTERED_TEAMS_CHANNEL_ID)
   const board = await findLiveBoard(registeredChannel, readyClient.user.id)
+  const waitlist = board
+    ? await findLiveWaitlist(registeredChannel, readyClient.user.id, boardCycleMessageId(board))
+    : null
+  await unpinLiveBoards(registeredChannel, readyClient.user.id)
   await reconstructCurrentCycle()
-  state.boardMessageId =
+  const canReuseBoard =
     board && boardBelongsToCurrentCycle(board) && usesCurrentBoardLayout(board)
-      ? board.id
+  state.boardMessageId = canReuseBoard ? board.id : null
+  state.waitlistMessageId =
+    canReuseBoard &&
+    waitlist &&
+    boardCycleMessageId(waitlist) === state.cycleStartMessageId
+      ? waitlist.id
       : null
   await syncBoard()
   console.log(
@@ -567,6 +682,34 @@ async function handleRegistration(message) {
 async function handleCancellation(message) {
   if (!state.registrationOpen) return
 
+  const availableSlots = parseAvailableSlots(message.content)
+  if (availableSlots !== null) {
+    if (!isScrimAdmin(message)) {
+      await reply(message, '⚠️ Only a server administrator can open slots with `AVAILABLE SLOT`.')
+      return
+    }
+    if (availableSlots.length === 0) {
+      await reply(message, '⚠️ Use `AVAILABLE SLOT 1` or `AVAILABLE SLOT 1, 2, 3 & 4`.')
+      return
+    }
+
+    const openings = makeSlotsAvailable(availableSlots, message.id)
+    await syncBoard()
+    const slotLabels = openings.map(({ slotIndex }) => `**${SLOT_CODES[slotIndex]}**`).join(', ')
+    const removedTeams = openings
+      .filter(({ removedTeam }) => removedTeam)
+      .map(({ slotIndex, removedTeam }) => `**${SLOT_CODES[slotIndex]}:** ${removedTeam.name}`)
+    const removedSummary =
+      removedTeams.length > 0
+        ? ` Removed ${removedTeams.join(', ')}.`
+        : ''
+    await reply(
+      message,
+      `✅ ${slotLabels} ${openings.length === 1 ? 'is' : 'are'} available for **MINE**.${removedSummary} The waiting list was not promoted.`,
+    )
+    return
+  }
+
   const cancel = parseCancelContent(message.content)
   if (cancel) {
     const result = cancelTeam(cancel, message.id)
@@ -580,10 +723,10 @@ async function handleCancellation(message) {
       return
     }
     const slot = SLOT_CODES[result.slotIndex]
-    const promotion = result.promotedTeam
-      ? ` **${result.promotedTeam.name}** moved from the waiting list into that slot.`
-      : ' The slot is now open.'
-    await reply(message, `✅ **${result.team.name}** canceled slot **${slot}**.${promotion}`)
+    await reply(
+      message,
+      `✅ **${result.team.name}** canceled slot **${slot}**. The slot is available for **MINE**; the waiting list was not promoted.`,
+    )
     return
   }
 
@@ -592,7 +735,7 @@ async function handleCancellation(message) {
   if (!mine || !referenceId) return
 
   const referencedMessage = await message.channel.messages.fetch(referenceId).catch(() => null)
-  if (!referencedMessage || !parseCancelContent(referencedMessage.content)) return
+  if (!referencedMessage || !state.pendingCancellations.has(referenceId)) return
 
   const result = claimCanceledSlot(mine, referenceId, message.id)
   if (result.status !== 'claimed') {
@@ -684,6 +827,7 @@ export function installScrimAutomation(client) {
 
   client.on(Events.MessageCreate, (message) => {
     if (message.author.bot || !message.inGuild()) return
+    if (containsLinkKeyword(message.content)) return
     if (message.channelId === REGISTRATION_CHANNEL_ID) {
       if (!claimMessage(message.id)) return
       queue(() => handleRegistration(message))
