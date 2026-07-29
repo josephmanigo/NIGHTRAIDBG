@@ -508,6 +508,85 @@ test('starts processing and persists the review payload and Discord message ID',
   assert.equal(new Set(customIds).size, customIds.length)
 })
 
+test('automatically writes a valid labeled round without confirmation controls', async () => {
+  const store = memoryStore()
+  const writes = []
+  const automaticInteraction = interaction()
+  const workflow = createGameResultsReviewWorkflow({
+    store,
+    roundReader: {
+      readSubmission: async () => roundResult([
+        team({ rank: 1, code: 'A', name: 'Official A' }),
+        team({ rank: 2, code: 'Z', name: 'Unknown Team' }),
+      ]),
+    },
+    teamMappingService: mappingService({
+      unknownCodes: new Set(['Z']),
+      registeredSlotlist: true,
+    }),
+    writeApprovedSubmission: async (approved, actorUserId, writeOptions) => {
+      writes.push({ approved, actorUserId, writeOptions })
+      return {
+        status: 'verified',
+        submission: {
+          ...approved,
+          status: 'confirmed',
+          reviewPayload: {
+            ...approved.reviewPayload,
+            spreadsheet_write_performed: true,
+          },
+        },
+      }
+    },
+  })
+
+  const result = await workflow.startAutomaticTally(
+    store.current(),
+    automaticInteraction.value,
+  )
+
+  assert.equal(result.status, 'confirmed')
+  assert.equal(writes.length, 1)
+  assert.equal(writes[0].approved.status, 'approved_for_writing')
+  assert.equal(writes[0].approved.reviewPayload.round_result.teams.length, 1)
+  assert.equal(writes[0].approved.reviewPayload.round_result.teams[0].team_code, 'A')
+  assert.equal(writes[0].approved.reviewPayload.excluded_teams.length, 1)
+  assert.equal(writes[0].actorUserId, SUBMITTER_ID)
+  assert.equal(writes[0].writeOptions.correctionAuthorized, false)
+  assert.equal(automaticInteraction.followUps.length, 1)
+  assert.match(automaticInteraction.followUps[0].content, /tallied automatically/)
+  assert.equal(automaticInteraction.followUps[0].components, undefined)
+})
+
+test('automatic tally falls back to persistent review when validation is unsafe', async () => {
+  const store = memoryStore()
+  let writes = 0
+  const automaticInteraction = interaction()
+  const invalidTeam = team({ totalKills: null })
+  const workflow = createGameResultsReviewWorkflow({
+    store,
+    roundReader: { readSubmission: async () => roundResult([invalidTeam]) },
+    teamMappingService: mappingService(),
+    writeApprovedSubmission: async () => {
+      writes += 1
+      throw new Error('must not write')
+    },
+  })
+
+  const result = await workflow.startAutomaticTally(
+    store.current(),
+    automaticInteraction.value,
+  )
+
+  assert.equal(result.status, 'automatic_review_required')
+  assert.equal(writes, 0)
+  assert.equal(store.current().status, 'needs_review')
+  assert.ok(result.blockingIssueCount > 0)
+  assert.equal(automaticInteraction.followUps.length, 1)
+  assert.match(automaticInteraction.followUps[0].content, /GAME-RESULT REVIEW/)
+  assert.equal(automaticInteraction.followUps[0].components.length, 2)
+})
+
 test('persistent navigation works after creating a new workflow instance', async () => {
   const store = memoryStore()
   const first = createGameResultsReviewWorkflow({

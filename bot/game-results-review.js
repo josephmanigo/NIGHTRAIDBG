@@ -891,6 +891,24 @@ export function createGameResultsReviewWorkflow(options = {}) {
     return message?.edit?.(messagePayload(submission, includeControls)) ?? null
   }
 
+  async function postPersistentReview(submission, interaction) {
+    const reviewMessage = await interaction.followUp({
+      ...messagePayload(submission),
+      fetchReply: true,
+    })
+    const stored = await store.saveReviewState({
+      submissionId: submission.submissionId,
+      payload: submission.reviewPayload,
+      page: submission.reviewPage,
+      messageId: reviewMessage.id,
+      status: submission.status,
+      updatedBy: submission.discordUserId,
+      expectedVersion: submission.reviewVersion,
+    })
+    await reviewMessage.edit?.(messagePayload(stored))
+    return stored
+  }
+
   async function startReview(submission, interaction) {
     await initialize()
     try {
@@ -908,7 +926,7 @@ export function createGameResultsReviewWorkflow(options = {}) {
       })
       const roundResult = await roundReader.readSubmission(submission)
       const payload = await buildPayload(roundResult)
-      let stored = await store.saveReviewState({
+      const stored = await store.saveReviewState({
         submissionId: submission.submissionId,
         payload,
         page: 0,
@@ -916,21 +934,8 @@ export function createGameResultsReviewWorkflow(options = {}) {
         updatedBy: submission.discordUserId,
         expectedVersion: submission.reviewVersion ?? 0,
       })
-      const reviewMessage = await interaction.followUp({
-        ...messagePayload(stored),
-        fetchReply: true,
-      })
-      stored = await store.saveReviewState({
-        submissionId: stored.submissionId,
-        payload: stored.reviewPayload,
-        page: stored.reviewPage,
-        messageId: reviewMessage.id,
-        status: 'needs_review',
-        updatedBy: submission.discordUserId,
-        expectedVersion: stored.reviewVersion,
-      })
-      await reviewMessage.edit?.(messagePayload(stored))
-      return { status: 'review_ready', submission: stored }
+      const posted = await postPersistentReview(stored, interaction)
+      return { status: 'review_ready', submission: posted }
     } catch (reason) {
       await store.updateSubmissionStatus({
         submissionId: submission.submissionId,
@@ -947,6 +952,109 @@ export function createGameResultsReviewWorkflow(options = {}) {
         content:
           '# Screenshot review failed\n'
           + 'The screenshots or score-sheet mapping could not be processed. No spreadsheet was modified.',
+        allowedMentions: { parse: [] },
+      }).catch(() => undefined)
+      return { status: 'failed', reason }
+    }
+  }
+
+  async function startAutomaticTally(submission, interaction) {
+    await initialize()
+    try {
+      await store.updateSubmissionStatus({
+        submissionId: submission.submissionId,
+        status: 'processing',
+        allowedStatuses: ['pending', 'processing', 'failed'],
+      })
+      const roundResult = await roundReader.readSubmission(submission)
+      const payload = await buildPayload(roundResult)
+
+      if (payload.blocking_issue_count > 0) {
+        const needsReview = await store.saveReviewState({
+          submissionId: submission.submissionId,
+          payload,
+          page: 0,
+          status: 'needs_review',
+          updatedBy: submission.discordUserId,
+          expectedVersion: submission.reviewVersion ?? 0,
+        })
+        const posted = await postPersistentReview(needsReview, interaction)
+        return {
+          status: 'automatic_review_required',
+          submission: posted,
+          blockingIssueCount: payload.blocking_issue_count,
+        }
+      }
+
+      const approved = await store.saveReviewState({
+        submissionId: submission.submissionId,
+        payload,
+        page: 0,
+        status: 'approved_for_writing',
+        updatedBy: submission.discordUserId,
+        confirmedBy: submission.discordUserId,
+        expectedVersion: submission.reviewVersion ?? 0,
+      })
+      if (!writeApprovedSubmission) {
+        await interaction.followUp({
+          content:
+            '# Automatic tally unavailable\n'
+            + 'The screenshots passed validation, but score-sheet writing is not installed.',
+          allowedMentions: { parse: [] },
+        })
+        return { status: 'approved_for_writing', submission: approved }
+      }
+
+      try {
+        const sheetWrite = await writeApprovedSubmission(
+          approved,
+          submission.discordUserId,
+          { correctionAuthorized: false },
+        )
+        const teamCount = sheetWrite.submission.reviewPayload?.round_result?.teams?.length ?? 0
+        const excludedCount =
+          sheetWrite.submission.reviewPayload?.excluded_teams?.length ?? 0
+        await interaction.followUp({
+          content: [
+            `# Round ${sheetWrite.submission.round} tallied automatically`,
+            `**${teamCount}** registered team${teamCount === 1 ? '' : 's'} written to **${scoreSheetWorksheet}**.`,
+            excludedCount > 0
+              ? `**${excludedCount}** unknown or unregistered team${excludedCount === 1 ? ' was' : 's were'} not tallied.`
+              : 'All detected teams were registered and tallied.',
+          ].join('\n'),
+          allowedMentions: { parse: [] },
+        })
+        return {
+          status: 'confirmed',
+          submission: sheetWrite.submission,
+          sheetWrite,
+        }
+      } catch (reason) {
+        await interaction.followUp({
+          content: [
+            '# Automatic score-sheet write failed safely',
+            safeText(reason instanceof Error ? reason.message : reason),
+            `No unverified retry was attempted on ${scoreSheetWorksheet}.`,
+          ].join('\n'),
+          allowedMentions: { parse: [] },
+        })
+        const posted = await postPersistentReview(approved, interaction)
+        return {
+          status: 'sheet_write_failed',
+          submission: posted,
+          reason,
+        }
+      }
+    } catch (reason) {
+      await store.updateSubmissionStatus({
+        submissionId: submission.submissionId,
+        status: 'failed',
+        allowedStatuses: ['pending', 'processing', 'needs_review'],
+      }).catch(() => undefined)
+      await interaction.followUp({
+        content:
+          '# Automatic screenshot tally failed\n'
+          + 'The screenshots could not be processed safely. No spreadsheet was modified.',
         allowedMentions: { parse: [] },
       }).catch(() => undefined)
       return { status: 'failed', reason }
@@ -1348,6 +1456,7 @@ export function createGameResultsReviewWorkflow(options = {}) {
   return {
     initialize,
     startReview,
+    startAutomaticTally,
     handleInteraction,
   }
 }

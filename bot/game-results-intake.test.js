@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   createGameResultsIntake,
+  parseRoundLabel,
   roundButtonCustomId,
 } from './game-results-intake.js'
 import { sha256Hex } from './image-hash.js'
@@ -182,6 +183,7 @@ function message({
   roleIds = [AUTHORIZED_ROLE_ID],
   bot = false,
   userId = '1532004107404054001',
+  content = '',
 } = {}) {
   const replies = []
   return {
@@ -189,6 +191,7 @@ function message({
       id: messageId,
       guildId: '1208444297926545489',
       channelId,
+      content,
       author: { id: userId, bot },
       member: member(roleIds),
       attachments: new Map(attachments.map((item) => [item.id, item])),
@@ -245,9 +248,17 @@ function intake(options = {}) {
     store: options.store ?? testStore(database),
     hashAttachment: options.hashAttachment ?? testHashAttachment,
     onOfficialSubmission: options.onOfficialSubmission,
+    allowLegacyRoundSelection: options.allowLegacyRoundSelection ?? true,
     logger: { info() {}, warn() {}, error() {}, log() {} },
   })
 }
+
+test('reads one explicit ROUND 1 through ROUND 4 label from screenshot messages', () => {
+  assert.equal(parseRoundLabel('ROUND 1'), 1)
+  assert.equal(parseRoundLabel('results for round 4 attached'), 4)
+  assert.equal(parseRoundLabel('ROUND 5'), null)
+  assert.equal(parseRoundLabel('ROUND 1 and ROUND 2'), null)
+})
 
 test('accepts an image inside the configured channel and records its metadata', async () => {
   const controller = intake()
@@ -280,6 +291,45 @@ test('accepts an image inside the configured channel and records its metadata', 
   })
   assert.match(record.sha256, /^[0-9a-f]{64}$/)
   assert.match(record.perceptualHash, /^[0-9a-f]{16}$/)
+})
+
+test('a labeled screenshot immediately selects its round and starts automatic processing', async () => {
+  const processed = []
+  const controller = intake({
+    onOfficialSubmission: async (submission, context) => {
+      processed.push(submission)
+      await context.followUp({ content: 'Automatically tallied.' })
+      return { status: 'confirmed' }
+    },
+  })
+  const input = message({ content: 'ROUND 3' })
+
+  const result = await controller.handleMessage(input.message)
+
+  assert.equal(result.status, 'automatic')
+  assert.equal(result.submission.round, 3)
+  assert.equal(processed.length, 1)
+  assert.equal(processed[0].round, 3)
+  assert.match(input.replies[0].content, /Round 3 automatic tally started/)
+  assert.equal(input.replies[0].components, undefined)
+  assert.equal(input.replies[1].content, 'Automatically tallied.')
+})
+
+test('the rebuilt channel flow rejects screenshots without one valid round label', async () => {
+  const controller = intake({ allowLegacyRoundSelection: false })
+  const missing = message({ content: '' })
+  const invalid = message({
+    messageId: '1532004107404051014',
+    content: 'ROUND 5',
+  })
+
+  const missingResult = await controller.handleMessage(missing.message)
+  const invalidResult = await controller.handleMessage(invalid.message)
+
+  assert.equal(missingResult.status, 'missing_round_label')
+  assert.equal(invalidResult.status, 'missing_round_label')
+  assert.match(missing.replies[0].content, /ROUND 1.*ROUND 4/)
+  assert.equal(controller.getPendingSubmission(MESSAGE_ID), null)
 })
 
 test('ignores images outside the configured channel', async () => {

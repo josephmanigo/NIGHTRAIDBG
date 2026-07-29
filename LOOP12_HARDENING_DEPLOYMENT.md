@@ -135,7 +135,7 @@ submission.
 4. Confirm the startup database-backup log and that a JSON backup exists in
    `game_results.db.backups`.
 5. Run `/health`; require `HEALTHY`, `mode test`, and worksheet `Copy of New`.
-6. Submit authorized test screenshots in channel `1532004107404050534`.
+6. Submit authorized test screenshots with `ROUND 1` in the same message in channel `1532004107404050534`.
 7. Complete review and verify only PLACE/KILLS changed in `Copy of New`.
 8. Restart during one pending round selection and confirm its existing controls
    still work or its selected submission resumes processing.

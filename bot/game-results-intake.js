@@ -133,6 +133,13 @@ export function parseRoundButtonCustomId(value) {
   return match ? { messageId: match[1], round: Number(match[2]) } : null
 }
 
+export function parseRoundLabel(content) {
+  const matches = [...String(content ?? '').matchAll(/\bROUND\s*([0-9]+)\b/gi)]
+  if (matches.length !== 1) return null
+  const round = Number(matches[0][1])
+  return Number.isInteger(round) && round >= 1 && round <= 4 ? round : null
+}
+
 function roundButtons(messageId) {
   return new ActionRowBuilder().addComponents(
     [1, 2, 3, 4].map((round) =>
@@ -221,6 +228,7 @@ export function createGameResultsIntake(options = {}) {
   const store = options.store ?? createSupabaseGameResultsStore()
   const hashAttachment = options.hashAttachment ?? hashDiscordAttachment
   const onOfficialSubmission = options.onOfficialSubmission
+  const allowLegacyRoundSelection = options.allowLegacyRoundSelection === true
   const pendingSubmissions = new Map()
   const officialSubmissions = new Map()
   const deletedMessageIds = new Set()
@@ -260,6 +268,48 @@ export function createGameResultsIntake(options = {}) {
     })
   }
 
+  async function recordLabeledRound(message, submission, round, duplicateCount = 0) {
+    const officialSubmission = await store.selectRound({
+      submissionId: submission.submissionId,
+      discordUserId: submission.discordUserId,
+      round,
+    })
+    pendingSubmissions.delete(message.id)
+    officialSubmissions.set(message.id, officialSubmission)
+    const duplicateNotice =
+      duplicateCount > 0
+        ? ` ${duplicateCount} exact duplicate screenshot${duplicateCount === 1 ? ' was' : 's were'} skipped.`
+        : ''
+    await message.reply({
+      content: [
+        `# Round ${round} automatic tally started`,
+        `${officialSubmission.records.length} screenshot${officialSubmission.records.length === 1 ? '' : 's'} will be processed now.${duplicateNotice}`,
+        onOfficialSubmission
+          ? `Results will be written automatically when validation passes.`
+          : 'Automatic score processing is not installed.',
+      ].join('\n'),
+      allowedMentions: { parse: [], repliedUser: true },
+    })
+    logRecord(logger, 'info', 'GAME_RESULTS_LABELED_ROUND_SUBMISSION', officialSubmission)
+    const review = onOfficialSubmission
+      ? await onOfficialSubmission(officialSubmission, {
+          guildId: message.guildId,
+          channelId: message.channelId,
+          client: message.client,
+          channel: message.channel,
+          user: message.author,
+          member: message.member,
+          followUp: (payload) => message.reply(payload),
+        })
+      : null
+    return {
+      status: 'automatic',
+      submission: officialSubmission,
+      review,
+      duplicates: duplicateCount,
+    }
+  }
+
   async function handleMessage(message) {
     if (message.author?.bot || message.channelId !== channelId || !message.inGuild?.()) {
       return { status: 'ignored' }
@@ -268,6 +318,7 @@ export function createGameResultsIntake(options = {}) {
 
     const attachments = [...(message.attachments?.values?.() ?? [])]
     if (attachments.length === 0) return { status: 'ignored' }
+    const labeledRound = parseRoundLabel(message.content)
 
     const validation = validateGameResultAttachments(attachments, maxFileSizeBytes)
     if (validation.rejected.length > 0) {
@@ -310,6 +361,15 @@ export function createGameResultsIntake(options = {}) {
       })
       return { status: 'rate_limited', retryAfterSeconds: retrySeconds }
     }
+    if (!labeledRound && !allowLegacyRoundSelection) {
+      await message.reply({
+        content:
+          '# Round label required\n'
+          + 'Send the screenshot again with exactly one label: `ROUND 1`, `ROUND 2`, `ROUND 3`, or `ROUND 4`.',
+        allowedMentions: { parse: [], repliedUser: true },
+      })
+      return { status: 'missing_round_label' }
+    }
 
     const baseRecords = createGameResultRecords(message, validation.accepted)
     const metadata = {
@@ -346,6 +406,9 @@ export function createGameResultsIntake(options = {}) {
           officialSubmissions.set(message.id, existing)
           return { status: 'already_recorded', submission: existing }
         }
+        if (labeledRound) {
+          return recordLabeledRound(message, existing, labeledRound)
+        }
         pendingSubmissions.set(message.id, existing)
         await replyWithRoundSelection(message, existing)
         return { status: 'pending_round', submission: existing }
@@ -379,6 +442,14 @@ export function createGameResultsIntake(options = {}) {
         return { status: 'duplicate', submission, duplicates: stored.duplicates }
       }
 
+      if (labeledRound) {
+        return recordLabeledRound(
+          message,
+          submission,
+          labeledRound,
+          stored.duplicates.length,
+        )
+      }
       pendingSubmissions.set(message.id, submission)
       await replyWithRoundSelection(message, submission, stored.duplicates.length)
       logRecord(logger, 'info', 'GAME_RESULTS_INTAKE_PENDING', {

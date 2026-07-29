@@ -412,7 +412,7 @@ installGameResultsIntake(client, {
   logger: gameResultsLogger,
   errorReporter: gameResultsErrorReporter,
   onOfficialSubmission: (submission, interaction) =>
-    gameResultsReview.startReview(submission, interaction),
+    gameResultsReview.startAutomaticTally(submission, interaction),
 })
 installGameResultsHealthWorkflow(client, {
   store: gameResultsStore,
