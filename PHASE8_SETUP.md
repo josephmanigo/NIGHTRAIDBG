@@ -77,6 +77,17 @@ The bot reads:
 | `DISCORD_GUILD_ID` | Yes for `/rules` | The NIGHTRAID server ID. |
 | `DISCORD_RULES_CHANNEL_ID` | No | Overrides the default NIGHTRAID rules channel (`1208605026868535387`). |
 | `SCRIM_REGISTRATION_OPENER_IDS` | No | Extra Discord user IDs allowed to open a scrim cycle with a GIF, separated by commas. EMS is already allowed. |
+| `GAME_RESULTS_CHANNEL_ID` | No | Screenshot intake channel. Defaults to `1532004107404050534`. |
+| `GAME_RESULTS_MAX_FILE_SIZE_MB` | No | Maximum size of each submitted screenshot in MB. Defaults to `10`. |
+| `GAME_RESULTS_SUBMITTER_ROLE_IDS` | Yes for official screenshot submissions | Discord role IDs allowed to submit official results, separated by commas. Intake fails closed when this is empty. |
+| `GAME_RESULTS_TOURNAMENT_ADMIN_ROLE_IDS` | No | Tournament Admin role IDs allowed to review screenshot results, separated by commas. The exact role name `Tournament Admin` is also recognized. |
+| `GAME_RESULTS_SCOREKEEPER_ROLE_IDS` | No | Scorekeeper role IDs allowed to review screenshot results, separated by commas. The exact role name `Scorekeeper` is also recognized. |
+| `GAME_RESULTS_LOW_CONFIDENCE_THRESHOLD` | No | Fields below this AI/OCR confidence are shown as warnings. Defaults to `0.75`. |
+| `GAME_RESULTS_SPREADSHEET_ID` | No | Score-sheet source for review validation. Defaults to NIGHTRAID SCORESHEET. |
+| `GAME_RESULTS_WORKSHEET_NAME` | No in testing | Review mapping is restricted to `Copy of New` until production integration is approved. |
+| `SCORE_SHEET_MODE` | No | Score writer mode. Defaults to `test`; production requires the exact value `production`. `/generate-mvp` always previews from production `New`, but its confirmation is disabled unless this is `production`. |
+| `TEST_WORKSHEET` | No | Must remain `Copy of New`. |
+| `PRODUCTION_WORKSHEET` | No | Must remain `New`. |
 | `DISCORD_APPLICATIONS_CHANNEL_ID` | Yes in Vercel; optional on bot host | The private channel where new application cards and decision buttons are posted. |
 | `APP_URL` | No | Production website URL; defaults to `https://nightraidbg.com` on the bot host. |
 | `ADMIN_DISCORD_IDS` | Yes in Vercel; optional on bot host | The two authorized administrator Discord IDs, separated by commas. Vercel always enforces this list. |
@@ -116,10 +127,66 @@ When the bot starts, it registers the rules commands as instant guild commands i
 | `/rules` | **NIGHTRAID RULES** | Pinned messages in `DISCORD_RULES_CHANNEL_ID`, or the latest 100 messages when nothing is pinned |
 | `/nrules` | **NIGHTRAID CLAN RULES** | Message `1443300854613544993` |
 | `/scrimrules` | **SCRIM MECHANICS** plus its official image | Text message `1522987468532744332` and image message `1522987523335524442` |
+| `/generate-mvp` | Overall champion roster, four-round kills, totals, and expected MVP rank preview | Confirmed production histories plus Final Rank 1 in `New` |
 
 Discord requires lowercase slash-command names, so the NIGHTRAID clan command is `/nrules`, not `/Nrules`. Every response uses plain Discord Markdown rather than embeds. Long fetched rules are split into ordered continuation messages. `/rules` and `/nrules` end with Markdown links to their sources; `/scrimrules` preserves the fetched mechanics formatting and uploads the official point-system image as a visible attachment beneath the text.
 
 For predictable results, pin only the official rule messages and arrange the rules in the order they were originally posted. The bot needs **View Channel** and **Read Message History** in the rules channel. Keep **MESSAGE CONTENT INTENT** enabled so it can read the rule text.
+
+## Game-results screenshot intake
+
+The bot monitors only `GAME_RESULTS_CHANNEL_ID` for screenshot attachments. PNG, JPG, JPEG, and WEBP files within `GAME_RESULTS_MAX_FILE_SIZE_MB` are accepted, including multiple images in one message. A message containing any unsupported or oversized attachment is rejected as one submission.
+
+Before deploying screenshot storage, run the complete contents of `database/phase9.sql` once in the Supabase SQL editor. The migration creates the grouped submission and screenshot tables, the allowed status enum, exact-hash uniqueness, indexes, update trigger, and service-role-only access.
+
+Official submissions require one of the roles in `GAME_RESULTS_SUBMITTER_ROLE_IDS`. After intake validation, each screenshot is downloaded once to generate a SHA-256 hash and a perceptual hash, then the uploader selects Round 1, Round 2, Round 3, or Round 4 using Discord buttons. Multiple screenshots share one submission ID. Exact SHA-256 matches are blocked and retained as `duplicate` audit records; perceptual hashes are retained only as a later review signal, so different overlapping leaderboard screenshots are not automatically rejected.
+
+Pending submissions are stored in Supabase before round selection, allowing an existing Discord round button to work after a bot restart. Loop 2 does not perform OCR, read leaderboard scores, connect to Google Sheets, or modify a spreadsheet.
+
+Before enabling Discord result review, also run `database/phase10.sql` after
+`database/phase9.sql`. Round selection then starts screenshot reading, team
+mapping against the read-only `Copy of New` worksheet, and a persistent
+plain-Markdown paginated review. Only the original authorized submitter,
+administrators, Tournament Admins, and Scorekeepers can navigate, edit,
+confirm, reject, or cancel the review.
+
+Every review edit reruns validation. A valid **Confirm and Save** changes the
+submission to `approved_for_writing`. With Loop 7 installed, the bot then
+preflights and writes only PLACE/KILLS values to `Copy of New`, verifies the
+write and formula recalculation, and changes the submission to `confirmed`.
+Production `New` is rejected by both worksheet title and sheet ID.
+
+Run `database/phase11.sql` after the Loop 6 migration before enabling test-sheet
+writes. It creates the before/after audit and rollback log. A confirmed Discord
+review exposes **Rollback Test Write**; rollback refuses if a target cell was
+changed after the audited update. See `LOOP6_DISCORD_REVIEW.md` for review
+controls and `LOOP7_SAFE_SHEET_WRITE.md` for the write boundary.
+
+After Loop 7 testing is approved, run `database/phase12.sql`. Keep
+`SCORE_SHEET_MODE=test` while validating the deployment. Production writing is
+enabled only by setting `SCORE_SHEET_MODE=production`; the writer then
+hard-checks the `New` title and sheet ID before every write. Duplicate initial
+round writes are blocked, and replacement values require Discord Correction
+Mode used by an administrator, Tournament Admin, or Scorekeeper. See
+`LOOP8_PRODUCTION_SHEET_WRITE.md`.
+
+Run `database/phase13.sql` after Loop 8 before enabling player-history
+recording. Every verified round write then creates a versioned database
+snapshot containing all teams and players, source links, confidence,
+validation, submitter, and approver details. Corrections preserve the original
+revision, and rollback restores it. The calculation view includes only active
+production history and excludes rejected or deleted submissions. See
+`LOOP9_PLAYER_HISTORY.md`.
+
+Run `database/phase14.sql` after Loop 9 before enabling `/generate-mvp`.
+The command is restricted to administrators, Tournament Admins, and
+Scorekeepers. It requires one active confirmed production history snapshot for
+each of Rounds 1–4, reads Final Rank 1 from `New`, and shows a persistent
+plain-Markdown preview before any MVP update. Confirmation writes only the
+player-name and round-kill input block `FINALS • MVP!D10:J27`, clears the
+legacy fifth/sixth-round inputs, and verifies that the existing TOTAL/RANK
+formulas in K:L were preserved and recalculated. See
+`LOOP10_OVERALL_CHAMPION_MVP.md`.
 
 ## Server-link trigger
 
@@ -228,3 +295,24 @@ Keep the process running (pm2, systemd, a Railway/Render worker, or a terminal t
 12. Send two valid teams in one registration message and confirm both appear in consecutive slots.
 13. Fill the slots, register a waiting team, cancel a slotted team, and confirm the waiting list is not promoted.
 14. Reply `MINE - TAG TEAM NAME` to a cancellation and confirm the claimed team takes the canceled slot.
+# Loop 11 administrative correction setup
+
+After the Loop 10 migration, apply `database/phase15.sql` once. This adds the
+append-only administrative operation audit, logical round deletion/restoration,
+and MVP-preview invalidation metadata. The bot then registers `/edit-round`,
+`/delete-round`, `/restore-round`, `/reprocess-round`, `/rollback-update`, and
+`/sync-score-sheet`.
+
+These commands are unavailable unless `SCORE_SHEET_MODE=production` explicitly
+selects the fixed `New` worksheet. Keep production credentials disabled while
+running the Loop 11 automated tests; those tests use in-memory sheet state.
+
+## Loop 12 production hardening
+
+The production-preparation layer validates all configured IDs and worksheet
+identities, rejects spreadsheet formula injection, applies bounded API retries
+and timeouts, emits redacted structured logs, creates atomic database exports,
+recovers pending screenshot submissions after restart, and adds the restricted
+read-only `/health` command. Keep `SCORE_SHEET_MODE=test` until the full
+activation checklist in `LOOP12_HARDENING_DEPLOYMENT.md` has been completed and
+production use has been explicitly approved.

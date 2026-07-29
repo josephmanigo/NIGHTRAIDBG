@@ -31,6 +31,26 @@ import {
   Partials,
 } from 'discord.js'
 import { installApplicationReview } from './application-review.js'
+import { createGameResultsBackupService } from './game-results-backup.js'
+import { resolveGameResultsConfig } from './game-results-config.js'
+import {
+  GAME_RESULTS_HEALTH_COMMAND,
+  installGameResultsHealthWorkflow,
+} from './game-results-health.js'
+import {
+  GAME_RESULTS_ADMIN_COMMANDS,
+  installGameResultsAdminWorkflow,
+} from './game-results-admin-review.js'
+import { installGameResultsIntake } from './game-results-intake.js'
+import {
+  GAME_RESULTS_MVP_COMMAND,
+  installGameResultsMvpWorkflow,
+} from './game-results-mvp-review.js'
+import { installGameResultsReview } from './game-results-review.js'
+import { createStructuredLogger, createErrorReporter } from './game-results-runtime.js'
+import { createGameResultsSheetClient } from './game-results-sheet-client.js'
+import { createSafeGameResultsSheetWriter } from './game-results-sheet-writer.js'
+import { createSupabaseGameResultsStore } from './game-results-store.js'
 import { formatNickname } from './name-format.js'
 import { containsLinkKeyword, NIGHTRAID_SERVER_INVITE_URL } from './server-link.js'
 import { installScrimAutomation } from './scrim-automation.js'
@@ -42,6 +62,9 @@ const required = (name) => {
 }
 
 const BOT_TOKEN = required('DISCORD_BOT_TOKEN')
+const gameResultsConfig = resolveGameResultsConfig(process.env, {
+  requireSecrets: true,
+})
 const NICKNAME_CHANNEL_ID = required('DISCORD_NICKNAME_CHANNEL_ID')
 const GUILD_ID = process.env.DISCORD_GUILD_ID?.trim() || null
 const RULES_CHANNEL_ID = process.env.DISCORD_RULES_CHANNEL_ID?.trim() || '1208605026868535387'
@@ -60,8 +83,15 @@ const COMMAND_DEFINITIONS = [
   { name: RULES_COMMAND_NAME, description: 'Show the official NIGHTRAID rules.' },
   { name: NIGHTRAID_RULES_COMMAND_NAME, description: 'Show the NIGHTRAID clan rules.' },
   { name: SCRIM_RULES_COMMAND_NAME, description: 'Show the official NIGHTRAID scrim mechanics.' },
+  GAME_RESULTS_MVP_COMMAND,
+  GAME_RESULTS_HEALTH_COMMAND,
+  ...GAME_RESULTS_ADMIN_COMMANDS,
 ]
-const COMMAND_NAMES = new Set(COMMAND_DEFINITIONS.map((command) => command.name))
+const RULES_COMMAND_NAMES = new Set([
+  RULES_COMMAND_NAME,
+  NIGHTRAID_RULES_COMMAND_NAME,
+  SCRIM_RULES_COMMAND_NAME,
+])
 
 const CHECK_MARK = '1523256704836304926'
 const WARNING = '⚠️'
@@ -311,6 +341,89 @@ const client = new Client({
 
 installScrimAutomation(client)
 installApplicationReview(client)
+const gameResultsLogger = createStructuredLogger()
+const gameResultsErrorReporter = createErrorReporter({
+  logger: gameResultsLogger,
+})
+process.on('unhandledRejection', (reason) => {
+  gameResultsErrorReporter.report('unhandled_rejection', reason)
+})
+process.on('uncaughtException', (reason) => {
+  gameResultsErrorReporter.report('uncaught_exception', reason)
+  process.exitCode = 1
+})
+const gameResultsStore = createSupabaseGameResultsStore()
+const gameResultsBackupService = createGameResultsBackupService({
+  store: gameResultsStore,
+  runtimeConfig: gameResultsConfig,
+  logger: gameResultsLogger,
+})
+const gameResultsSheetClient = createGameResultsSheetClient({
+  mode: gameResultsConfig.mode,
+  spreadsheetId: gameResultsConfig.spreadsheetId,
+  testWorksheet: gameResultsConfig.testWorksheet,
+  productionWorksheet: gameResultsConfig.productionWorksheet,
+  serviceAccountEmail: gameResultsConfig.serviceAccountEmail,
+  privateKey: gameResultsConfig.serviceAccountPrivateKey,
+  timeoutMs: gameResultsConfig.networkTimeoutMs,
+  maxRetries: gameResultsConfig.networkRetries,
+})
+const gameResultsSheetWriter = createSafeGameResultsSheetWriter({
+  store: gameResultsStore,
+  sheetClient: gameResultsSheetClient,
+  backupService: gameResultsBackupService,
+})
+installGameResultsMvpWorkflow(client, {
+  store: gameResultsStore,
+  backupService: gameResultsBackupService,
+  scoreSheetMode: gameResultsSheetWriter.config.mode,
+  errorReporter: gameResultsErrorReporter,
+})
+const gameResultsReview = installGameResultsReview(client, {
+  store: gameResultsStore,
+  scoreSheetMode: gameResultsSheetWriter.config.mode,
+  scoreSheetWorksheet: gameResultsSheetWriter.config.worksheetName,
+  writeApprovedSubmission: (submission, actorUserId, writeOptions) =>
+    gameResultsSheetWriter.writeConfirmedSubmission(
+      submission,
+      actorUserId,
+      writeOptions,
+    ),
+  rollbackSheetWrite: (submission, actorUserId) =>
+    gameResultsSheetWriter.rollbackConfirmedSubmission(submission, actorUserId),
+  errorReporter: gameResultsErrorReporter,
+})
+installGameResultsAdminWorkflow(client, {
+  store: gameResultsStore,
+  sheetWriter: gameResultsSheetWriter,
+  backupService: gameResultsBackupService,
+  reprocessSubmission: (submission, interaction) =>
+    gameResultsReview.startReview(submission, interaction),
+  errorReporter: gameResultsErrorReporter,
+})
+installGameResultsIntake(client, {
+  store: gameResultsStore,
+  runtimeConfig: gameResultsConfig,
+  logger: gameResultsLogger,
+  errorReporter: gameResultsErrorReporter,
+  onOfficialSubmission: (submission, interaction) =>
+    gameResultsReview.startReview(submission, interaction),
+})
+installGameResultsHealthWorkflow(client, {
+  store: gameResultsStore,
+  sheetClient: gameResultsSheetClient,
+  backupService: gameResultsBackupService,
+  runtimeConfig: gameResultsConfig,
+  errorReporter: gameResultsErrorReporter,
+})
+
+client.once(Events.ClientReady, () => {
+  gameResultsBackupService.backupNow('startup')
+    .then(() => gameResultsBackupService.schedule())
+    .catch((reason) => {
+      gameResultsErrorReporter.report('game_results_startup_backup', reason)
+    })
+})
 
 client.once(Events.ClientReady, async (readyClient) => {
   console.log(`Nickname bot connected as ${readyClient.user.tag}. Watching channel ${NICKNAME_CHANNEL_ID}.`)
@@ -339,7 +452,10 @@ client.once(Events.ClientReady, async (readyClient) => {
 })
 
 client.on(Events.InteractionCreate, async (interaction) => {
-  if (!interaction.isChatInputCommand() || !COMMAND_NAMES.has(interaction.commandName)) return
+  if (
+    !interaction.isChatInputCommand()
+    || !RULES_COMMAND_NAMES.has(interaction.commandName)
+  ) return
 
   try {
     await interaction.deferReply()
