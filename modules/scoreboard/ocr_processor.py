@@ -682,7 +682,11 @@ def _reconcile_zero_kill(
     crop: FieldCrop,
     layout: dict[str, Any],
 ) -> FieldReading:
-    if crop.field != "kills" or reading.value is not None:
+    if (
+        crop.field != "kills"
+        or reading.value not in {None, 0}
+        or (reading.value == 0 and not reading.review_required)
+    ):
         return reading
     active_cv2 = require_opencv()
     variants = preprocessing_variants(

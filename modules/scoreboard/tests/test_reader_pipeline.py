@@ -183,6 +183,24 @@ class ReaderPipelineTests(unittest.TestCase):
         self.assertEqual(resolved.source, "ocr+opencv_closed_zero")
         self.assertFalse(resolved.review_required)
 
+        with patch(
+            "modules.scoreboard.ocr_processor.preprocessing_variants",
+            return_value={"gray_160": ring},
+        ):
+            promoted = _reconcile_zero_kill(
+                FieldReading(
+                    value=0,
+                    confidence=0,
+                    review_required=True,
+                ),
+                crop,
+                {"ocr": {"upscale": 6}},
+            )
+
+        self.assertEqual(promoted.value, 0)
+        self.assertEqual(promoted.confidence, 0.93)
+        self.assertFalse(promoted.review_required)
+
     def test_tesseract_batch_assigns_tokens_to_their_fixed_rows(self) -> None:
         payload = {
             "text": ["O", "M"],
