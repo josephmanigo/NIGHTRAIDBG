@@ -64,11 +64,23 @@ class FakeEngine:
 class FakeBatchEngine:
     def __init__(self) -> None:
         self.values = {
-            "placement": ["", "2", "3"],
+            "placement": ["1", "2", "3"],
             "slot": ["0", "M", "R"],
             "kills": ["G5", "7", "31"],
         }
         self.calls: list[tuple[str, str, int]] = []
+        self.single_calls: list[tuple[str, str]] = []
+
+    def recognize(
+        self,
+        _image: np.ndarray,
+        field: str,
+        variant: str,
+    ) -> OcrAttempt:
+        index = len(self.single_calls)
+        attempt = OcrAttempt(self.values[field][index], 0.97, variant)
+        self.single_calls.append((field, variant))
+        return attempt
 
     def recognize_many(
         self,
@@ -107,7 +119,7 @@ class ReaderPipelineTests(unittest.TestCase):
         self.assertEqual([attempt.text for attempt in attempts], ["O", "M"])
         self.assertEqual([attempt.confidence for attempt in attempts], [0.95, 0.9])
         self.assertEqual(image_to_data.call_count, 1)
-        self.assertIn("--psm 11", image_to_data.call_args.kwargs["config"])
+        self.assertIn("--psm 6", image_to_data.call_args.kwargs["config"])
 
     def test_reader_extracts_known_rows_and_infers_medal_placement(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -228,9 +240,16 @@ class ReaderPipelineTests(unittest.TestCase):
         self.assertEqual(
             engine.calls,
             [
-                ("placement", "test", 3),
                 ("slot", "test", 3),
                 ("kills", "test", 3),
+            ],
+        )
+        self.assertEqual(
+            engine.single_calls,
+            [
+                ("placement", "test"),
+                ("placement", "test"),
+                ("placement", "test"),
             ],
         )
         self.assertEqual([row.slot.value for row in result.rows], ["O", "M", "R"])

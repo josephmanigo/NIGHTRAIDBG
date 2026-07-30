@@ -64,7 +64,7 @@ class PytesseractEngine:
     @staticmethod
     def _config(field: str, *, batch: bool = False) -> str:
         page_segmentation_mode = (
-            11 if batch else (10 if field in {"slot", "kills"} else 7)
+            6 if batch else (10 if field in {"slot", "kills"} else 7)
         )
         whitelist = (
             "ABCDEFGHIJKLMNOPQRSTUVWXYZ0"
@@ -671,12 +671,29 @@ class LocalScoreboardReader:
     ) -> list[FieldReading]:
         attempts_by_crop: list[list[OcrAttempt]] = [[] for _crop in crops]
         groups: dict[tuple[str, str], list[tuple[int, np.ndarray]]] = defaultdict(list)
+        placement_hints = {
+            int(row_index)
+            for row_index in layout.get("placement_hints", {})
+        }
         for crop_index, crop in enumerate(crops):
-            for variant, image in preprocessing_variants(
+            variants = preprocessing_variants(
                 crop.pixels,
                 upscale=int(layout["ocr"]["upscale"]),
                 field=crop.field,
-            ).items():
+            )
+            if crop.field == "placement":
+                if crop.row_index in placement_hints:
+                    continue
+                variant = (
+                    "inverted_otsu"
+                    if "inverted_otsu" in variants
+                    else next(iter(variants))
+                )
+                attempts_by_crop[crop_index].append(
+                    self.engine.recognize(variants[variant], crop.field, variant)
+                )
+                continue
+            for variant, image in variants.items():
                 groups[(crop.field, variant)].append((crop_index, image))
 
         for (field, variant), entries in groups.items():
@@ -692,7 +709,7 @@ class LocalScoreboardReader:
             for (crop_index, _image), attempt in zip(entries, attempts):
                 attempts_by_crop[crop_index].append(attempt)
 
-        return [
+        readings = [
             choose_consensus(
                 attempts,
                 crop.field,
@@ -703,6 +720,12 @@ class LocalScoreboardReader:
             )
             for crop, attempts in zip(crops, attempts_by_crop)
         ]
+        for crop_index, (crop, reading) in enumerate(zip(crops, readings)):
+            if crop.row_index in placement_hints and crop.field == "placement":
+                continue
+            if reading.review_required:
+                readings[crop_index] = self._read_crop(crop, layout)
+        return readings
 
     def read(self, image_path: str | Path) -> ScoreboardResult:
         started = time.perf_counter()
