@@ -379,3 +379,74 @@ test('startup recovery resumes an approved automatic tally after a safe write fa
   assert.equal(result.resumed, 1)
   assert.deepEqual(resumed, ['approved-1'])
 })
+
+test('startup recovery retries only the newest automatic OCR timeout once', async () => {
+  const timeoutIssue = {
+    type: 'conflicting_screenshot_values',
+    severity: 'blocking',
+    message: 'Screenshots contain conflicting or unreadable values: Local OCR worker timed out after 20000ms.',
+  }
+  const base = {
+    round: 2,
+    guildId: 'guild-1',
+    channelId: '1532004107404050534',
+    discordUserId: 'user-1',
+    status: 'failed',
+    reviewVersion: 3,
+    reviewPayload: {
+      automatic_tally: true,
+      blocking_issue_count: 3,
+      spreadsheet_write_performed: false,
+      issues: [timeoutIssue],
+    },
+    records: [{ attachmentId: 'a', attachmentUrl: 'https://example.test/a.png' }],
+  }
+  const oldSubmission = {
+    ...base,
+    submissionId: 'timed-out-old',
+    messageId: 'message-old',
+  }
+  let newestSubmission = {
+    ...base,
+    submissionId: 'timed-out-new',
+    messageId: 'message-new',
+  }
+  const resumed = []
+  const saved = []
+  const controller = createGameResultsIntake({
+    runtimeConfig: runtimeConfig(),
+    authorizedRoleIds: ['123456789012345678'],
+    store: {
+      initialize: async () => undefined,
+      listRecoverableSubmissions: async () => [oldSubmission, newestSubmission],
+      saveReviewState: async (input) => {
+        saved.push(input)
+        newestSubmission = {
+          ...newestSubmission,
+          reviewPayload: input.payload,
+          reviewVersion: input.expectedVersion + 1,
+        }
+        return newestSubmission
+      },
+    },
+    logger: { info() {}, warn() {}, error() {} },
+    onOfficialSubmission: async (submission) => {
+      resumed.push(submission.submissionId)
+      return { status: 'confirmed' }
+    },
+  })
+  const client = {
+    channels: {
+      fetch: async () => ({ send: async () => undefined }),
+    },
+  }
+
+  const first = await controller.recoverPendingSubmissions(client)
+  const second = await controller.recoverPendingSubmissions(client)
+
+  assert.equal(first.resumed, 1)
+  assert.equal(second.resumed, 0)
+  assert.deepEqual(resumed, ['timed-out-new'])
+  assert.equal(saved.length, 1)
+  assert.equal(saved[0].payload.startup_timeout_retry_count, 1)
+})

@@ -579,6 +579,21 @@ export function createGameResultsIntake(options = {}) {
       return { recovered: 0, resumed: 0, failed: 0 }
     }
     const submissions = await store.listRecoverableSubmissions()
+    const latestTimedOutAutomaticSubmission = new Map()
+    for (const submission of submissions) {
+      const timedOut = (
+        submission.status === 'failed'
+        && submission.reviewPayload?.automatic_tally === true
+        && (submission.reviewPayload?.issues ?? []).some((issue) =>
+          issue?.severity === 'blocking'
+          && String(issue?.message ?? '').includes('Local OCR worker timed out after'))
+      )
+      if (!timedOut) continue
+      latestTimedOutAutomaticSubmission.set(
+        `${submission.guildId}:${submission.channelId}:${submission.round}`,
+        submission.submissionId,
+      )
+    }
     let recovered = 0
     let resumed = 0
     let failed = 0
@@ -595,10 +610,26 @@ export function createGameResultsIntake(options = {}) {
         && submission.reviewPayload?.blocking_issue_count === 0
         && submission.reviewPayload?.spreadsheet_write_performed !== true
       )
+      const timeoutRecoveryCount = Number(
+        submission.reviewPayload?.startup_timeout_retry_count ?? 0,
+      )
+      const timedOutAutomaticRetry = (
+        submission.status === 'failed'
+        && submission.reviewPayload?.automatic_tally === true
+        && Number.isInteger(timeoutRecoveryCount)
+        && timeoutRecoveryCount < 1
+        && latestTimedOutAutomaticSubmission.get(
+          `${submission.guildId}:${submission.channelId}:${submission.round}`,
+        ) === submission.submissionId
+        && (submission.reviewPayload?.issues ?? []).some((issue) =>
+          issue?.severity === 'blocking'
+          && String(issue?.message ?? '').includes('Local OCR worker timed out after'))
+      )
       if (
         !onOfficialSubmission
         || (
           !approvedAutomaticRetry
+          && !timedOutAutomaticRetry
           && (
             submission.reviewPayload
             || !['pending', 'processing', 'failed'].includes(submission.status)
@@ -606,9 +637,27 @@ export function createGameResultsIntake(options = {}) {
         )
       ) continue
       try {
+        let resumableSubmission = submission
+        if (timedOutAutomaticRetry) {
+          if (!store.saveReviewState) {
+            throw new Error('Timed-out OCR recovery cannot persist its retry marker.')
+          }
+          resumableSubmission = await store.saveReviewState({
+            submissionId: submission.submissionId,
+            payload: {
+              ...submission.reviewPayload,
+              startup_timeout_retry_count: timeoutRecoveryCount + 1,
+              startup_timeout_retry_at: new Date().toISOString(),
+            },
+            page: submission.reviewPage ?? 0,
+            status: 'failed',
+            updatedBy: submission.discordUserId,
+            expectedVersion: submission.reviewVersion ?? 0,
+          })
+        }
         const channel = await client.channels.fetch(submission.channelId)
         if (!channel?.send) throw new Error('Recovery channel is unavailable.')
-        await onOfficialSubmission(submission, {
+        await onOfficialSubmission(resumableSubmission, {
           guildId: submission.guildId,
           channelId: submission.channelId,
           client,
