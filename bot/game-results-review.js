@@ -1136,9 +1136,80 @@ export function createGameResultsReviewWorkflow(options = {}) {
     }
   }
 
+  async function writeAutomaticTally(approved, interaction, actorUserId) {
+    if (!writeApprovedSubmission) {
+      await interaction.followUp({
+        content:
+          '# Automatic tally unavailable\n'
+          + 'The screenshots passed validation, but score-sheet writing is not installed.',
+        allowedMentions: { parse: [] },
+      })
+      return { status: 'approved_for_writing', submission: approved }
+    }
+
+    try {
+      const sheetWrite = await writeApprovedSubmission(
+        approved,
+        actorUserId,
+        {
+          correctionAuthorized: false,
+          allowMissingPlayerHistory: true,
+        },
+      )
+      const confirmations = renderAutomaticTallyConfirmation(
+        sheetWrite.submission,
+        scoreSheetWorksheet,
+      )
+      for (const content of confirmations) {
+        await interaction.followUp({
+          content,
+          embeds: [],
+          components: [],
+          allowedMentions: { parse: [] },
+        })
+      }
+      return {
+        status: 'confirmed',
+        submission: sheetWrite.submission,
+        sheetWrite,
+      }
+    } catch (reason) {
+      await interaction.followUp({
+        content: [
+          '# Automatic score-sheet write failed safely',
+          safeText(reason instanceof Error ? reason.message : reason),
+          `The approved result remains available for a verified retry on ${scoreSheetWorksheet}.`,
+        ].join('\n'),
+        components: [],
+        allowedMentions: { parse: [] },
+      })
+      return {
+        status: 'sheet_write_failed',
+        submission: approved,
+        reason,
+      }
+    }
+  }
+
   async function startAutomaticTally(submission, interaction) {
     await initialize()
     try {
+      if (submission.status === 'approved_for_writing') {
+        const payload = submission.reviewPayload
+        if (
+          payload?.automatic_tally !== true
+          || payload?.blocking_issue_count !== 0
+          || payload?.spreadsheet_write_performed === true
+        ) {
+          throw new Error('The stored automatic tally is not safe to retry.')
+        }
+        return writeAutomaticTally(
+          submission,
+          interaction,
+          submission.confirmedBy ?? submission.discordUserId,
+        )
+      }
+
       await store.updateSubmissionStatus({
         submissionId: submission.submissionId,
         status: 'processing',
@@ -1193,58 +1264,7 @@ export function createGameResultsReviewWorkflow(options = {}) {
         confirmedBy: submission.discordUserId,
         expectedVersion: submission.reviewVersion ?? 0,
       })
-      if (!writeApprovedSubmission) {
-        await interaction.followUp({
-          content:
-            '# Automatic tally unavailable\n'
-            + 'The screenshots passed validation, but score-sheet writing is not installed.',
-          allowedMentions: { parse: [] },
-        })
-        return { status: 'approved_for_writing', submission: approved }
-      }
-
-      try {
-        const sheetWrite = await writeApprovedSubmission(
-          approved,
-          submission.discordUserId,
-          {
-            correctionAuthorized: false,
-            allowMissingPlayerHistory: true,
-          },
-        )
-        const confirmations = renderAutomaticTallyConfirmation(
-          sheetWrite.submission,
-          scoreSheetWorksheet,
-        )
-        for (const content of confirmations) {
-          await interaction.followUp({
-            content,
-            embeds: [],
-            components: [],
-            allowedMentions: { parse: [] },
-          })
-        }
-        return {
-          status: 'confirmed',
-          submission: sheetWrite.submission,
-          sheetWrite,
-        }
-      } catch (reason) {
-        await interaction.followUp({
-          content: [
-            '# Automatic score-sheet write failed safely',
-            safeText(reason instanceof Error ? reason.message : reason),
-            `No unverified retry was attempted on ${scoreSheetWorksheet}.`,
-          ].join('\n'),
-          components: [],
-          allowedMentions: { parse: [] },
-        })
-        return {
-          status: 'sheet_write_failed',
-          submission: approved,
-          reason,
-        }
-      }
+      return writeAutomaticTally(approved, interaction, submission.discordUserId)
     } catch (reason) {
       await store.updateSubmissionStatus({
         submissionId: submission.submissionId,

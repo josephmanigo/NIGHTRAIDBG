@@ -301,7 +301,7 @@ test('/processgame manually runs automatic tally for the latest stored submissio
         assert.deepEqual(filters, {
           guildId: 'guild-1',
           channelId: 'results-1',
-          statuses: ['pending', 'failed'],
+          statuses: ['approved_for_writing', 'pending', 'failed'],
         })
         return submission
       },

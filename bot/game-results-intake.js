@@ -589,10 +589,21 @@ export function createGameResultsIntake(options = {}) {
         continue
       }
       officialSubmissions.set(submission.messageId, submission)
+      const approvedAutomaticRetry = (
+        submission.status === 'approved_for_writing'
+        && submission.reviewPayload?.automatic_tally === true
+        && submission.reviewPayload?.blocking_issue_count === 0
+        && submission.reviewPayload?.spreadsheet_write_performed !== true
+      )
       if (
         !onOfficialSubmission
-        || submission.reviewPayload
-        || !['pending', 'processing', 'failed'].includes(submission.status)
+        || (
+          !approvedAutomaticRetry
+          && (
+            submission.reviewPayload
+            || !['pending', 'processing', 'failed'].includes(submission.status)
+          )
+        )
       ) continue
       try {
         const channel = await client.channels.fetch(submission.channelId)

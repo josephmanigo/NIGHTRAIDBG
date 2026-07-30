@@ -664,6 +664,62 @@ test('automatic tally retries once and writes without review when the second rea
   assert.deepEqual(automaticInteraction.followUps[0].components, [])
 })
 
+test('automatic tally retries an approved safe write without rerunning OCR', async () => {
+  const payload = {
+    automatic_tally: true,
+    blocking_issue_count: 0,
+    spreadsheet_write_performed: false,
+    round_result: roundResult([team({ code: 'A' })]),
+    team_mapping: await mappingService({
+      registeredSlotlist: true,
+    }).mapRoundResult(roundResult([team({ code: 'A' })])),
+  }
+  const store = memoryStore(storedSubmission({
+    status: 'approved_for_writing',
+    reviewPayload: payload,
+    reviewVersion: 3,
+    confirmedBy: 'approver-1',
+  }))
+  let reads = 0
+  const writes = []
+  const automaticInteraction = interaction()
+  const workflow = createGameResultsReviewWorkflow({
+    store,
+    roundReader: {
+      readSubmission: async () => {
+        reads += 1
+        throw new Error('OCR must not rerun')
+      },
+    },
+    teamMappingService: mappingService({ registeredSlotlist: true }),
+    writeApprovedSubmission: async (approved, actorUserId) => {
+      writes.push({ approved, actorUserId })
+      return {
+        status: 'verified',
+        submission: {
+          ...approved,
+          status: 'confirmed',
+          reviewPayload: {
+            ...approved.reviewPayload,
+            spreadsheet_write_performed: true,
+          },
+        },
+      }
+    },
+  })
+
+  const result = await workflow.startAutomaticTally(
+    store.current(),
+    automaticInteraction.value,
+  )
+
+  assert.equal(result.status, 'confirmed')
+  assert.equal(reads, 0)
+  assert.equal(writes.length, 1)
+  assert.equal(writes[0].actorUserId, 'approver-1')
+  assert.match(automaticInteraction.followUps[0].content, /Google Sheet Updated/)
+})
+
 test('automatic tally writes displayed PLACE and KILLS without requiring player review', async () => {
   const store = memoryStore()
   const automaticInteraction = interaction()

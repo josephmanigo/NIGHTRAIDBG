@@ -1095,7 +1095,7 @@ export function createSupabaseGameResultsStore(options = {}) {
     const { data: rows, error } = await client
       .from(SUBMISSIONS_TABLE)
       .select('*')
-      .in('status', ['pending', 'processing', 'failed'])
+      .in('status', ['pending', 'processing', 'failed', 'approved_for_writing'])
       .order('created_at', { ascending: true })
     if (error) {
       throw new Error(safeDatabaseError(error, 'Could not load recoverable submissions.'))

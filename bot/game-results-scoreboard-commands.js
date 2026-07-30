@@ -419,10 +419,13 @@ export function createGameResultsScoreboardWorkflow(options = {}) {
 
   async function handleProcessGame(interaction) {
     await interaction.deferReply()
-    const submission = await latestSubmission(interaction, ['pending', 'failed'])
+    const submission = await latestSubmission(
+      interaction,
+      ['approved_for_writing', 'pending', 'failed'],
+    )
     if (!submission) {
       await interaction.editReply({
-        content: 'No pending or failed screenshot submission is available to process.',
+        content: 'No approved, pending, or failed screenshot submission is available to process.',
         allowedMentions: { parse: [] },
       })
       return { status: 'missing_submission' }

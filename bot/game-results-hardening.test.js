@@ -337,3 +337,44 @@ test('startup recovery restores pending selectors and resumes a selected unproce
   assert.deepEqual(resumed, ['pending-2'])
   assert.equal(sent.length, 1)
 })
+
+test('startup recovery resumes an approved automatic tally after a safe write failure', async () => {
+  const approved = {
+    submissionId: 'approved-1',
+    round: 1,
+    guildId: 'guild-1',
+    channelId: '1532004107404050534',
+    messageId: 'message-approved',
+    discordUserId: 'user-1',
+    status: 'approved_for_writing',
+    reviewPayload: {
+      automatic_tally: true,
+      blocking_issue_count: 0,
+      spreadsheet_write_performed: false,
+    },
+    records: [{ attachmentId: 'a', attachmentUrl: 'https://example.test/a.png' }],
+  }
+  const resumed = []
+  const controller = createGameResultsIntake({
+    runtimeConfig: runtimeConfig(),
+    authorizedRoleIds: ['123456789012345678'],
+    store: {
+      initialize: async () => undefined,
+      listRecoverableSubmissions: async () => [approved],
+    },
+    logger: { info() {}, warn() {}, error() {} },
+    onOfficialSubmission: async (submission) => {
+      resumed.push(submission.submissionId)
+      return { status: 'confirmed' }
+    },
+  })
+
+  const result = await controller.recoverPendingSubmissions({
+    channels: {
+      fetch: async () => ({ send: async () => undefined }),
+    },
+  })
+
+  assert.equal(result.resumed, 1)
+  assert.deepEqual(resumed, ['approved-1'])
+})
