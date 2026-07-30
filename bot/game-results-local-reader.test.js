@@ -5,6 +5,7 @@ import test from 'node:test'
 import {
   assertLocalOcrTestMode,
   createLocalGameResultScreenshotReader,
+  describeLocalWorkerFailure,
   parseLocalScoreboardWorkerOutput,
   verifyLocalScoreboardRuntime,
 } from './game-results-local-reader.js'
@@ -123,6 +124,21 @@ test('maps local worker rows into the existing single-screenshot contract', () =
   assert.equal(result.teams[0].team_total_kills, 65)
   assert.deepEqual(result.teams[0].players, [])
   assert.equal(result.review_required, false)
+})
+
+test('surfaces the structured Python worker error when stderr is empty', () => {
+  const message = describeLocalWorkerFailure({
+    stdout: Buffer.from(JSON.stringify({
+      schema_version: 'nightraid.local-scoreboard.error.v1',
+      error: 'screenshot aspect ratio does not match the configured fixed layout',
+    })),
+    stderr: Buffer.alloc(0),
+    code: 1,
+  })
+  assert.equal(
+    message,
+    'Local OCR worker failed (1): screenshot aspect ratio does not match the configured fixed layout',
+  )
 })
 
 test('low-confidence worker evidence becomes null instead of being invented', () => {

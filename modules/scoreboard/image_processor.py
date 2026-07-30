@@ -165,6 +165,15 @@ def validate_layout(layout: dict[str, Any]) -> dict[str, Any]:
     )
     if parallel_workers > 8:
         raise ValueError("layout.ocr.parallel_workers cannot exceed 8")
+    alternate_layouts = layout.get("alternate_layouts", [])
+    if not isinstance(alternate_layouts, list):
+        raise ValueError("layout.alternate_layouts must be a list")
+    for alternate in alternate_layouts:
+        if not isinstance(alternate, str) or not alternate.strip():
+            raise ValueError("layout.alternate_layouts entries must be filenames")
+        alternate_path = Path(alternate)
+        if alternate_path.is_absolute() or ".." in alternate_path.parts:
+            raise ValueError("layout.alternate_layouts entries must remain beside the layout")
     return layout
 
 
@@ -175,6 +184,29 @@ def load_layout(filename: str | Path) -> dict[str, Any]:
     except json.JSONDecodeError as reason:
         raise ValueError(f"scoreboard layout is not valid JSON: {path}") from reason
     return validate_layout(payload)
+
+
+def select_layout_for_image(
+    primary_filename: str | Path,
+    image: np.ndarray,
+) -> dict[str, Any]:
+    """Select the closest configured fixed layout without using image recognition."""
+
+    primary_path = Path(primary_filename)
+    primary = load_layout(primary_path)
+    candidates = [primary]
+    for alternate_filename in primary.get("alternate_layouts", []):
+        candidates.append(load_layout(primary_path.parent / alternate_filename))
+
+    image_height, image_width = image.shape[:2]
+    actual_ratio = image_width / image_height
+
+    def aspect_difference(candidate: dict[str, Any]) -> float:
+        reference = candidate["reference_size"]
+        reference_ratio = int(reference["width"]) / int(reference["height"])
+        return abs(actual_ratio - reference_ratio) / reference_ratio
+
+    return min(candidates, key=aspect_difference)
 
 
 def load_image(filename: str | Path) -> LoadedImage:

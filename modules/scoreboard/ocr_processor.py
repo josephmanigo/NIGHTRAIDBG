@@ -18,10 +18,10 @@ from .image_processor import (
     FieldCrop,
     crop_scoreboard_fields,
     load_image,
-    load_layout,
     normalize_image,
     preprocessing_variants,
     require_opencv,
+    select_layout_for_image,
 )
 from .scoring import score_result
 from .team_manager import TeamRegistry, normalize_slot_letter
@@ -851,8 +851,8 @@ class LocalScoreboardReader:
 
     def read(self, image_path: str | Path) -> ScoreboardResult:
         started = time.perf_counter()
-        layout = load_layout(self.layout_path)
         loaded = load_image(image_path)
+        layout = select_layout_for_image(self.layout_path, loaded.pixels)
         normalized = normalize_image(loaded.pixels, layout)
         crops = crop_scoreboard_fields(normalized, layout)
         marker_crops = {

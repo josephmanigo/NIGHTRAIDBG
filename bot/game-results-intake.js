@@ -579,17 +579,20 @@ export function createGameResultsIntake(options = {}) {
       return { recovered: 0, resumed: 0, failed: 0 }
     }
     const submissions = await store.listRecoverableSubmissions()
-    const latestTimedOutAutomaticSubmission = new Map()
+    const latestRetryableAutomaticSubmission = new Map()
     for (const submission of submissions) {
-      const timedOut = (
+      const retryableLocalOcrFailure = (
         ['failed', 'processing'].includes(submission.status)
         && submission.reviewPayload?.automatic_tally === true
         && (submission.reviewPayload?.issues ?? []).some((issue) =>
           issue?.severity === 'blocking'
-          && String(issue?.message ?? '').includes('Local OCR worker timed out after'))
+          && (
+            String(issue?.message ?? '').includes('Local OCR worker timed out after')
+            || String(issue?.message ?? '').includes('Local OCR worker failed (')
+          ))
       )
-      if (!timedOut) continue
-      latestTimedOutAutomaticSubmission.set(
+      if (!retryableLocalOcrFailure) continue
+      latestRetryableAutomaticSubmission.set(
         `${submission.guildId}:${submission.channelId}:${submission.round}`,
         submission.submissionId,
       )
@@ -610,26 +613,31 @@ export function createGameResultsIntake(options = {}) {
         && submission.reviewPayload?.blocking_issue_count === 0
         && submission.reviewPayload?.spreadsheet_write_performed !== true
       )
-      const timeoutRecoveryCount = Number(
-        submission.reviewPayload?.startup_timeout_retry_count ?? 0,
+      const localOcrRecoveryCount = Number(
+        submission.reviewPayload?.startup_local_ocr_retry_count
+        ?? submission.reviewPayload?.startup_timeout_retry_count
+        ?? 0,
       )
-      const timedOutAutomaticRetry = (
+      const retryableAutomaticOcrFailure = (
         ['failed', 'processing'].includes(submission.status)
         && submission.reviewPayload?.automatic_tally === true
-        && Number.isInteger(timeoutRecoveryCount)
-        && timeoutRecoveryCount < 1
-        && latestTimedOutAutomaticSubmission.get(
+        && Number.isInteger(localOcrRecoveryCount)
+        && localOcrRecoveryCount < 1
+        && latestRetryableAutomaticSubmission.get(
           `${submission.guildId}:${submission.channelId}:${submission.round}`,
         ) === submission.submissionId
         && (submission.reviewPayload?.issues ?? []).some((issue) =>
           issue?.severity === 'blocking'
-          && String(issue?.message ?? '').includes('Local OCR worker timed out after'))
+          && (
+            String(issue?.message ?? '').includes('Local OCR worker timed out after')
+            || String(issue?.message ?? '').includes('Local OCR worker failed (')
+          ))
       )
       if (
         !onOfficialSubmission
         || (
           !approvedAutomaticRetry
-          && !timedOutAutomaticRetry
+          && !retryableAutomaticOcrFailure
           && (
             submission.reviewPayload
             || !['pending', 'processing', 'failed'].includes(submission.status)
@@ -638,16 +646,24 @@ export function createGameResultsIntake(options = {}) {
       ) continue
       try {
         let resumableSubmission = submission
-        if (timedOutAutomaticRetry) {
+        if (retryableAutomaticOcrFailure) {
           if (!store.saveReviewState) {
-            throw new Error('Timed-out OCR recovery cannot persist its retry marker.')
+            throw new Error('Local OCR recovery cannot persist its retry marker.')
           }
+          const timedOut = (submission.reviewPayload?.issues ?? []).some((issue) =>
+            String(issue?.message ?? '').includes('Local OCR worker timed out after'))
           resumableSubmission = await store.saveReviewState({
             submissionId: submission.submissionId,
             payload: {
               ...submission.reviewPayload,
-              startup_timeout_retry_count: timeoutRecoveryCount + 1,
-              startup_timeout_retry_at: new Date().toISOString(),
+              startup_local_ocr_retry_count: localOcrRecoveryCount + 1,
+              startup_local_ocr_retry_at: new Date().toISOString(),
+              ...(timedOut
+                ? {
+                    startup_timeout_retry_count: localOcrRecoveryCount + 1,
+                    startup_timeout_retry_at: new Date().toISOString(),
+                  }
+                : {}),
             },
             page: submission.reviewPage ?? 0,
             status: 'failed',

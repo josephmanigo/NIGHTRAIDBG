@@ -58,6 +58,27 @@ function compactError(value) {
     .slice(0, 600)
 }
 
+function workerFailureDetail(stdout, stderr) {
+  const standardError = compactError(stderr)
+  if (standardError) return standardError
+  try {
+    const payload = JSON.parse(Buffer.from(stdout).toString('utf8'))
+    return compactError(payload?.error)
+  } catch {
+    return compactError(stdout)
+  }
+}
+
+export function describeLocalWorkerFailure({
+  stdout = Buffer.alloc(0),
+  stderr = Buffer.alloc(0),
+  code = null,
+  signal = null,
+} = {}) {
+  const detail = workerFailureDetail(stdout, stderr)
+  return `Local OCR worker failed (${signal ?? code ?? 'unknown'}): ${detail || 'No error detail was returned.'}`
+}
+
 function fieldValue(row, field, reviewFields, rowIndex) {
   const evidence = row.evidence?.[field]
   const value = row[field === 'placement' ? 'placement' : field]
@@ -248,9 +269,12 @@ function collectChildProcess(child, options = {}) {
     child.once('close', (code, signal) => {
       finish(() => {
         if (code !== 0) {
-          reject(new Error(
-            `Local OCR worker failed (${signal ?? code}): ${compactError(stderr)}`,
-          ))
+          reject(new Error(describeLocalWorkerFailure({
+            stdout,
+            stderr,
+            code,
+            signal,
+          })))
           return
         }
         try {

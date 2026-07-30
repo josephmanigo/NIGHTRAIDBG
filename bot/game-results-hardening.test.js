@@ -471,4 +471,64 @@ test('startup recovery retries only the newest automatic OCR timeout once', asyn
   assert.deepEqual(resumed, ['timed-out-new'])
   assert.equal(saved.length, 1)
   assert.equal(saved[0].payload.startup_timeout_retry_count, 1)
+  assert.equal(saved[0].payload.startup_local_ocr_retry_count, 1)
+})
+
+test('startup recovery retries one latest local-worker failure for each round', async () => {
+  const submissions = [3, 4].map((round) => ({
+    submissionId: `layout-failure-${round}`,
+    round,
+    guildId: 'guild-1',
+    channelId: '1532004107404050534',
+    messageId: `message-${round}`,
+    discordUserId: 'user-1',
+    status: 'failed',
+    reviewVersion: 2,
+    reviewPayload: {
+      automatic_tally: true,
+      blocking_issue_count: 3,
+      spreadsheet_write_performed: false,
+      issues: [{
+        type: 'conflicting_screenshot_values',
+        severity: 'blocking',
+        message: 'Screenshots contain conflicting or unreadable values: Local OCR worker failed (1):.',
+      }],
+    },
+    records: [{ attachmentId: `a-${round}`, attachmentUrl: 'https://example.test/a.png' }],
+  }))
+  const saved = []
+  const resumed = []
+  const controller = createGameResultsIntake({
+    runtimeConfig: runtimeConfig(),
+    authorizedRoleIds: ['123456789012345678'],
+    store: {
+      initialize: async () => undefined,
+      listRecoverableSubmissions: async () => submissions,
+      saveReviewState: async (input) => {
+        saved.push(input)
+        const original = submissions.find((item) =>
+          item.submissionId === input.submissionId)
+        original.reviewPayload = input.payload
+        original.reviewVersion += 1
+        return structuredClone(original)
+      },
+    },
+    logger: { info() {}, warn() {}, error() {} },
+    onOfficialSubmission: async (submission) => {
+      resumed.push(submission.submissionId)
+      return { status: 'confirmed' }
+    },
+  })
+
+  const result = await controller.recoverPendingSubmissions({
+    channels: {
+      fetch: async () => ({ send: async () => undefined }),
+    },
+  })
+
+  assert.equal(result.resumed, 2)
+  assert.deepEqual(resumed, ['layout-failure-3', 'layout-failure-4'])
+  assert.equal(saved.length, 2)
+  assert.equal(saved.every((item) =>
+    item.payload.startup_local_ocr_retry_count === 1), true)
 })

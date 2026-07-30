@@ -10,6 +10,7 @@ import numpy as np
 from modules.scoreboard.image_processor import (
     crop_scoreboard_fields,
     load_layout,
+    select_layout_for_image,
     validate_layout,
 )
 
@@ -53,6 +54,31 @@ class ImageLayoutTests(unittest.TestCase):
         layout["leaderboard_region"] = [900, 0, 200, 1000]
         with self.assertRaises(ValueError):
             validate_layout(layout)
+
+    def test_alternate_layout_must_remain_beside_primary(self) -> None:
+        layout = test_layout()
+        layout["alternate_layouts"] = ["../outside.json"]
+        with self.assertRaises(ValueError):
+            validate_layout(layout)
+
+    def test_closest_fixed_layout_is_selected_by_aspect_ratio(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            primary_path = Path(directory, "layout.json")
+            alternate_path = Path(directory, "wide.json")
+            primary = test_layout()
+            primary["alternate_layouts"] = ["wide.json"]
+            alternate = test_layout()
+            alternate["id"] = "wide-layout"
+            alternate["reference_size"] = {"width": 400, "height": 200}
+            primary_path.write_text(json.dumps(primary), encoding="utf-8")
+            alternate_path.write_text(json.dumps(alternate), encoding="utf-8")
+
+            selected = select_layout_for_image(
+                primary_path,
+                np.zeros((200, 400, 3), dtype=np.uint8),
+            )
+
+        self.assertEqual(selected["id"], "wide-layout")
 
     def test_fixed_coordinates_produce_expected_field_crops(self) -> None:
         layout = validate_layout(test_layout())
