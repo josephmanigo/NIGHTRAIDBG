@@ -43,12 +43,17 @@ export function createGameResultsHealthService(options = {}) {
   const sheetClient = options.sheetClient
   const backupService = options.backupService
   const errorReporter = options.errorReporter
+  const localReader = options.localReader ?? null
 
   async function check() {
+    const localReaderConfigured =
+      (runtimeConfig.screenshotReader ?? 'local') === 'local'
+      && Boolean(runtimeConfig.localOcr?.pythonExecutable ?? 'python3')
     const checks = {
       configuration: {
         ok: Boolean(
-          runtimeConfig.geminiApiKey
+          localReaderConfigured
+          && runtimeConfig.mode === 'test'
           && runtimeConfig.serviceAccountEmail
           && runtimeConfig.serviceAccountPrivateKey
         ),
@@ -58,11 +63,16 @@ export function createGameResultsHealthService(options = {}) {
           runtimeConfig.mode === 'production'
             ? runtimeConfig.productionWorksheet
             : runtimeConfig.testWorksheet,
-        geminiConfigured: Boolean(runtimeConfig.geminiApiKey),
+        screenshotReader: runtimeConfig.screenshotReader ?? 'local',
+        localReaderConfigured,
         googleCredentialsConfigured: Boolean(
           runtimeConfig.serviceAccountEmail
           && runtimeConfig.serviceAccountPrivateKey,
         ),
+      },
+      localOcr: {
+        ok: localReader ? false : localReaderConfigured,
+        status: localReader ? 'pending' : 'configuration_only',
       },
       database: { ok: false },
       googleSheets: { ok: false },
@@ -71,6 +81,20 @@ export function createGameResultsHealthService(options = {}) {
         latest: backupService?.latest?.() ?? null,
       },
       errors: errorReporter?.snapshot?.() ?? { errorCount: 0, lastError: null },
+    }
+    if (localReader) {
+      try {
+        const startedAt = Date.now()
+        const diagnostic = await localReader.diagnose()
+        checks.localOcr = {
+          ...diagnostic,
+          ok: diagnostic.ok === true,
+          latencyMs: Date.now() - startedAt,
+          access: 'local_read_only_diagnostic',
+        }
+      } catch (reason) {
+        checks.localOcr = { ok: false, error: safeStatus(reason) }
+      }
     }
     try {
       checks.database = await store.healthCheck()
@@ -98,6 +122,7 @@ export function createGameResultsHealthService(options = {}) {
     return {
       ok:
         checks.configuration.ok
+        && checks.localOcr.ok
         && checks.database.ok
         && checks.googleSheets.ok
         && checks.backup.ok,
@@ -120,7 +145,7 @@ export function renderGameResultsHealth(result) {
     `${mark(result.checks.configuration.ok)} Configuration • mode **${result.checks.configuration.mode}** • worksheet **${result.checks.configuration.worksheet}**`,
     `${mark(result.checks.database.ok)} Database • ${result.checks.database.provider ?? result.checks.database.error ?? 'unavailable'} • pending **${result.checks.database.pendingSubmissions ?? '—'}**`,
     `${mark(result.checks.googleSheets.ok)} Google Sheets • ${result.checks.googleSheets.access ?? result.checks.googleSheets.error ?? 'unavailable'} • formulas visible **${result.checks.googleSheets.formulaCount ?? '—'}**`,
-    `${mark(result.checks.configuration.geminiConfigured)} Gemini API configured`,
+    `${mark(result.checks.localOcr.ok)} Local OpenCV/Tesseract OCR â€¢ ${result.checks.localOcr.access ?? result.checks.localOcr.status ?? result.checks.localOcr.error ?? 'unavailable'}`,
     `${mark(result.checks.backup.ok)} Database backup • ${backup?.createdAt ?? 'not created during this process'}`,
     `${result.checks.errors.errorCount > 0 ? '⚠️' : '✅'} Reported errors this process: **${result.checks.errors.errorCount}**`,
     '',

@@ -1,0 +1,70 @@
+{
+  "id": "blood-strike-fixed-team-strip-v1",
+  "version": 1,
+  "coordinate_space": 1000,
+  "reference_size": {
+    "width": 1065,
+    "height": 986
+  },
+  "aspect_ratio_tolerance": 0.02,
+  "leaderboard_region": [0, 0, 220, 963],
+  "rows": [
+    [0, 0, 1000, 91],
+    [0, 91, 1000, 91],
+    [0, 182, 1000, 91],
+    [0, 273, 1000, 91],
+    [0, 364, 1000, 91],
+    [0, 455, 1000, 91],
+    [0, 546, 1000, 91],
+    [0, 637, 1000, 91],
+    [0, 728, 1000, 91],
+    [0, 819, 1000, 91],
+    [0, 910, 1000, 90]
+  ],
+  "placement_hints": {
+    "0": 1
+  },
+  "columns": {
+    "placement": [0, 150, 325, 700],
+    "slot": [436, 200, 90, 400],
+    "kills": [470, 560, 98, 280],
+    "slot_color": [855, 320, 90, 250]
+  },
+  "slot_color_palette": {
+    "B": [99, 248, 193],
+    "C": [74, 247, 127],
+    "D": [24, 225, 187],
+    "F": [24, 225, 187],
+    "H": [40, 222, 118],
+    "I": [67, 239, 81],
+    "J": [138, 209, 180],
+    "K": [153, 234, 121],
+    "L": [118, 217, 60],
+    "M": [106, 231, 146],
+    "N": [120, 200, 205],
+    "O": [128, 152, 106],
+    "Q": [28, 204, 155],
+    "R": [39, 212, 125],
+    "T": [164, 200, 208],
+    "U": [148, 228, 196]
+  },
+  "slot_color_max_distance": 18,
+  "slot_color_ambiguity_margin": 5,
+  "ocr": {
+    "upscale": 6,
+    "minimum_confidence": 0.82,
+    "sequence_anchor_confidence": 0.7,
+    "placement_hint_confidence": 0.96,
+    "max_placement": 25,
+    "max_kills": 999,
+    "parallel_workers": 4
+  },
+  "calibration": {
+    "status": "round1-original-attachments",
+    "source_dimensions": [
+      [1065, 986],
+      [1061, 971]
+    ],
+    "note": "Calibrated against the two original Round 1 Discord attachments from message 1532130283258777761."
+  }
+}

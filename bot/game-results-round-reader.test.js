@@ -189,7 +189,7 @@ test('does not silently choose conflicting repeated-row values', async () => {
   assert.deepEqual(totalConflict.candidates.map((candidate) => candidate.value).sort(), [4, 5])
 })
 
-test('deduplicates a repeated rank while exposing a conflicting team identity', async () => {
+test('preserves conflicting same-rank teams as separate rows and exposes the identity conflict', async () => {
   const wrongIdentity = structuredClone(rankTwo)
   wrongIdentity.team_code = 'Z'
   wrongIdentity.players = wrongIdentity.players.map((entry, index) => ({
@@ -203,10 +203,47 @@ test('deduplicates a repeated rank while exposing a conflicting team identity', 
   const result = await reader.readSubmission(submission())
   const rankTwoRows = result.teams.filter((item) => item.rank === 2)
 
-  assert.equal(rankTwoRows.length, 1)
-  assert.equal(rankTwoRows[0].team_code, null)
+  assert.equal(rankTwoRows.length, 2)
+  assert.deepEqual(
+    rankTwoRows.map((item) => item.team_code).sort(),
+    ['P', 'Z'],
+  )
   assert.equal(result.review_required, true)
-  assert.ok(result.conflicts.some((conflict) => conflict.field?.endsWith('.team_code')))
+  assert.ok(result.conflicts.some((conflict) =>
+    conflict.type === 'team_identity_conflict'
+    && conflict.field === 'leaderboard.rank.2'))
+})
+
+test('ignores one hallucinated rank outside a dominant contiguous screenshot sequence', async () => {
+  const continuation = [
+    team(1, 'D', 21, []),
+    ...Array.from({ length: 9 }, (_value, index) => {
+      const rank = index + 8
+      return team(rank, String.fromCharCode(65 + rank), rank, [])
+    }),
+  ]
+  const oneRecord = submission()
+  oneRecord.records = [oneRecord.records[1]]
+  const { reader } = testReader({
+    b: screenshotResult('round-1-b.png', continuation),
+  })
+
+  const result = await reader.readSubmission(oneRecord)
+
+  assert.deepEqual(
+    result.teams.map((item) => item.rank),
+    [8, 9, 10, 11, 12, 13, 14, 15, 16],
+  )
+  assert.deepEqual(result.ignored_rows.map((item) => ({
+    rank: item.rank,
+    team_code: item.team_code,
+    reason: item.reason,
+  })), [{
+    rank: 1,
+    team_code: 'D',
+    reason: 'outside_dominant_contiguous_rank_sequence',
+  }])
+  assert.equal(result.conflicts.length, 0)
 })
 
 test('requires review when readable individual kills do not equal the displayed team total', async () => {

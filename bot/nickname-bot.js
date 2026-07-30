@@ -43,13 +43,22 @@ import {
 } from './game-results-admin-review.js'
 import { installGameResultsIntake } from './game-results-intake.js'
 import {
+  assertLocalOcrTestMode,
+  createLocalGameResultScreenshotReader,
+} from './game-results-local-reader.js'
+import {
   GAME_RESULTS_MVP_COMMAND,
   installGameResultsMvpWorkflow,
 } from './game-results-mvp-review.js'
 import { installGameResultsReview } from './game-results-review.js'
+import { createRoundSubmissionReader } from './game-results-round-reader.js'
 import { createStructuredLogger, createErrorReporter } from './game-results-runtime.js'
 import { createGameResultsSheetClient } from './game-results-sheet-client.js'
 import { createSafeGameResultsSheetWriter } from './game-results-sheet-writer.js'
+import {
+  GAME_RESULTS_SCOREBOARD_COMMANDS,
+  installGameResultsScoreboardWorkflow,
+} from './game-results-scoreboard-commands.js'
 import { createSupabaseGameResultsStore } from './game-results-store.js'
 import { createTeamMappingService } from './game-results-team-mapper.js'
 import { formatNickname } from './name-format.js'
@@ -66,6 +75,7 @@ const BOT_TOKEN = required('DISCORD_BOT_TOKEN')
 const gameResultsConfig = resolveGameResultsConfig(process.env, {
   requireSecrets: true,
 })
+assertLocalOcrTestMode(gameResultsConfig.mode)
 const NICKNAME_CHANNEL_ID = required('DISCORD_NICKNAME_CHANNEL_ID')
 const GUILD_ID = process.env.DISCORD_GUILD_ID?.trim() || null
 const RULES_CHANNEL_ID = process.env.DISCORD_RULES_CHANNEL_ID?.trim() || '1208605026868535387'
@@ -86,6 +96,7 @@ const COMMAND_DEFINITIONS = [
   { name: SCRIM_RULES_COMMAND_NAME, description: 'Show the official NIGHTRAID scrim mechanics.' },
   GAME_RESULTS_MVP_COMMAND,
   GAME_RESULTS_HEALTH_COMMAND,
+  ...GAME_RESULTS_SCOREBOARD_COMMANDS,
   ...GAME_RESULTS_ADMIN_COMMANDS,
 ]
 const RULES_COMMAND_NAMES = new Set([
@@ -377,6 +388,16 @@ const gameResultsSheetWriter = createSafeGameResultsSheetWriter({
 const gameResultsTeamMappingService = createTeamMappingService({
   registeredTeamSource: scrimAutomation.registeredTeamSource,
 })
+const gameResultsLocalReader = createLocalGameResultScreenshotReader({
+  pythonExecutable: gameResultsConfig.localOcr.pythonExecutable,
+  pythonPackagePath: gameResultsConfig.localOcr.pythonPackagePath,
+  layoutPath: gameResultsConfig.localOcr.layoutPath,
+  tesseractCommand: gameResultsConfig.localOcr.tesseractCommand,
+  timeoutMs: gameResultsConfig.localOcr.timeoutMs,
+})
+const gameResultsRoundReader = createRoundSubmissionReader({
+  singleScreenshotReader: gameResultsLocalReader,
+})
 installGameResultsMvpWorkflow(client, {
   store: gameResultsStore,
   backupService: gameResultsBackupService,
@@ -385,6 +406,7 @@ installGameResultsMvpWorkflow(client, {
 })
 const gameResultsReview = installGameResultsReview(client, {
   store: gameResultsStore,
+  roundReader: gameResultsRoundReader,
   teamMappingService: gameResultsTeamMappingService,
   scoreSheetMode: gameResultsSheetWriter.config.mode,
   scoreSheetWorksheet: gameResultsSheetWriter.config.worksheetName,
@@ -396,6 +418,18 @@ const gameResultsReview = installGameResultsReview(client, {
     ),
   rollbackSheetWrite: (submission, actorUserId) =>
     gameResultsSheetWriter.rollbackConfirmedSubmission(submission, actorUserId),
+  errorReporter: gameResultsErrorReporter,
+})
+installGameResultsScoreboardWorkflow(client, {
+  store: gameResultsStore,
+  reviewWorkflow: gameResultsReview,
+  registeredTeamSource: scrimAutomation.registeredTeamSource,
+  sheetClient: gameResultsSheetClient,
+  sheetWriter: gameResultsSheetWriter,
+  teamMappingService: gameResultsTeamMappingService,
+  gameResultsChannelId: gameResultsConfig.gameResultsChannelId,
+  scoreSheetMode: gameResultsConfig.mode,
+  worksheetName: gameResultsSheetWriter.config.worksheetName,
   errorReporter: gameResultsErrorReporter,
 })
 installGameResultsAdminWorkflow(client, {
@@ -419,6 +453,7 @@ installGameResultsHealthWorkflow(client, {
   sheetClient: gameResultsSheetClient,
   backupService: gameResultsBackupService,
   runtimeConfig: gameResultsConfig,
+  localReader: gameResultsLocalReader,
   errorReporter: gameResultsErrorReporter,
 })
 

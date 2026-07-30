@@ -34,7 +34,8 @@ function runtimeConfig(overrides = {}) {
     spreadsheetId: SPREADSHEET_ID,
     testWorksheet: 'Copy of New',
     productionWorksheet: 'New',
-    geminiApiKey: 'configured',
+    screenshotReader: 'local',
+    localOcr: { pythonExecutable: 'python3' },
     serviceAccountEmail: 'bot@example.iam.gserviceaccount.com',
     serviceAccountPrivateKey: 'private',
     ...overrides,
@@ -57,7 +58,8 @@ test('validates deployment aliases and loads the service-account file without ex
     SCOREKEEPER_ROLE_ID: '423456789012345678',
     GOOGLE_SPREADSHEET_ID: SPREADSHEET_ID,
     GOOGLE_SERVICE_ACCOUNT_FILE: serviceAccountFile,
-    GEMINI_API_KEY: 'gemini-secret',
+    GAME_RESULTS_SCREENSHOT_READER: 'local',
+    GAME_RESULTS_PYTHON_EXECUTABLE: 'python3',
     DATABASE_PATH: 'game_results.db',
     MINIMUM_CONFIDENCE: '0.85',
     MAX_IMAGE_SIZE_MB: '15',
@@ -74,6 +76,8 @@ test('validates deployment aliases and loads the service-account file without ex
   assert.equal(config.mode, 'test')
   assert.equal(config.minimumConfidence, 0.85)
   assert.equal(config.maxImageSizeMb, 15)
+  assert.equal(config.screenshotReader, 'local')
+  assert.equal(config.localOcr.pythonExecutable, 'python3')
   assert.equal(config.authorizedRoleIds.size, 3)
   assert.equal(config.serviceAccountEmail, 'bot@example.iam.gserviceaccount.com')
   assert.equal(
@@ -101,6 +105,13 @@ test('validates deployment aliases and loads the service-account file without ex
       GAME_RESULTS_NETWORK_RETRIES: '1.5',
     }),
     /whole number/,
+  )
+  assert.throws(
+    () => resolveGameResultsConfig({
+      ...env,
+      GAME_RESULTS_SCREENSHOT_READER: 'gemini',
+    }),
+    /paid vision providers are disabled/,
   )
 })
 
@@ -245,10 +256,23 @@ test('health command is authorized, read-only, and reports database, formulas, a
     backupService: {
       latest: () => ({ createdAt: '2026-07-30T00:00:00.000Z' }),
     },
+    localReader: {
+      diagnose: async () => ({
+        ok: true,
+        ready: true,
+        paid_ai_used: false,
+        python: '3.12.13',
+        opencv: '4.14.0',
+        pytesseract: '0.3.13',
+        tesseract: '5.5.3',
+      }),
+    },
   })
   const result = await service.check()
   assert.equal(result.ok, true)
   assert.equal(reads, 1)
+  assert.equal(result.checks.localOcr.ok, true)
+  assert.equal(result.checks.localOcr.access, 'local_read_only_diagnostic')
   assert.match(renderGameResultsHealth(result), /read_only_health_check/)
 
   const workflow = createGameResultsHealthWorkflow({

@@ -283,6 +283,7 @@ test('Gemini is the primary reader and receives structured original/enhanced ima
   assert.equal(requests[0].body.generation_config.thinking_level, 'low')
   assert.match(requests[0].body.system_instruction, /A means registered slot 1/)
   assert.match(requests[0].body.system_instruction, /Discord registered-team slot list/)
+  assert.match(requests[0].body.system_instruction, /Pair them by the same horizontal row/)
   assert.match(requests[0].body.system_instruction, /top-to-bottom order/)
   assert.equal(requests[0].body.response_format.mime_type, 'application/json')
   assert.equal(requests[0].body.response_format.schema.type, 'object')
@@ -290,6 +291,139 @@ test('Gemini is the primary reader and receives structured original/enhanced ima
     requests[0].body.response_format.schema.properties.teams.maxItems,
     undefined,
   )
+})
+
+test('Gemini quota exhaustion uses a fallback and temporarily skips the blocked model', async () => {
+  const models = []
+  const fetchImpl = async (_url, options) => {
+    const body = JSON.parse(options.body)
+    models.push(body.model)
+    if (body.model === 'primary-model') {
+      return {
+        ok: false,
+        status: 429,
+        headers: { get: () => null },
+        body: { cancel: async () => {} },
+        json: async () => ({
+          error: { message: 'Quota exceeded for primary-model.' },
+        }),
+      }
+    }
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      json: async () => ({
+        status: 'completed',
+        steps: [{
+          type: 'model_output',
+          content: [{
+            type: 'text',
+            text: JSON.stringify(knownVisionOutput()),
+          }],
+        }],
+      }),
+    }
+  }
+  const reader = createGeminiGameResultVisionReader({
+    apiKey: 'test-key',
+    model: 'primary-model',
+    fallbackModel: 'fallback-model',
+    fetchImpl,
+    maxRetries: 3,
+  })
+  const layout = await loadGameResultsLayout()
+  const input = {
+    originalBuffer: Buffer.from('original'),
+    originalMimeType: 'image/png',
+    enhancedBuffer: Buffer.from('enhanced'),
+    layout,
+  }
+
+  const first = await reader(input)
+  const second = await reader(input)
+
+  assert.equal(first.model, 'fallback-model')
+  assert.equal(second.model, 'fallback-model')
+  assert.deepEqual(models, [
+    'primary-model',
+    'fallback-model',
+    'fallback-model',
+  ])
+})
+
+test('Gemini tries the secondary fallback when the first fallback remains unavailable', async () => {
+  const models = []
+  const fetchImpl = async (_url, options) => {
+    const body = JSON.parse(options.body)
+    models.push(body.model)
+    if (body.model !== 'secondary-fallback') {
+      return {
+        ok: false,
+        status: body.model === 'primary-model' ? 429 : 500,
+        headers: { get: () => null },
+        body: { cancel: async () => {} },
+        json: async () => ({ error: { message: 'Model unavailable.' } }),
+      }
+    }
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      json: async () => ({
+        status: 'completed',
+        steps: [{
+          type: 'model_output',
+          content: [{
+            type: 'text',
+            text: JSON.stringify(knownVisionOutput()),
+          }],
+        }],
+      }),
+    }
+  }
+  const reader = createGeminiGameResultVisionReader({
+    apiKey: 'test-key',
+    model: 'primary-model',
+    fallbackModel: 'first-fallback',
+    secondaryFallbackModel: 'secondary-fallback',
+    fetchImpl,
+    maxRetries: 0,
+  })
+  const layout = await loadGameResultsLayout()
+
+  const result = await reader({
+    originalBuffer: Buffer.from('original'),
+    originalMimeType: 'image/png',
+    enhancedBuffer: Buffer.from('enhanced'),
+    layout,
+  })
+
+  assert.equal(result.model, 'secondary-fallback')
+  assert.deepEqual(models, [
+    'primary-model',
+    'first-fallback',
+    'secondary-fallback',
+  ])
+})
+
+test('slightly overflowing Gemini crop coordinates are clamped without changing score fields', async () => {
+  const image = await generatedLeaderboardPng()
+  const output = knownVisionOutput()
+  output.teams[0].bbox = [50, 100, 960, 950]
+  output.teams[0].players[0].bbox = [990, 990, 50, 50]
+  const reader = createSingleScreenshotReader({
+    visionReader: async () => output,
+    ocrService: matchingOcr(),
+  })
+
+  const result = await reader.read({ buffer: image, mimeType: 'image/png' })
+
+  assert.equal(result.teams[0].rank, 1)
+  assert.equal(result.teams[0].team_code, 'O')
+  assert.equal(result.teams[0].team_total_kills, 65)
+  assert.deepEqual(result.teams[0].bbox, [50, 100, 950, 900])
+  assert.deepEqual(result.teams[0].players[0].bbox, [990, 990, 10, 10])
 })
 
 test('strict local validation still rejects values outside the simplified Gemini schema', async () => {

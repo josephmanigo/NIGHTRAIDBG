@@ -194,6 +194,25 @@ function addDuplicateIssues(teams, keyFor, type, label, issues) {
   }
 }
 
+function addMissingLeaderboardRankIssues(roundResult, issues) {
+  const ranks = new Set(
+    (roundResult.teams ?? [])
+      .map((team) => team.rank)
+      .filter((rank) => Number.isInteger(rank) && rank > 0 && rank <= 25),
+  )
+  if (ranks.size === 0) return
+  const highestRank = Math.max(...ranks)
+  for (let rank = 1; rank <= highestRank; rank += 1) {
+    if (ranks.has(rank)) continue
+    issues.push(issue(
+      'missing_rank',
+      'blocking',
+      `leaderboard.rank.${rank}`,
+      `Leaderboard place ${rank} is missing between visible ranked teams.`,
+    ))
+  }
+}
+
 function confidenceIssues(team, teamIndex, threshold, issues) {
   for (const field of ['rank', 'team_code', 'team_total_kills']) {
     const confidence = team.confidence?.[field]
@@ -468,6 +487,7 @@ export async function buildGameResultsReviewPayload({
     filtered.mappingResult,
     lowConfidenceThreshold,
   )
+  addMissingLeaderboardRankIssues(roundResult, issues)
   return {
     schema_version: 'nightraid.discord-review.v1',
     round_result: filtered.roundResult,
@@ -501,6 +521,39 @@ export function prepareAutomaticTallyPayload(payload) {
     blocking_issue_count: issues.filter((item) => item.severity === 'blocking').length,
     warning_count: issues.filter((item) => item.severity === 'warning').length,
     automatic_tally: true,
+  }
+}
+
+export function buildAutomaticProcessingLog(
+  submission,
+  payload,
+  processedAt = new Date().toISOString(),
+) {
+  const teams = payload?.round_result?.teams ?? []
+  const mappedTeams = payload?.mapping_result?.teams ?? []
+  return {
+    processed_at: processedAt,
+    screenshot_filenames: (submission?.records ?? [])
+      .map((record) => safeText(record.attachmentFilename, ''))
+      .filter(Boolean),
+    extracted_values: teams.map((team) => ({
+      placement: team.rank ?? null,
+      slot: safeText(team.team_code, '') || null,
+      kills: team.team_total_kills ?? null,
+    })),
+    final_scores: teams.map((team, index) => {
+      const mapped = mappedTeams[index]
+      return {
+        placement: team.rank ?? null,
+        slot: safeText(team.team_code, '') || null,
+        team_name:
+          safeText(mapped?.mapping?.official_team?.official_team_name, '')
+          || null,
+        placement_points: mapped?.score_preview?.placement_points ?? null,
+        kill_points: mapped?.score_preview?.kill_points ?? null,
+        total_score: mapped?.score_preview?.total_points ?? null,
+      }
+    }),
   }
 }
 
@@ -550,6 +603,83 @@ function limitedContent(lines) {
   const content = lines.join('\n')
   if (content.length <= DISCORD_MESSAGE_LIMIT) return content
   return `${content.slice(0, DISCORD_MESSAGE_LIMIT - 18).trimEnd()}\n*...truncated*`
+}
+
+function automaticResultTeamBlock(team, mappedTeam) {
+  const official = mappedTeam?.mapping?.official_team
+  const score = mappedTeam?.score_preview
+  const medal = team.rank === 1
+    ? '🥇'
+    : team.rank === 2
+      ? '🥈'
+      : team.rank === 3
+        ? '🥉'
+        : '🏁'
+  return [
+    `## ${medal} ${safeText(official?.official_team_name ?? team.team_code)}`,
+    `Slot: **${safeText(team.team_code)}**`,
+    `Placement: **#${team.rank}**`,
+    `Kills: **${team.team_total_kills}**`,
+    `Placement Points: **${score?.placement_points ?? 'unavailable'}**`,
+    `Kill Points: **${score?.kill_points ?? 'unavailable'}**`,
+    `TOTAL SCORE: **${score?.total_points ?? 'unavailable'} POINTS**`,
+  ].join('\n')
+}
+
+export function renderAutomaticTallyConfirmation(
+  submission,
+  worksheetName = 'Copy of New',
+) {
+  const payload = submission?.reviewPayload
+  const teams = payload?.round_result?.teams ?? []
+  const mappedTeams = payload?.mapping_result?.teams ?? []
+  const round = payload?.round_result?.submission?.round ?? submission?.round
+  if (![1, 2, 3, 4].includes(round) || teams.length === 0) {
+    throw new Error('A verified round with at least one team is required.')
+  }
+  const blocks = teams.map((team, index) =>
+    automaticResultTeamBlock(team, mappedTeams[index]))
+  const bodyPages = []
+  let current = []
+  for (const block of blocks) {
+    const candidate = [...current, block].join('\n\n')
+    if (candidate.length > 1_650 && current.length > 0) {
+      bodyPages.push(current.join('\n\n'))
+      current = [block]
+    } else {
+      current.push(block)
+    }
+  }
+  if (current.length > 0) bodyPages.push(current.join('\n\n'))
+
+  const excludedCount = payload.excluded_teams?.length ?? 0
+  return bodyPages.map((body, index) => {
+    const lines = [
+      `# 🔥 NIGHTRAID GAME ${round} RESULT`,
+      `-# Page ${index + 1}/${bodyPages.length}`,
+      '',
+      index === 0
+        ? `Round ${round} tallied automatically — **${teams.length}** registered team${teams.length === 1 ? '' : 's'} written.`
+        : null,
+      index === 0 ? '' : null,
+      body,
+    ].filter((line) => line !== null)
+    if (index === bodyPages.length - 1) {
+      lines.push(
+        '',
+        excludedCount > 0
+          ? `⚠️ **${excludedCount}** unknown or unregistered team${excludedCount === 1 ? ' was' : 's were'} not tallied.`
+          : 'All detected teams were registered and tallied.',
+        '',
+        `Google Sheet Updated ✅ — **${worksheetName}**`,
+      )
+    }
+    const content = lines.join('\n')
+    if (content.length > DISCORD_MESSAGE_LIMIT) {
+      throw new Error('The automatic result confirmation exceeded Discord’s message limit.')
+    }
+    return content
+  })
 }
 
 export function renderGameResultsReview(submission) {
@@ -1022,6 +1152,10 @@ export function createGameResultsReviewWorkflow(options = {}) {
         payload = prepareAutomaticTallyPayload(await buildPayload(roundResult))
         if (payload.blocking_issue_count === 0) break
       }
+      payload = {
+        ...payload,
+        processing_log: buildAutomaticProcessingLog(submission, payload),
+      }
 
       if (payload.blocking_issue_count > 0) {
         const failed = await store.saveReviewState({
@@ -1078,19 +1212,18 @@ export function createGameResultsReviewWorkflow(options = {}) {
             allowMissingPlayerHistory: true,
           },
         )
-        const teamCount = sheetWrite.submission.reviewPayload?.round_result?.teams?.length ?? 0
-        const excludedCount =
-          sheetWrite.submission.reviewPayload?.excluded_teams?.length ?? 0
-        await interaction.followUp({
-          content: [
-            `# Round ${sheetWrite.submission.round} tallied automatically`,
-            `**${teamCount}** registered team${teamCount === 1 ? '' : 's'} written to **${scoreSheetWorksheet}**.`,
-            excludedCount > 0
-              ? `**${excludedCount}** unknown or unregistered team${excludedCount === 1 ? ' was' : 's were'} not tallied.`
-              : 'All detected teams were registered and tallied.',
-          ].join('\n'),
-          allowedMentions: { parse: [] },
-        })
+        const confirmations = renderAutomaticTallyConfirmation(
+          sheetWrite.submission,
+          scoreSheetWorksheet,
+        )
+        for (const content of confirmations) {
+          await interaction.followUp({
+            content,
+            embeds: [],
+            components: [],
+            allowedMentions: { parse: [] },
+          })
+        }
         return {
           status: 'confirmed',
           submission: sheetWrite.submission,

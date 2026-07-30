@@ -1,8 +1,13 @@
 import { fetchWithRetry } from './game-results-runtime.js'
 
 const DEFAULT_MODEL = 'gemini-3.6-flash'
+const DEFAULT_FALLBACK_MODEL = 'gemini-3.5-flash'
+const DEFAULT_SECONDARY_FALLBACK_MODEL = 'gemini-3.5-flash-lite'
 const DEFAULT_TIMEOUT_MS = 45_000
 const DEFAULT_MAX_INLINE_IMAGE_BYTES = 14 * 1024 * 1024
+const PRIMARY_QUOTA_COOLDOWN_MS = 5 * 60 * 1_000
+const RETRYABLE_NON_QUOTA_STATUSES = [408, 425, 500, 502, 503, 504]
+const MODEL_FALLBACK_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504])
 
 const confidenceSchema = {
   type: 'number',
@@ -85,6 +90,8 @@ Extract every visible horizontal team row and its player rows. For each team ret
 
 In this leaderboard, the colored single letter beside a team's skull-and-kills value is the team code. Read that letter exactly: A means registered slot 1, B means slot 2, continuing alphabetically through Y for slot 25. Do not read this letter as a player name and do not invent a clan name; the bot resolves the current clan name from the Discord registered-team slot list.
 
+The far-left placement column and the team-summary column can be separated by player cards. Pair them by the same horizontal row and vertical center. A gold 1 medal is rank 1, a silver 2 medal is rank 2, a bronze 3 medal is rank 3, and labels such as #4, #5, and #10 are their exact ranks. Do not require PLACE, team letter, and team kills to be adjacent.
+
 The final leaderboard is ordered by placement. When the screenshot visibly begins at the top of the final leaderboard and printed rank numbers are absent, assign ranks 1, 2, 3, and so on by the team rows' top-to-bottom order. If the screenshot is a cropped continuation and its absolute starting rank cannot be established, return null instead of guessing.
 
 The team total kills is the number immediately adjacent to the skull icon paired with the colored team-code letter. Keep that displayed team total separate from every individual player's skull-and-kills value.
@@ -125,6 +132,8 @@ function responseText(payload) {
 
 export function createGeminiGameResultVisionReader(options = {}) {
   const fetchImpl = options.fetchImpl ?? fetch
+  const now = options.now ?? Date.now
+  let primaryQuotaBlockedUntil = 0
 
   return async function readWithGemini({
     originalBuffer,
@@ -140,6 +149,14 @@ export function createGeminiGameResultVisionReader(options = {}) {
       ?? process.env.GEMINI_VISION_MODEL?.trim()
       ?? process.env.GAME_RESULTS_VISION_MODEL?.trim()
       ?? DEFAULT_MODEL
+    const fallbackModel =
+      options.fallbackModel
+      ?? process.env.GEMINI_VISION_FALLBACK_MODEL?.trim()
+      ?? DEFAULT_FALLBACK_MODEL
+    const secondaryFallbackModel =
+      options.secondaryFallbackModel
+      ?? process.env.GEMINI_VISION_SECONDARY_FALLBACK_MODEL?.trim()
+      ?? DEFAULT_SECONDARY_FALLBACK_MODEL
     const timeoutMs = positiveInteger(
       options.timeoutMs ?? process.env.GAME_RESULTS_VISION_TIMEOUT_MS,
       DEFAULT_TIMEOUT_MS,
@@ -178,43 +195,75 @@ export function createGeminiGameResultVisionReader(options = {}) {
       },
     )
 
-    const response = await fetchWithRetry(
-      'https://generativelanguage.googleapis.com/v1beta/interactions',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': apiKey,
+    const configuredRetries =
+      options.maxRetries
+      ?? Number(process.env.GAME_RESULTS_NETWORK_RETRIES || 3)
+    async function request(activeModel) {
+      const response = await fetchWithRetry(
+        'https://generativelanguage.googleapis.com/v1beta/interactions',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': apiKey,
+          },
+          body: JSON.stringify({
+            model: activeModel,
+            store: false,
+            system_instruction: VISION_INSTRUCTIONS,
+            input: content,
+            response_format: {
+              type: 'text',
+              mime_type: 'application/json',
+              schema: gameResultVisionJsonSchema,
+            },
+            generation_config: {
+              max_output_tokens: 8_192,
+              thinking_level: 'low',
+              thinking_summaries: 'none',
+            },
+          }),
         },
-        body: JSON.stringify({
-          model,
-          store: false,
-          system_instruction: VISION_INSTRUCTIONS,
-          input: content,
-          response_format: {
-            type: 'text',
-            mime_type: 'application/json',
-            schema: gameResultVisionJsonSchema,
-          },
-          generation_config: {
-            max_output_tokens: 8_192,
-            thinking_level: 'low',
-            thinking_summaries: 'none',
-          },
-        }),
-      },
-      {
-        fetchImpl,
-        timeoutMs,
-        maxRetries:
-          options.maxRetries
-          ?? Number(process.env.GAME_RESULTS_NETWORK_RETRIES || 3),
-      },
-    )
-    const payload = await response.json().catch(() => ({}))
+        {
+          fetchImpl,
+          timeoutMs,
+          maxRetries: configuredRetries,
+          retryableStatuses: RETRYABLE_NON_QUOTA_STATUSES,
+        },
+      )
+      return {
+        response,
+        payload: await response.json().catch(() => ({})),
+      }
+    }
+
+    const modelCandidates = [
+      ...(now() < primaryQuotaBlockedUntil ? [] : [model]),
+      fallbackModel,
+      secondaryFallbackModel,
+    ].filter((candidate, index, values) =>
+      candidate && values.indexOf(candidate) === index)
+    let activeModel = modelCandidates[0]
+    let requested
+    for (let index = 0; index < modelCandidates.length; index += 1) {
+      activeModel = modelCandidates[index]
+      requested = await request(activeModel)
+      if (requested.response.ok) break
+      if (activeModel === model && requested.response.status === 429) {
+        primaryQuotaBlockedUntil = now() + PRIMARY_QUOTA_COOLDOWN_MS
+      }
+      if (
+        !MODEL_FALLBACK_STATUSES.has(requested.response.status)
+        || index === modelCandidates.length - 1
+      ) break
+    }
+
+    const { response, payload } = requested
     if (!response.ok) {
       const detail = compactError(payload.error?.message)
-      throw new Error(`Gemini vision request failed with status ${response.status}${detail ? `: ${detail}` : ''}`)
+      throw new Error(
+        `Gemini vision request failed for ${activeModel} with status ${response.status}${detail ? `: ${detail}` : ''}`,
+      )
     }
     const failedStep = (payload.steps ?? []).find((step) => step.error)
     if (payload.status === 'incomplete') {
@@ -237,7 +286,7 @@ export function createGeminiGameResultVisionReader(options = {}) {
     }
     return {
       provider: 'google',
-      model,
+      model: activeModel,
       includedOriginalImage: includeOriginal,
       output,
     }

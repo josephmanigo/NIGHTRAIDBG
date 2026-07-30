@@ -192,6 +192,38 @@ function visionResult(value) {
   }
 }
 
+function clampVisionBox(box) {
+  if (
+    !Array.isArray(box)
+    || box.length !== 4
+    || box.some((value) => !Number.isInteger(value))
+  ) return box
+  const [rawX, rawY, rawWidth, rawHeight] = box
+  if (rawWidth <= 0 || rawHeight <= 0) return box
+  const x = Math.max(0, Math.min(999, rawX))
+  const y = Math.max(0, Math.min(999, rawY))
+  const width = Math.max(1, Math.min(rawWidth, 1000 - x))
+  const height = Math.max(1, Math.min(rawHeight, 1000 - y))
+  return [x, y, width, height]
+}
+
+export function clampGameResultVisionGeometry(output) {
+  if (!output || !Array.isArray(output.teams)) return output
+  return {
+    ...output,
+    teams: output.teams.map((team) => ({
+      ...team,
+      bbox: clampVisionBox(team.bbox),
+      players: Array.isArray(team.players)
+        ? team.players.map((player) => ({
+            ...player,
+            bbox: clampVisionBox(player.bbox),
+          }))
+        : team.players,
+    })),
+  }
+}
+
 function serializeTeam(team, teamIndex, ocr, layout, reviewFields) {
   const prefix = `teams[${teamIndex}]`
   const rank = finalizeField(
@@ -318,7 +350,9 @@ export function createSingleScreenshotReader(options = {}) {
       layout,
       detectedRows: processed.rows,
     }))
-    const vision = gameResultVisionOutputSchema.parse(primary.output)
+    const vision = gameResultVisionOutputSchema.parse(
+      clampGameResultVisionGeometry(primary.output),
+    )
     const ocr = await ocrService.read({
       enhancedBuffer: processed.enhancedBuffer,
       vision,

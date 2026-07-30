@@ -95,13 +95,17 @@ export function resolveGameResultsConfig(env = process.env, options = {}) {
     throw new Error(`PRODUCTION_WORKSHEET must remain "${DEFAULT_PRODUCTION_WORKSHEET_NAME}".`)
   }
   const credentials = serviceAccount(env, options)
-  const geminiApiKey = text(env, 'GEMINI_API_KEY')
+  const screenshotReader = text(env, 'GAME_RESULTS_SCREENSHOT_READER', 'local')
+  if (screenshotReader !== 'local') {
+    throw new Error(
+      'GAME_RESULTS_SCREENSHOT_READER must be "local"; paid vision providers are disabled.',
+    )
+  }
   if (options.requireSecrets) {
     if (!text(env, 'DISCORD_BOT_TOKEN')) throw new Error('DISCORD_BOT_TOKEN is required.')
     if (!credentials.email || !credentials.privateKey) {
       throw new Error('GOOGLE_SERVICE_ACCOUNT_FILE or inline Google credentials are required.')
     }
-    if (!geminiApiKey) throw new Error('GEMINI_API_KEY is required.')
     if (!text(env, 'SUPABASE_URL') || !text(env, 'SUPABASE_SECRET_KEY')) {
       throw new Error('SUPABASE_URL and SUPABASE_SECRET_KEY are required for the existing database.')
     }
@@ -167,7 +171,31 @@ export function resolveGameResultsConfig(env = process.env, options = {}) {
     serviceAccountFile: credentials.file,
     serviceAccountEmail: credentials.email,
     serviceAccountPrivateKey: credentials.privateKey,
-    geminiApiKey,
+    screenshotReader,
+    localOcr: {
+      pythonExecutable: text(
+        env,
+        'GAME_RESULTS_PYTHON_EXECUTABLE',
+        process.platform === 'win32' ? 'python' : 'python3',
+      ),
+      pythonPackagePath: text(env, 'GAME_RESULTS_PYTHON_PACKAGE_PATH'),
+      layoutPath: path.resolve(
+        options.cwd ?? process.cwd(),
+        text(
+          env,
+          'GAME_RESULTS_LOCAL_OCR_LAYOUT_PATH',
+          'modules/scoreboard/layout.json',
+        ),
+      ),
+      tesseractCommand: text(env, 'TESSERACT_CMD'),
+      timeoutMs: integer(
+        text(env, 'GAME_RESULTS_LOCAL_OCR_TIMEOUT_MS'),
+        20_000,
+        1_000,
+        120_000,
+        'GAME_RESULTS_LOCAL_OCR_TIMEOUT_MS',
+      ),
+    },
     databasePath,
     minimumConfidence: decimal(
       text(env, 'MINIMUM_CONFIDENCE')

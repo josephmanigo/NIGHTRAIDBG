@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { createSingleScreenshotReader } from './game-results-reader.js'
+import { createLocalGameResultScreenshotReader } from './game-results-local-reader.js'
 import { fetchWithRetry } from './game-results-runtime.js'
 
 const DEFAULT_MAX_FILE_SIZE_MB = 10
@@ -120,10 +120,16 @@ function setsOverlap(left, right) {
 }
 
 function sameTeamObservation(left, right) {
-  if (left.team.rank !== null && left.team.rank === right.team.rank) return true
   const leftCode = identityText(left.team.team_code)
   const rightCode = identityText(right.team.team_code)
+  if (leftCode && rightCode && leftCode !== rightCode) return false
+  if (
+    left.team.rank !== null
+    && right.team.rank !== null
+    && left.team.rank !== right.team.rank
+  ) return false
   if (leftCode && rightCode && leftCode === rightCode) return true
+  if (left.team.rank !== null && left.team.rank === right.team.rank) return true
   if (setsOverlap(playerSlots(left.team), playerSlots(right.team))) return true
 
   const leftNames = playerNames(left.team)
@@ -134,6 +140,43 @@ function sameTeamObservation(left, right) {
     if (matches >= 2) return true
   }
   return false
+}
+
+function dominantContiguousRankSet(teams) {
+  const ranks = [...new Set(
+    teams
+      .map((team) => team.rank)
+      .filter((rank) => Number.isInteger(rank) && rank > 0),
+  )].sort((left, right) => left - right)
+  if (ranks.length < 5) return null
+
+  let best = []
+  let current = []
+  for (const rank of ranks) {
+    if (current.length === 0 || rank === current.at(-1) + 1) current.push(rank)
+    else current = [rank]
+    if (current.length > best.length) best = [...current]
+  }
+  if (best.length < 4 || best.length / ranks.length < 0.75) return null
+  return new Set(best)
+}
+
+function filterRankOutliers(teams) {
+  const dominantRanks = dominantContiguousRankSet(teams)
+  if (!dominantRanks) return { teams, ignored: [] }
+  const ignored = []
+  const kept = teams.filter((team, teamIndex) => {
+    if (!Number.isInteger(team.rank) || dominantRanks.has(team.rank)) return true
+    ignored.push({
+      team_index: teamIndex,
+      rank: team.rank,
+      team_code: team.team_code,
+      team_total_kills: team.team_total_kills,
+      reason: 'outside_dominant_contiguous_rank_sequence',
+    })
+    return false
+  })
+  return { teams: kept, ignored }
 }
 
 function disjointSet(size) {
@@ -178,6 +221,52 @@ function sourceReference(observation) {
     filename: observation.source.filename,
     team_index: observation.teamIndex,
     player_index: observation.playerIndex ?? null,
+  }
+}
+
+function collectIdentityConflicts(observations, conflicts, reviewFields) {
+  const seen = new Set()
+  for (let leftIndex = 0; leftIndex < observations.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < observations.length; rightIndex += 1) {
+      const left = observations[leftIndex]
+      const right = observations[rightIndex]
+      const leftCode = identityText(left.team.team_code)
+      const rightCode = identityText(right.team.team_code)
+      const sameRank =
+        left.team.rank !== null
+        && left.team.rank === right.team.rank
+      const sameCode = leftCode && leftCode === rightCode
+      if (
+        (!sameRank || !leftCode || !rightCode || leftCode === rightCode)
+        && (!sameCode || left.team.rank === null || right.team.rank === null
+          || left.team.rank === right.team.rank)
+      ) continue
+
+      const field = sameRank
+        ? `leaderboard.rank.${left.team.rank}`
+        : `leaderboard.team_code.${leftCode}`
+      const key = `${field}:${left.source.screenshotIndex}:${right.source.screenshotIndex}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      conflicts.push({
+        type: 'team_identity_conflict',
+        field,
+        candidates: [left, right].map((item) => ({
+          value: {
+            rank: item.team.rank,
+            team_code: item.team.team_code,
+            team_total_kills: item.team.team_total_kills,
+          },
+          confidence: Math.min(
+            item.team.confidence.rank,
+            item.team.confidence.team_code,
+          ),
+          sources: [sourceReference(item)],
+        })),
+        requires_manual_review: true,
+      })
+      reviewFields.push(field)
+    }
   }
 }
 
@@ -432,7 +521,7 @@ export function createRoundSubmissionReader(options = {}) {
   const ownsSingleReader = !options.singleScreenshotReader
   const singleScreenshotReader =
     options.singleScreenshotReader
-    ?? createSingleScreenshotReader(options.singleScreenshot)
+    ?? createLocalGameResultScreenshotReader(options.localScreenshot)
   const attachmentLoader =
     options.attachmentLoader
     ?? ((record) => downloadSubmissionScreenshot(record, options.download))
@@ -441,16 +530,25 @@ export function createRoundSubmissionReader(options = {}) {
     validateSubmission(submission)
     const screenshotReads = []
     const readErrors = []
+    const ignoredRows = []
 
     for (let screenshotIndex = 0; screenshotIndex < submission.records.length; screenshotIndex += 1) {
       const record = submission.records[screenshotIndex]
       try {
         const loaded = await attachmentLoader(record)
-        const result = screenshotResultSchema.parse(await singleScreenshotReader.read({
+        const parsed = screenshotResultSchema.parse(await singleScreenshotReader.read({
           buffer: loaded.buffer,
           mimeType: loaded.mimeType,
           filename: record.attachmentFilename,
         }))
+        const filtered = filterRankOutliers(parsed.teams)
+        const result = { ...parsed, teams: filtered.teams }
+        ignoredRows.push(...filtered.ignored.map((row) => ({
+          ...row,
+          screenshot_index: screenshotIndex,
+          attachment_id: record.attachmentId,
+          filename: record.attachmentFilename,
+        })))
         screenshotReads.push({ screenshotIndex, record, result })
         if (result.teams.length === 0) {
           readErrors.push({
@@ -487,6 +585,7 @@ export function createRoundSubmissionReader(options = {}) {
       })))
     const conflicts = [...readErrors]
     const reviewFields = readErrors.map((error) => `screenshots[${error.screenshot_index}]`)
+    collectIdentityConflicts(observations, conflicts, reviewFields)
     const teams = serializeMergedTeams(mergeTeams(observations), conflicts, reviewFields)
     const killTotalValidations = validatePlayerKillTotals(teams, conflicts, reviewFields)
 
@@ -517,6 +616,7 @@ export function createRoundSubmissionReader(options = {}) {
         }
       }),
       teams,
+      ignored_rows: ignoredRows,
       kill_total_validations: killTotalValidations,
       conflicts,
       review_required: conflicts.length > 0 || uniqueReviewFields.length > 0,

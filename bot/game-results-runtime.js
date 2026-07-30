@@ -65,6 +65,9 @@ export async function fetchWithRetry(url, init = {}, options = {}) {
   )
   const sleep = options.sleep ?? delay
   const random = options.random ?? Math.random
+  const retryableStatuses = options.retryableStatuses
+    ? new Set(options.retryableStatuses)
+    : RETRYABLE_STATUS
   let lastError
 
   for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
@@ -73,7 +76,7 @@ export async function fetchWithRetry(url, init = {}, options = {}) {
         ...init,
         signal: AbortSignal.timeout(timeoutMs),
       })
-      if (!RETRYABLE_STATUS.has(response.status) || attempt === maxRetries) {
+      if (!retryableStatuses.has(response.status) || attempt === maxRetries) {
         return response
       }
       await response.body?.cancel?.().catch?.(() => undefined)

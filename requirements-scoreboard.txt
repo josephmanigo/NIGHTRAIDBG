@@ -1,0 +1,6 @@
+# Local-only NIGHTRAID screenshot reader.
+# The native Tesseract executable and English trained data are system packages.
+numpy>=1.26,<3
+opencv-python-headless>=4.10,<5
+Pillow>=10.4,<12
+pytesseract>=0.3.13,<0.4

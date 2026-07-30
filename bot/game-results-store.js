@@ -281,6 +281,24 @@ export function createSupabaseGameResultsStore(options = {}) {
     return submissionFromRow(row, await screenshotsForSubmission(row.id))
   }
 
+  async function findLatestSubmission({ guildId, channelId, statuses = [] }) {
+    let query = client
+      .from(SUBMISSIONS_TABLE)
+      .select('*')
+      .eq('guild_id', guildId)
+      .eq('channel_id', channelId)
+    if (statuses.length > 0) query = query.in('status', statuses)
+    const { data: row, error } = await query
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (error) {
+      throw new Error(safeDatabaseError(error, 'Could not load the latest screenshot submission.'))
+    }
+    if (!row) return null
+    return submissionFromRow(row, await screenshotsForSubmission(row.id))
+  }
+
   async function insertSubmission(metadata) {
     const values = {
       guild_id: metadata.guildId,
@@ -1136,6 +1154,7 @@ export function createSupabaseGameResultsStore(options = {}) {
     initializeAdmin,
     findSubmissionByMessage,
     findSubmissionById,
+    findLatestSubmission,
     tombstoneDeletedMessage,
     createPendingSubmission,
     selectRound,

@@ -1,0 +1,19 @@
+.git
+.github
+.env
+.env.*
+!.env.example
+node_modules
+dist
+dist-ssr
+.vercel
+.venv
+.python-packages
+__pycache__
+*.py[cod]
+*.log
+*.mp4
+prem tee.png
+tee1.png
+game_results.db
+game_results.db.backups

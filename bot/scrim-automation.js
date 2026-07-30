@@ -920,6 +920,24 @@ export function installScrimAutomation(client) {
           cycleStartMessageId: state.cycleStartMessageId,
         })
       },
+      async refreshSnapshot() {
+        await initialized
+        const refresh = operationQueue.then(async () => {
+          await reconstructCurrentCycle()
+          await syncBoard()
+        })
+        operationQueue = refresh.catch((reason) => {
+          console.error(
+            'Registered-team refresh failed:',
+            reason instanceof Error ? reason.message : reason,
+          )
+        })
+        await refresh
+        return createRegisteredTeamSnapshot(state.slots, {
+          registrationOpen: state.registrationOpen,
+          cycleStartMessageId: state.cycleStartMessageId,
+        })
+      },
     },
   }
 }

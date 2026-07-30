@@ -1,5 +1,10 @@
 # Dependencies
 node_modules/
+.venv/
+.python-packages/
+__pycache__/
+*.py[cod]
+.pytest_cache/
 
 # Build output
 dist/

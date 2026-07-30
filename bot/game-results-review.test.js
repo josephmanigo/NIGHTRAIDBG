@@ -4,11 +4,13 @@ import { PermissionFlagsBits } from 'discord.js'
 import {
   applyPlayerReviewEdit,
   applyTeamReviewEdit,
+  buildAutomaticProcessingLog,
   buildGameResultsReviewPayload,
   canCorrectGameResults,
   canReviewGameResults,
   createGameResultsReviewWorkflow,
   parseReviewCustomId,
+  renderAutomaticTallyConfirmation,
   renderGameResultsReview,
 } from './game-results-review.js'
 
@@ -146,6 +148,17 @@ function mappingService({
               similarity: item.team_name && !unregistered ? 1 : null,
               suggestions: [],
             },
+            score_preview: {
+              place: item.rank,
+              placement_points: item.rank === 1 ? 20 : item.rank === 2 ? 16 : 13,
+              team_total_kills: item.team_total_kills,
+              kill_points: item.team_total_kills,
+              total_points:
+                (item.rank === 1 ? 20 : item.rank === 2 ? 16 : 13)
+                + item.team_total_kills,
+              validation_only: true,
+              official_score_source: 'spreadsheet_formulas',
+            },
             review_required: unknown,
             review_reasons: unknown ? ['team_code_not_found'] : [],
           }
@@ -172,7 +185,10 @@ function storedSubmission(overrides = {}) {
     reviewMessageId: null,
     reviewPage: 0,
     reviewVersion: 0,
-    records: [{ attachmentId: 'attachment-1' }],
+    records: [{
+      attachmentId: 'attachment-1',
+      attachmentFilename: 'round-1-score.png',
+    }],
     duplicateRecords: [],
     ...overrides,
   }
@@ -390,6 +406,31 @@ test('blocks a submission when every screenshot team is outside the registered s
   assert.equal(payload.blocking_issue_count, 1)
 })
 
+test('blocks a partial leaderboard when places are missing between visible ranks', async () => {
+  const teams = [1, 2, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16].map(
+    (rank, index) => team({
+      rank,
+      code: String.fromCharCode(65 + index),
+      players: [],
+    }),
+  )
+  const payload = await buildGameResultsReviewPayload({
+    roundResult: roundResult(teams),
+    teamMappingService: mappingService(),
+  })
+  const missingRankPaths = payload.issues
+    .filter((item) => item.type === 'missing_rank' && item.path.startsWith('leaderboard.rank.'))
+    .map((item) => item.path)
+
+  assert.deepEqual(missingRankPaths, [
+    'leaderboard.rank.3',
+    'leaderboard.rank.4',
+    'leaderboard.rank.5',
+    'leaderboard.rank.6',
+  ])
+  assert.ok(payload.blocking_issue_count >= 4)
+})
+
 test('renders a plain Markdown paginated preview with team and player details', async () => {
   const payload = await buildGameResultsReviewPayload({
     roundResult: roundResult([team(), team({ rank: 2, code: 'M' })]),
@@ -554,9 +595,36 @@ test('automatically writes a valid labeled round without confirmation controls',
   assert.equal(writes[0].actorUserId, SUBMITTER_ID)
   assert.equal(writes[0].writeOptions.correctionAuthorized, false)
   assert.equal(writes[0].writeOptions.allowMissingPlayerHistory, true)
+  assert.deepEqual(
+    writes[0].approved.reviewPayload.processing_log.screenshot_filenames,
+    ['round-1-score.png'],
+  )
+  assert.deepEqual(
+    writes[0].approved.reviewPayload.processing_log.extracted_values,
+    [{ placement: 1, slot: 'A', kills: 10 }],
+  )
+  assert.deepEqual(
+    writes[0].approved.reviewPayload.processing_log.final_scores,
+    [{
+      placement: 1,
+      slot: 'A',
+      team_name: 'Official A',
+      placement_points: 20,
+      kill_points: 10,
+      total_score: 30,
+    }],
+  )
   assert.equal(automaticInteraction.followUps.length, 1)
-  assert.match(automaticInteraction.followUps[0].content, /tallied automatically/)
-  assert.equal(automaticInteraction.followUps[0].components, undefined)
+  assert.match(automaticInteraction.followUps[0].content, /NIGHTRAID GAME 1 RESULT/)
+  assert.match(automaticInteraction.followUps[0].content, /Official A/)
+  assert.match(automaticInteraction.followUps[0].content, /Placement: \*\*#1\*\*/)
+  assert.match(automaticInteraction.followUps[0].content, /Kills: \*\*10\*\*/)
+  assert.match(automaticInteraction.followUps[0].content, /Placement Points: \*\*20\*\*/)
+  assert.match(automaticInteraction.followUps[0].content, /Kill Points: \*\*10\*\*/)
+  assert.match(automaticInteraction.followUps[0].content, /TOTAL SCORE: \*\*30 POINTS\*\*/)
+  assert.match(automaticInteraction.followUps[0].content, /Google Sheet Updated/)
+  assert.deepEqual(automaticInteraction.followUps[0].embeds, [])
+  assert.deepEqual(automaticInteraction.followUps[0].components, [])
 })
 
 test('automatic tally retries once and writes without review when the second read succeeds', async () => {
@@ -593,7 +661,7 @@ test('automatic tally retries once and writes without review when the second rea
   assert.equal(writes, 1)
   assert.equal(automaticInteraction.followUps.length, 1)
   assert.match(automaticInteraction.followUps[0].content, /tallied automatically/)
-  assert.equal(automaticInteraction.followUps[0].components, undefined)
+  assert.deepEqual(automaticInteraction.followUps[0].components, [])
 })
 
 test('automatic tally writes displayed PLACE and KILLS without requiring player review', async () => {
@@ -627,7 +695,88 @@ test('automatic tally writes displayed PLACE and KILLS without requiring player 
   assert.ok(approvedSubmission.reviewPayload.warning_count > 0)
   assert.equal(approvedSubmission.reviewPayload.round_result.teams[0].team_code, 'A')
   assert.equal(automaticInteraction.followUps.length, 1)
-  assert.equal(automaticInteraction.followUps[0].components, undefined)
+  assert.deepEqual(automaticInteraction.followUps[0].components, [])
+})
+
+test('automatic result confirmation paginates plain Markdown under Discord limits', () => {
+  const source = roundResult(
+    Array.from({ length: 16 }, (_value, index) =>
+      team({
+        rank: index + 1,
+        code: String.fromCharCode(65 + index),
+        totalKills: 20 - index,
+      })),
+  )
+  const mapped = {
+    source: { registered_teams: { channel_id: '1260501981508669471' } },
+    teams: source.teams.map((item) => ({
+      mapping: {
+        official_team: {
+          official_team_name: `TEAM ${item.team_code} - REGISTERED NAME`,
+        },
+      },
+      score_preview: {
+        placement_points: item.rank === 1 ? 20 : item.rank === 2 ? 16 : 5,
+        kill_points: item.team_total_kills,
+        total_points:
+          (item.rank === 1 ? 20 : item.rank === 2 ? 16 : 5)
+          + item.team_total_kills,
+      },
+    })),
+  }
+  const messages = renderAutomaticTallyConfirmation({
+    round: 1,
+    reviewPayload: {
+      round_result: source,
+      mapping_result: mapped,
+      excluded_teams: [],
+    },
+  })
+
+  assert.ok(messages.length > 1)
+  assert.ok(messages.every((message) => message.length <= 2_000))
+  assert.equal(messages.filter((message) => message.includes('Google Sheet Updated')).length, 1)
+  assert.equal(
+    messages.join('\n').match(/^## /gm)?.length,
+    16,
+  )
+})
+
+test('processing log records the required timestamp, OCR values, and final scores', () => {
+  const payload = {
+    round_result: roundResult([team({ rank: 1, code: 'O', totalKills: 65 })]),
+    mapping_result: {
+      teams: [{
+        mapping: {
+          official_team: { official_team_name: 'LGT - AKATSOKE' },
+        },
+        score_preview: {
+          placement_points: 20,
+          kill_points: 65,
+          total_points: 85,
+        },
+      }],
+    },
+  }
+  const log = buildAutomaticProcessingLog(
+    storedSubmission(),
+    payload,
+    '2026-07-30T12:00:00.000Z',
+  )
+
+  assert.equal(log.processed_at, '2026-07-30T12:00:00.000Z')
+  assert.deepEqual(log.screenshot_filenames, ['round-1-score.png'])
+  assert.deepEqual(log.extracted_values, [
+    { placement: 1, slot: 'O', kills: 65 },
+  ])
+  assert.deepEqual(log.final_scores, [{
+    placement: 1,
+    slot: 'O',
+    team_name: 'LGT - AKATSOKE',
+    placement_points: 20,
+    kill_points: 65,
+    total_score: 85,
+  }])
 })
 
 test('automatic tally stops without persistent review when required score data stays unsafe', async () => {
