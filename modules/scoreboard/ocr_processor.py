@@ -17,6 +17,7 @@ from .contracts import FieldReading, ScoreboardResult, ScoreboardRow
 from .image_processor import (
     FieldCrop,
     crop_scoreboard_fields,
+    isolate_kill_digits,
     load_image,
     normalize_image,
     preprocessing_variants,
@@ -538,6 +539,44 @@ def _reconcile_slot_marker(
                 review_required=False,
                 bbox=reading.bbox,
             )
+        if tied_slots == {"D", "F", "P"} and glyph_crop is not None:
+            classified = _classify_d_f_p_glyph(glyph_crop)
+            if classified is not None:
+                return FieldReading(
+                    value=classified,
+                    confidence=0.92,
+                    raw_text=reading.raw_text,
+                    source="ocr+fixed_color_marker+opencv_topology",
+                    corrections=tuple(
+                        dict.fromkeys(
+                            (
+                                *reading.corrections,
+                                "D_F_P_disambiguated_from_fixed_glyph_topology",
+                            )
+                        )
+                    ),
+                    review_required=False,
+                    bbox=reading.bbox,
+                )
+        if tied_slots == {"H", "R"} and glyph_crop is not None:
+            classified = _classify_h_r_glyph(glyph_crop)
+            if classified is not None:
+                return FieldReading(
+                    value=classified,
+                    confidence=0.92,
+                    raw_text=reading.raw_text,
+                    source="ocr+fixed_color_marker+opencv_topology",
+                    corrections=tuple(
+                        dict.fromkeys(
+                            (
+                                *reading.corrections,
+                                "H_R_disambiguated_from_fixed_glyph_topology",
+                            )
+                        )
+                    ),
+                    review_required=False,
+                    bbox=reading.bbox,
+                )
         if reading.value in tied_slots:
             return replace(
                 reading,
@@ -621,6 +660,70 @@ def _slot_glyph_has_hole(crop: FieldCrop) -> bool:
         item[3] >= 0 and active_cv2.contourArea(contours[index]) >= 10
         for index, item in enumerate(hierarchy[0])
     )
+
+
+def _tight_colored_glyph(
+    crop: FieldCrop,
+    *,
+    hue_hint: int,
+) -> np.ndarray | None:
+    active_cv2 = require_opencv()
+    hsv = active_cv2.cvtColor(crop.pixels, active_cv2.COLOR_BGR2HSV)
+    hue_delta = np.abs(hsv[:, :, 0].astype(np.int16) - hue_hint)
+    hue_delta = np.minimum(hue_delta, 180 - hue_delta)
+    mask = np.where(
+        (hue_delta <= 10)
+        & (hsv[:, :, 1] > 100)
+        & (hsv[:, :, 2] > 55),
+        255,
+        0,
+    ).astype(np.uint8)
+    y_points, x_points = np.where(mask > 0)
+    if not len(x_points):
+        return None
+    tight = mask[
+        int(y_points.min()) : int(y_points.max()) + 1,
+        int(x_points.min()) : int(x_points.max()) + 1,
+    ]
+    if tight.shape[0] >= crop.pixels.shape[0] * 0.75:
+        return None
+    return tight
+
+
+def _classify_d_f_p_glyph(crop: FieldCrop) -> str | None:
+    active_cv2 = require_opencv()
+    tight = _tight_colored_glyph(crop, hue_hint=24)
+    if tight is None:
+        return None
+    contours, hierarchy = active_cv2.findContours(
+        tight,
+        active_cv2.RETR_CCOMP,
+        active_cv2.CHAIN_APPROX_SIMPLE,
+    )
+    has_hole = hierarchy is not None and any(
+        item[3] >= 0 and active_cv2.contourArea(contours[index]) >= 3
+        for index, item in enumerate(hierarchy[0])
+    )
+    if not has_hole:
+        return "F"
+    height, width = tight.shape
+    bottom_right = tight[
+        round(height * 0.62) :,
+        round(width * 0.55) :,
+    ]
+    return "D" if float((bottom_right > 0).mean()) >= 0.4 else "P"
+
+
+def _classify_h_r_glyph(crop: FieldCrop) -> str | None:
+    tight = _tight_colored_glyph(crop, hue_hint=40)
+    if tight is None:
+        return None
+    height, width = tight.shape
+    top_center = tight[
+        : max(1, round(height * 0.3)),
+        round(width * 0.25) : max(round(width * 0.75), round(width * 0.25) + 1),
+    ]
+    return "R" if float((top_center > 0).mean()) >= 0.4 else "H"
 
 
 def _reconcile_repeated_one(
@@ -736,6 +839,74 @@ def _reconcile_zero_kill(
     )
 
 
+def _reconcile_eight_nine(
+    reading: FieldReading,
+    crop: FieldCrop,
+) -> FieldReading:
+    if (
+        crop.field != "kills"
+        or not isinstance(reading.value, int)
+        or reading.value % 10 != 9
+    ):
+        return reading
+    active_cv2 = require_opencv()
+    grayscale = active_cv2.cvtColor(crop.pixels, active_cv2.COLOR_BGR2GRAY)
+    mask = isolate_kill_digits(
+        np.where(grayscale > 160, 255, 0).astype(np.uint8)
+    )
+    component_count, labels, stats, _centroids = (
+        active_cv2.connectedComponentsWithStats(mask)
+    )
+    components = [
+        (index, tuple(int(item) for item in stats[index]))
+        for index in range(1, component_count)
+        if (
+            int(stats[index][active_cv2.CC_STAT_AREA]) >= 8
+            and int(stats[index][active_cv2.CC_STAT_HEIGHT]) >= 5
+        )
+    ]
+    if not components:
+        return reading
+    index, component = max(
+        components,
+        key=lambda item: item[1][active_cv2.CC_STAT_LEFT],
+    )
+    left = component[active_cv2.CC_STAT_LEFT]
+    top = component[active_cv2.CC_STAT_TOP]
+    width = component[active_cv2.CC_STAT_WIDTH]
+    height = component[active_cv2.CC_STAT_HEIGHT]
+    glyph = np.where(
+        labels[top : top + height, left : left + width] == index,
+        255,
+        0,
+    ).astype(np.uint8)
+    contours, hierarchy = active_cv2.findContours(
+        glyph,
+        active_cv2.RETR_CCOMP,
+        active_cv2.CHAIN_APPROX_SIMPLE,
+    )
+    holes = 0 if hierarchy is None else sum(
+        1
+        for contour_index, item in enumerate(hierarchy[0])
+        if item[3] >= 0 and active_cv2.contourArea(contours[contour_index]) >= 1
+    )
+    if holes < 2:
+        return reading
+    return FieldReading(
+        value=reading.value - 1,
+        confidence=max(0.93, reading.confidence),
+        raw_text=reading.raw_text,
+        source="ocr+opencv_digit_topology",
+        corrections=tuple(
+            dict.fromkeys(
+                (*reading.corrections, "terminal_9_corrected_to_8_from_two_holes")
+            )
+        ),
+        review_required=False,
+        bbox=reading.bbox,
+    )
+
+
 class LocalScoreboardReader:
     """Read fixed scoreboard rows without any network or AI service."""
 
@@ -766,7 +937,7 @@ class LocalScoreboardReader:
         preferred = {
             "placement": ("inverted_otsu",),
             "slot": ("raw", "inner"),
-            "kills": ("gray_160", "otsu"),
+            "kills": ("gray_160", "gray_200", "otsu"),
         }[crop.field]
         return {
             variant: variants[variant]
@@ -834,9 +1005,17 @@ class LocalScoreboardReader:
             )
             for crop, attempts in zip(crops, attempts_by_crop)
         ]
-        if layout["ocr"].get("fast_mode", False):
+        fallback_fields = set(
+            layout["ocr"].get("individual_fallback_fields", [])
+        )
+        if layout["ocr"].get("fast_mode", False) and not fallback_fields:
             return readings
         for crop_index, (crop, reading) in enumerate(zip(crops, readings)):
+            if (
+                layout["ocr"].get("fast_mode", False)
+                and crop.field not in fallback_fields
+            ):
+                continue
             if crop.row_index in placement_hints and crop.field == "placement":
                 continue
             if reading.review_required:
@@ -892,6 +1071,7 @@ class LocalScoreboardReader:
         for crop, reading in zip(crops, readings):
             reading = _reconcile_repeated_one(reading, crop)
             reading = _reconcile_zero_kill(reading, crop, layout)
+            reading = _reconcile_eight_nine(reading, crop)
             fields[crop.row_index][crop.field] = reading
         for row_index, row_fields in fields.items():
             row_fields["slot"] = _reconcile_slot_marker(

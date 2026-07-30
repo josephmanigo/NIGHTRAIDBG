@@ -19,6 +19,9 @@ from modules.scoreboard.ocr_processor import (
     LocalScoreboardReader,
     OcrAttempt,
     PytesseractEngine,
+    _classify_d_f_p_glyph,
+    _classify_h_r_glyph,
+    _reconcile_eight_nine,
     _reconcile_slot_marker,
     _reconcile_zero_kill,
 )
@@ -103,6 +106,75 @@ class FakeBatchEngine:
 
 
 class ReaderPipelineTests(unittest.TestCase):
+    def test_opencv_disambiguates_fixed_slot_glyph_shapes(self) -> None:
+        active_cv2 = require_opencv()
+        h_r_bgr = active_cv2.cvtColor(
+            np.array([[[40, 225, 190]]], dtype=np.uint8),
+            active_cv2.COLOR_HSV2BGR,
+        )[0, 0].tolist()
+        d_f_p_bgr = active_cv2.cvtColor(
+            np.array([[[24, 225, 190]]], dtype=np.uint8),
+            active_cv2.COLOR_HSV2BGR,
+        )[0, 0].tolist()
+
+        def glyph() -> np.ndarray:
+            return np.zeros((50, 36, 3), dtype=np.uint8)
+
+        h_pixels = glyph()
+        active_cv2.line(h_pixels, (7, 7), (7, 42), h_r_bgr, 4)
+        active_cv2.line(h_pixels, (28, 7), (28, 42), h_r_bgr, 4)
+        active_cv2.line(h_pixels, (7, 24), (28, 24), h_r_bgr, 4)
+        r_pixels = glyph()
+        active_cv2.line(r_pixels, (7, 7), (7, 42), h_r_bgr, 4)
+        active_cv2.line(r_pixels, (7, 7), (27, 7), h_r_bgr, 4)
+        active_cv2.line(r_pixels, (7, 24), (27, 24), h_r_bgr, 4)
+        active_cv2.line(r_pixels, (27, 7), (27, 24), h_r_bgr, 4)
+        active_cv2.line(r_pixels, (18, 24), (29, 42), h_r_bgr, 4)
+
+        d_pixels = glyph()
+        active_cv2.rectangle(d_pixels, (7, 7), (28, 42), d_f_p_bgr, 4)
+        f_pixels = glyph()
+        active_cv2.line(f_pixels, (7, 7), (7, 42), d_f_p_bgr, 4)
+        active_cv2.line(f_pixels, (7, 7), (28, 7), d_f_p_bgr, 4)
+        active_cv2.line(f_pixels, (7, 24), (25, 24), d_f_p_bgr, 4)
+        p_pixels = glyph()
+        active_cv2.line(p_pixels, (7, 7), (7, 42), d_f_p_bgr, 4)
+        active_cv2.line(p_pixels, (7, 7), (28, 7), d_f_p_bgr, 4)
+        active_cv2.line(p_pixels, (7, 24), (28, 24), d_f_p_bgr, 4)
+        active_cv2.line(p_pixels, (28, 7), (28, 24), d_f_p_bgr, 4)
+
+        def crop(pixels: np.ndarray) -> FieldCrop:
+            padded = np.pad(
+                pixels,
+                ((10, 10), (5, 5), (0, 0)),
+                constant_values=0,
+            )
+            return FieldCrop(0, "slot", (0, 0, 46, 70), padded)
+
+        self.assertEqual(_classify_h_r_glyph(crop(h_pixels)), "H")
+        self.assertEqual(_classify_h_r_glyph(crop(r_pixels)), "R")
+        self.assertEqual(_classify_d_f_p_glyph(crop(d_pixels)), "D")
+        self.assertEqual(_classify_d_f_p_glyph(crop(f_pixels)), "F")
+        self.assertEqual(_classify_d_f_p_glyph(crop(p_pixels)), "P")
+
+    def test_opencv_corrects_a_terminal_nine_when_the_glyph_has_two_holes(
+        self,
+    ) -> None:
+        active_cv2 = require_opencv()
+        pixels = np.zeros((40, 30, 3), dtype=np.uint8)
+        active_cv2.rectangle(pixels, (9, 5), (21, 34), (255, 255, 255), 3)
+        active_cv2.line(pixels, (9, 19), (21, 19), (255, 255, 255), 3)
+        reading = FieldReading(value=29, confidence=0.86)
+
+        corrected = _reconcile_eight_nine(
+            reading,
+            FieldCrop(0, "kills", (0, 0, 30, 40), pixels),
+        )
+
+        self.assertEqual(corrected.value, 28)
+        self.assertEqual(corrected.source, "ocr+opencv_digit_topology")
+        self.assertFalse(corrected.review_required)
+
     def test_opencv_topology_disambiguates_tied_d_and_f_markers(self) -> None:
         active_cv2 = require_opencv()
         bgr = active_cv2.cvtColor(
@@ -395,7 +467,7 @@ class ReaderPipelineTests(unittest.TestCase):
         )
         variants = reader._preprocessing_variants(crop, layout)
 
-        self.assertEqual(list(variants), ["gray_160", "otsu"])
+        self.assertEqual(list(variants), ["gray_160", "gray_200", "otsu"])
 
 
 if __name__ == "__main__":

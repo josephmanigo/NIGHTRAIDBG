@@ -68,6 +68,12 @@ class ImageLayoutTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_layout(layout)
 
+    def test_fast_fallback_fields_are_limited_to_score_fields(self) -> None:
+        layout = test_layout()
+        layout["ocr"]["individual_fallback_fields"] = ["avatar"]
+        with self.assertRaises(ValueError):
+            validate_layout(layout)
+
     def test_kill_crop_removes_the_large_left_skull_and_keeps_digits(self) -> None:
         mask = np.zeros((30, 60), dtype=np.uint8)
         mask[5:25, 2:22] = 255

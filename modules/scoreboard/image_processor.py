@@ -150,6 +150,17 @@ def validate_layout(layout: dict[str, Any]) -> dict[str, Any]:
     _positive_integer(ocr.get("upscale"), "layout.ocr.upscale")
     if not isinstance(ocr.get("fast_mode", False), bool):
         raise ValueError("layout.ocr.fast_mode must be a boolean")
+    fallback_fields = ocr.get("individual_fallback_fields", [])
+    if (
+        not isinstance(fallback_fields, list)
+        or any(
+            field not in {"placement", "slot", "kills"}
+            for field in fallback_fields
+        )
+    ):
+        raise ValueError(
+            "layout.ocr.individual_fallback_fields must contain placement, slot, or kills"
+        )
     _fraction(ocr.get("minimum_confidence"), "layout.ocr.minimum_confidence")
     _fraction(
         ocr.get("sequence_anchor_confidence"),

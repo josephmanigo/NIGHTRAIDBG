@@ -19,7 +19,14 @@
     [0, 854, 1000, 122]
   ],
   "placement_hints": {
-    "0": 1
+    "0": 1,
+    "1": 2,
+    "2": 3,
+    "3": 4,
+    "4": 5,
+    "5": 6,
+    "6": 7,
+    "7": 8
   },
   "columns": {
     "placement": [0, 150, 325, 700],
@@ -51,6 +58,7 @@
   "ocr": {
     "upscale": 4,
     "fast_mode": true,
+    "individual_fallback_fields": ["kills"],
     "minimum_confidence": 0.82,
     "sequence_anchor_confidence": 0.7,
     "placement_hint_confidence": 0.96,
