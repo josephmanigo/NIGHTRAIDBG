@@ -90,6 +90,7 @@ function buildState(values = new Map(), options = {}) {
   const gridRows = []
   const headers = Array.from({ length: 20 }, () => ({}))
   for (const [column, label] of [
+    [9, 'TEAM'],
     [10, 'PLACE'], [11, 'PLACEMENT POINTS'], [12, 'KILLS'],
     [13, 'PLACE'], [14, 'PLACEMENT POINTS'], [15, 'KILLS'],
     [16, 'PLACE'], [17, 'PLACEMENT POINTS'], [18, 'KILLS'],
@@ -104,7 +105,10 @@ function buildState(values = new Map(), options = {}) {
     const cells = Array.from({ length: 20 }, () => ({}))
     cells[0] = textCell(`${slot}-${code}`)
     cells[1] = numberCell(slot)
-    cells[2] = textCell(`Official ${code}`)
+    const teamName = values.get(key(row, 9))
+    cells[2] = teamName === undefined
+      ? numberCell(null)
+      : textCell(teamName)
 
     for (const columns of [
       { place: 10, points: 11, kills: 12 },
@@ -389,6 +393,8 @@ function memorySheetClient(options = {}) {
         const entered = update.rows[0].values[0].userEnteredValue
         if (entered?.numberValue !== undefined) {
           values.set(key(row, column), entered.numberValue)
+        } else if (entered?.stringValue !== undefined) {
+          values.set(key(row, column), entered.stringValue)
         } else {
           values.delete(key(row, column))
         }
@@ -399,7 +405,7 @@ function memorySheetClient(options = {}) {
   }
 }
 
-test('builds a Round 1 plan for only K22 PLACE and M22 KILLS', () => {
+test('builds a Round 1 plan for J22 TEAM, K22 PLACE, and M22 KILLS', () => {
   const plan = buildSafeSheetWritePlan({
     submission: rankOneSubmission(),
     state: buildState(),
@@ -408,10 +414,11 @@ test('builds a Round 1 plan for only K22 PLACE and M22 KILLS', () => {
 
   assert.equal(plan.round, 1)
   assert.deepEqual(plan.writePayload, [
+    { a1: 'J22', role: 'team_name', team_code: 'O', value: 'Official O' },
     { a1: 'K22', role: 'place', team_code: 'O', value: 1 },
     { a1: 'M22', role: 'kills', team_code: 'O', value: 65 },
   ])
-  assert.equal(plan.requests.length, 2)
+  assert.equal(plan.requests.length, 3)
   assert.deepEqual(
     plan.requests.map((request) => [
       request.updateCells.range.startRowIndex,
@@ -419,6 +426,7 @@ test('builds a Round 1 plan for only K22 PLACE and M22 KILLS', () => {
       request.updateCells.fields,
     ]),
     [
+      [21, 9, 'userEnteredValue'],
       [21, 10, 'userEnteredValue'],
       [21, 12, 'userEnteredValue'],
     ],
@@ -572,8 +580,11 @@ test('creates the backup before writing and verifies Round 1 recalculation', asy
   assert.equal(sheetClient.events[0], 'sheet-read')
   assert.equal(sheetClient.events[1], 'sheet-write')
   assert.equal(store.latestAudit().status, 'verified')
-  assert.equal(store.latestAudit().beforeSnapshot.target_cells[0].a1, 'K22')
-  assert.equal(store.latestAudit().afterSnapshot.target_cells[0].user_entered_value.numberValue, 1)
+  assert.equal(store.latestAudit().beforeSnapshot.target_cells[0].a1, 'J22')
+  assert.equal(
+    store.latestAudit().afterSnapshot.target_cells[0].user_entered_value.stringValue,
+    'Official O',
+  )
   assert.equal(result.verification.target_values_match, true)
   assert.equal(result.verification.formulas_preserved, true)
   assert.equal(result.verification.formatting_preserved, true)
@@ -624,6 +635,7 @@ test('automatic score-only tally records missing player history without undoing 
     /has no player rows to preserve/,
   )
   assert.equal(store.histories().length, 0)
+  assert.equal(sheetClient.values.get(key(21, 9)), 'Official O')
   assert.equal(sheetClient.values.get(key(21, 10)), 1)
   assert.equal(sheetClient.values.get(key(21, 12)), 65)
 })
@@ -639,6 +651,7 @@ test('production mode uses the same safe input map and verifies New', async () =
   assert.equal(result.audit.scoreSheetMode, 'production')
   assert.equal(result.audit.worksheetName, PRODUCTION_WORKSHEET)
   assert.deepEqual(result.audit.writePayload, [
+    { a1: 'J22', role: 'team_name', team_code: 'O', value: 'Official O' },
     { a1: 'K22', role: 'place', team_code: 'O', value: 1 },
     { a1: 'M22', role: 'kills', team_code: 'O', value: 65 },
   ])
@@ -706,6 +719,7 @@ test('requires an authorized, changed correction to replace a verified round', a
   assert.equal(corrected.audit.correctionAuthorizedBy, 'scorekeeper-1')
   assert.equal(sheetClient.values.get(key(21, 10)), 2)
   assert.equal(sheetClient.values.get(key(21, 12)), 60)
+  assert.equal(sheetClient.values.get(key(21, 9)), 'Official O')
   assert.equal(store.histories().length, 2)
   assert.equal(store.histories()[0].status, 'superseded')
   assert.equal(store.histories()[0].payload.players[0].team_total_kills, 65)
@@ -722,7 +736,7 @@ test('requires an authorized, changed correction to replace a verified round', a
       'scorekeeper-1',
       { correctionAuthorized: true },
     ),
-    /duplicate with no PLACE or KILLS changes/,
+    /duplicate with no TEAM, PLACE, or KILLS changes/,
   )
 })
 
@@ -748,6 +762,7 @@ test('rolling back a production correction restores the previous verified values
   )
 
   assert.equal(rolledBack.status, 'rolled_back')
+  assert.equal(sheetClient.values.get(key(21, 9)), 'Official O')
   assert.equal(sheetClient.values.get(key(21, 10)), 1)
   assert.equal(sheetClient.values.get(key(21, 12)), 65)
   assert.equal(rolledBack.submission.status, 'confirmed')
@@ -760,6 +775,7 @@ test('rolling back a production correction restores the previous verified values
     'admin-1',
   )
   assert.equal(initialRollback.submission.status, 'approved_for_writing')
+  assert.equal(sheetClient.values.has(key(21, 9)), false)
   assert.equal(sheetClient.values.has(key(21, 10)), false)
   assert.equal(sheetClient.values.has(key(21, 12)), false)
 })
@@ -776,6 +792,7 @@ test('rollback restores the exact previous values and updates the audit', async 
   )
 
   assert.equal(rolledBack.status, 'rolled_back')
+  assert.equal(sheetClient.values.has(key(21, 9)), false)
   assert.equal(sheetClient.values.has(key(21, 10)), false)
   assert.equal(sheetClient.values.has(key(21, 12)), false)
   assert.equal(store.latestAudit().status, 'rolled_back')
@@ -827,6 +844,23 @@ test('the HTTP client reads first and accepts only precise single-cell value upd
       fields: 'userEnteredValue',
     },
   }])
+  await client.updateCells([{
+    updateCells: {
+      range: {
+        sheetId: GAME_RESULTS_TEST_SHEET_ID,
+        startRowIndex: 21,
+        endRowIndex: 22,
+        startColumnIndex: 9,
+        endColumnIndex: 10,
+      },
+      rows: [{
+        values: [{
+          userEnteredValue: { stringValue: 'LGT - AKATSOKE' },
+        }],
+      }],
+      fields: 'userEnteredValue',
+    },
+  }])
 
   assert.equal(calls[0].init.method, 'GET')
   assert.match(decodeURIComponent(calls[0].url).replaceAll('+', ' '), /'Copy of New'!H7:AA32/)
@@ -835,6 +869,12 @@ test('the HTTP client reads first and accepts only precise single-cell value upd
   const body = JSON.parse(calls[1].init.body)
   assert.equal(body.requests.length, 1)
   assert.equal(body.requests[0].updateCells.fields, 'userEnteredValue')
+  const teamBody = JSON.parse(calls[2].init.body)
+  assert.equal(
+    teamBody.requests[0].updateCells.rows[0].values[0]
+      .userEnteredValue.stringValue,
+    'LGT - AKATSOKE',
+  )
   await assert.rejects(
     () => client.updateCells([{
       updateCells: {
@@ -858,6 +898,26 @@ test('the HTTP client reads first and accepts only precise single-cell value upd
           sheetId: GAME_RESULTS_TEST_SHEET_ID,
           startRowIndex: 21,
           endRowIndex: 22,
+          startColumnIndex: 9,
+          endColumnIndex: 10,
+        },
+        rows: [{
+          values: [{
+            userEnteredValue: { stringValue: '=IMPORTXML("x")' },
+          }],
+        }],
+        fields: 'userEnteredValue',
+      },
+    }]),
+    /formula trigger/,
+  )
+  await assert.rejects(
+    () => client.updateCells([{
+      updateCells: {
+        range: {
+          sheetId: GAME_RESULTS_TEST_SHEET_ID,
+          startRowIndex: 21,
+          endRowIndex: 22,
           startColumnIndex: 11,
           endColumnIndex: 12,
         },
@@ -865,6 +925,6 @@ test('the HTTP client reads first and accepts only precise single-cell value upd
         fields: 'userEnteredValue',
       },
     }]),
-    /only precise PLACE\/KILLS/,
+    /only precise TEAM\/PLACE\/KILLS/,
   )
 })

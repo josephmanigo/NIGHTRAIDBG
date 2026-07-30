@@ -26,6 +26,7 @@ const MVP_READ_RANGES = [
   `'${DEFAULT_MVP_WORKSHEET_NAME}'!C8:L27`,
 ]
 const ALLOWED_INPUT_COLUMNS = new Set([10, 12, 13, 15, 16, 18, 19, 21])
+const TEAM_NAME_COLUMN = 9
 const FIRST_TEAM_ROW = 7
 const LAST_TEAM_ROW_EXCLUSIVE = 32
 const MVP_FIRST_PLAYER_ROW = 9
@@ -187,16 +188,29 @@ function validateUpdateRequests(requests, sheetId) {
       || update.rows[0]?.values?.length !== 1
       || range.startRowIndex < FIRST_TEAM_ROW
       || range.startRowIndex >= LAST_TEAM_ROW_EXCLUSIVE
-      || !ALLOWED_INPUT_COLUMNS.has(range.startColumnIndex)
+      || (
+        range.startColumnIndex !== TEAM_NAME_COLUMN
+        && !ALLOWED_INPUT_COLUMNS.has(range.startColumnIndex)
+      )
     ) {
       throw new Error(
-        'Loop 7 permits only precise PLACE/KILLS team-cell userEnteredValue updates.',
+        'The score writer permits only precise TEAM/PLACE/KILLS userEnteredValue updates.',
       )
     }
     const entered = update.rows[0].values[0]?.userEnteredValue
     if (entered) {
       if (Object.hasOwn(entered, 'formulaValue')) {
-        throw new Error('Loop 7 refuses formula or unsupported cell writes.')
+        throw new Error('The score writer refuses formula or unsupported cell writes.')
+      }
+      if (range.startColumnIndex === TEAM_NAME_COLUMN) {
+        if (
+          !Object.hasOwn(entered, 'stringValue')
+          || Object.keys(entered).length !== 1
+        ) {
+          throw new Error('TEAM writes accept only safe text or blank values.')
+        }
+        validateSafeSheetText(entered.stringValue, 'Official team name')
+        continue
       }
       const value = entered.numberValue
       if (!Number.isInteger(value) || value < 0) {

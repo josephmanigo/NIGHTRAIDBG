@@ -746,8 +746,8 @@ export function renderGameResultsReview(submission) {
     '',
     `Blocking issues: **${payload?.blocking_issue_count ?? 0}** • Confidence warnings: **${payload?.warning_count ?? 0}**`,
     payload?.spreadsheet_write_performed
-      ? `-# PLACE and KILLS were verified on ${scoreSheetWorksheet} (${scoreSheetMode} mode).`
-      : `-# Confirming writes PLACE and KILLS to ${scoreSheetWorksheet} (${scoreSheetMode} mode).`,
+      ? `-# TEAM, PLACE, and KILLS were verified on ${scoreSheetWorksheet} (${scoreSheetMode} mode).`
+      : `-# Confirming writes TEAM, PLACE, and KILLS to ${scoreSheetWorksheet} (${scoreSheetMode} mode).`,
   )
   return { content: limitedContent(lines), page, pageCount }
 }
@@ -1457,7 +1457,7 @@ export function createGameResultsReviewWorkflow(options = {}) {
       )]
       await ephemeral(
         interaction,
-        `Rollback the audited PLACE/KILLS write on ${scoreSheetWorksheet}? This refuses if those cells changed afterward.`,
+        `Rollback the audited TEAM/PLACE/KILLS write on ${scoreSheetWorksheet}? This refuses if those cells changed afterward.`,
         components,
       )
       return { status: 'rollback_confirmation' }

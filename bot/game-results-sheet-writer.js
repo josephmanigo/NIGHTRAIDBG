@@ -5,6 +5,7 @@ import {
   GAME_RESULTS_TEST_SHEET_ID,
 } from './game-results-sheet-client.js'
 import { buildConfirmedPlayerHistory } from './game-results-player-history.js'
+import { validateSafeSheetText } from './game-results-runtime.js'
 import { createSupabaseGameResultsStore } from './game-results-store.js'
 import {
   DEFAULT_GAME_RESULTS_SPREADSHEET_ID,
@@ -22,6 +23,7 @@ const PENALTY_COLUMN = 24
 const FINAL_SCORE_COLUMN = 25
 const RANK_COLUMN = 26
 const SLOT_CODE_COLUMN = 7
+const TEAM_NAME_COLUMN = 9
 const TEAM_FIRST_ROW = 7
 const TEAM_LAST_ROW_EXCLUSIVE = 32
 
@@ -121,6 +123,17 @@ function enteredNumber(cell) {
   return Number.isFinite(value) ? value : null
 }
 
+function enteredText(cell) {
+  const value = cell?.userEnteredValue?.stringValue
+  return typeof value === 'string' ? value : null
+}
+
+function enteredTargetValue(target) {
+  return target.role === 'team_name'
+    ? target.user_entered_value?.stringValue ?? null
+    : target.user_entered_value?.numberValue ?? null
+}
+
 function effectiveNumber(cell) {
   const value = cell?.effectiveValue?.numberValue
   return Number.isFinite(value) ? value : null
@@ -190,6 +203,28 @@ function numericCellRequest(sheetId, rowIndex, columnIndex, value) {
       },
       rows: [{
         values: [{ userEnteredValue: { numberValue: value } }],
+      }],
+      fields: 'userEnteredValue',
+    },
+  }
+}
+
+function textCellRequest(sheetId, rowIndex, columnIndex, value) {
+  return {
+    updateCells: {
+      range: {
+        sheetId,
+        startRowIndex: rowIndex,
+        endRowIndex: rowIndex + 1,
+        startColumnIndex: columnIndex,
+        endColumnIndex: columnIndex + 1,
+      },
+      rows: [{
+        values: [{
+          userEnteredValue: {
+            stringValue: validateSafeSheetText(value, 'Official team name'),
+          },
+        }],
       }],
       fields: 'userEnteredValue',
     },
@@ -313,6 +348,9 @@ export function buildSafeSheetWritePlan({ submission, state, sheetConfig }) {
   if (cells.get(cellKey(6, columns.kills))?.formattedValue !== 'KILLS') {
     throw new Error(`Column ${columnName(columns.kills)} is not a designated KILLS input column.`)
   }
+  if (cells.get(cellKey(6, TEAM_NAME_COLUMN))?.formattedValue !== 'TEAM') {
+    throw new Error(`Column ${columnName(TEAM_NAME_COLUMN)} is not the designated TEAM column.`)
+  }
 
   const targets = []
   const formulas = []
@@ -325,6 +363,36 @@ export function buildSafeSheetWritePlan({ submission, state, sheetConfig }) {
         `Mapped slot ${team.slotCode} does not match sheet row ${team.worksheetRow} (${sheetSlot ?? 'blank'}).`,
       )
     }
+    const teamName = validateSafeSheetText(
+      team.officialTeamName,
+      `Official team name for slot ${team.teamCode}`,
+    )
+    const teamNameAddress = a1(team.rowIndex, TEAM_NAME_COLUMN)
+    const teamNameCell = cells.get(cellKey(team.rowIndex, TEAM_NAME_COLUMN)) ?? {}
+    if (formula(teamNameCell)) {
+      throw new Error(`Target ${teamNameAddress} contains a protected formula.`)
+    }
+    if (cellIsProtected(sheet, team.rowIndex, TEAM_NAME_COLUMN)) {
+      throw new Error(`Target ${teamNameAddress} is inside a protected range.`)
+    }
+    if (cellIsMerged(sheet, team.rowIndex, TEAM_NAME_COLUMN)) {
+      throw new Error(`Target ${teamNameAddress} is part of a merged range.`)
+    }
+    targets.push({
+      ...cellSnapshot(cells, team.rowIndex, TEAM_NAME_COLUMN),
+      role: 'team_name',
+      intended_value: teamName,
+      team_code: team.teamCode,
+      official_team_name: teamName,
+    })
+    requests.push(
+      textCellRequest(
+        sheetConfig.sheetId,
+        team.rowIndex,
+        TEAM_NAME_COLUMN,
+        teamName,
+      ),
+    )
     for (const [role, column, value] of [
       ['place', columns.place, team.place],
       ['kills', columns.kills, team.kills],
@@ -435,8 +503,15 @@ export function verifySafeSheetWrite(plan, state) {
     role: item.role,
   }))
   const targetValuesMatch = targets.every((target) =>
-    target.user_entered_value?.numberValue === target.intended_value
-    && target.effective_value?.numberValue === target.intended_value)
+    target.role === 'team_name'
+      ? (
+          target.user_entered_value?.stringValue === target.intended_value
+          && target.effective_value?.stringValue === target.intended_value
+        )
+      : (
+          target.user_entered_value?.numberValue === target.intended_value
+          && target.effective_value?.numberValue === target.intended_value
+        ))
   const formulasPreserved = formulas.every((item, index) =>
     item.user_entered_value?.formulaValue
       === plan.formulas[index].user_entered_value?.formulaValue)
@@ -544,9 +619,9 @@ export function createSafeGameResultsSheetWriter(options = {}) {
     if (
       correctionRequested
       && plan.targets.every((target) =>
-        target.user_entered_value?.numberValue === target.intended_value)
+        enteredTargetValue(target) === target.intended_value)
     ) {
-      throw new Error('Correction mode refused a duplicate with no PLACE or KILLS changes.')
+      throw new Error('Correction mode refused a duplicate with no TEAM, PLACE, or KILLS changes.')
     }
     await options.backupService?.backupNow(
       `before_${plan.mode}_round_${plan.round}_${correctionRequested ? 'correction' : 'write'}`,
@@ -706,11 +781,17 @@ export function createSafeGameResultsSheetWriter(options = {}) {
       if (cellIsMerged(sheet, rowIndex, columnIndex)) {
         throw new Error(`Rollback target ${target.a1} is now merged.`)
       }
-      const current = enteredNumber(cells.get(cellKey(rowIndex, columnIndex)))
+      const current = target.role === 'team_name'
+        ? enteredText(cells.get(cellKey(rowIndex, columnIndex)))
+        : enteredNumber(cells.get(cellKey(rowIndex, columnIndex)))
+      const afterTarget = audit.afterSnapshot?.target_cells
+        ?.find((item) => item.a1 === target.a1)
       const expectedAfter =
-        audit.afterSnapshot?.target_cells
-          ?.find((item) => item.a1 === target.a1)
-          ?.user_entered_value?.numberValue
+        (
+          target.role === 'team_name'
+            ? afterTarget?.user_entered_value?.stringValue
+            : afterTarget?.user_entered_value?.numberValue
+        )
         ?? intendedByCell.get(target.a1)
       if (current !== expectedAfter) {
         throw new Error(

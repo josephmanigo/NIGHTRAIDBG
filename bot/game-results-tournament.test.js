@@ -74,6 +74,7 @@ function scoreState() {
   }))
   const rows = []
   const headers = Array.from({ length: 20 }, () => ({}))
+  headers[9 - 7] = textCell('TEAM')
   for (const columns of ROUND_COLUMNS) {
     headers[columns.place - 7] = textCell('PLACE')
     headers[columns.points - 7] = textCell('PLACEMENT POINTS')
@@ -203,7 +204,8 @@ function testSheetClient(state) {
         if (entered) {
           target.userEnteredValue = structuredClone(entered)
           target.effectiveValue = structuredClone(entered)
-          target.formattedValue = String(entered.numberValue)
+          target.formattedValue =
+            entered.stringValue ?? String(entered.numberValue)
         }
       }
       recalculateScores(state)
@@ -516,7 +518,7 @@ test('runs a complete four-round mock tournament in test mode without damaging f
     const result = await writer.writeConfirmedSubmission(round, 'scorekeeper-1')
     assert.equal(result.status, 'verified')
     assert.equal(result.audit.worksheetName, 'Copy of New')
-    assert.equal(result.audit.beforeSnapshot.target_cells.length, 4)
+    assert.equal(result.audit.beforeSnapshot.target_cells.length, 6)
     assert.equal(result.verification.formulas_preserved, true)
     assert.equal(result.verification.formatting_preserved, true)
   }
