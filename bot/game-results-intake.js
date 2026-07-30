@@ -20,6 +20,7 @@ const SUPPORTED_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp'])
 const SUPPORTED_CONTENT_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp'])
 const ROUND_BUTTON_PATTERN = /^nr-game-results-round:(\d{16,22}):([1-4])$/
 const DISCORD_MESSAGE_LIMIT = 2_000
+const LOCAL_OCR_RECOVERY_REVISION = 'fixed-scoreboard-layout-v3'
 
 function configuredRoleIds(value) {
   if (value instanceof Set) return new Set(value)
@@ -581,15 +582,25 @@ export function createGameResultsIntake(options = {}) {
     const submissions = await store.listRecoverableSubmissions()
     const latestRetryableAutomaticSubmission = new Map()
     for (const submission of submissions) {
+      const recoveryRevisionChanged = (
+        submission.reviewPayload?.startup_local_ocr_retry_revision
+        !== LOCAL_OCR_RECOVERY_REVISION
+      )
       const retryableLocalOcrFailure = (
         ['failed', 'processing'].includes(submission.status)
         && submission.reviewPayload?.automatic_tally === true
-        && (submission.reviewPayload?.issues ?? []).some((issue) =>
-          issue?.severity === 'blocking'
-          && (
-            String(issue?.message ?? '').includes('Local OCR worker timed out after')
-            || String(issue?.message ?? '').includes('Local OCR worker failed (')
-          ))
+        && (
+          (
+            recoveryRevisionChanged
+            && Number(submission.reviewPayload?.blocking_issue_count ?? 0) > 0
+          )
+          || (submission.reviewPayload?.issues ?? []).some((issue) =>
+            issue?.severity === 'blocking'
+            && (
+              String(issue?.message ?? '').includes('Local OCR worker timed out after')
+              || String(issue?.message ?? '').includes('Local OCR worker failed (')
+            ))
+        )
       )
       if (!retryableLocalOcrFailure) continue
       latestRetryableAutomaticSubmission.set(
@@ -613,11 +624,17 @@ export function createGameResultsIntake(options = {}) {
         && submission.reviewPayload?.blocking_issue_count === 0
         && submission.reviewPayload?.spreadsheet_write_performed !== true
       )
-      const localOcrRecoveryCount = Number(
-        submission.reviewPayload?.startup_local_ocr_retry_count
-        ?? submission.reviewPayload?.startup_timeout_retry_count
-        ?? 0,
+      const recoveryRevisionChanged = (
+        submission.reviewPayload?.startup_local_ocr_retry_revision
+        !== LOCAL_OCR_RECOVERY_REVISION
       )
+      const localOcrRecoveryCount = recoveryRevisionChanged
+        ? 0
+        : Number(
+          submission.reviewPayload?.startup_local_ocr_retry_count
+          ?? submission.reviewPayload?.startup_timeout_retry_count
+          ?? 0,
+        )
       const retryableAutomaticOcrFailure = (
         ['failed', 'processing'].includes(submission.status)
         && submission.reviewPayload?.automatic_tally === true
@@ -658,6 +675,7 @@ export function createGameResultsIntake(options = {}) {
               ...submission.reviewPayload,
               startup_local_ocr_retry_count: localOcrRecoveryCount + 1,
               startup_local_ocr_retry_at: new Date().toISOString(),
+              startup_local_ocr_retry_revision: LOCAL_OCR_RECOVERY_REVISION,
               ...(timedOut
                 ? {
                     startup_timeout_retry_count: localOcrRecoveryCount + 1,

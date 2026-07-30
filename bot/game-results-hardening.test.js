@@ -499,6 +499,7 @@ test('startup recovery retries one latest local-worker failure for each round', 
       automatic_tally: true,
       blocking_issue_count: 3,
       spreadsheet_write_performed: false,
+      startup_local_ocr_retry_count: 1,
       issues: [{
         type: 'conflicting_screenshot_values',
         severity: 'blocking',
@@ -542,4 +543,6 @@ test('startup recovery retries one latest local-worker failure for each round', 
   assert.equal(saved.length, 2)
   assert.equal(saved.every((item) =>
     item.payload.startup_local_ocr_retry_count === 1), true)
+  assert.equal(saved.every((item) =>
+    item.payload.startup_local_ocr_retry_revision === 'fixed-scoreboard-layout-v3'), true)
 })

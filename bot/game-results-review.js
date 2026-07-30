@@ -1229,6 +1229,7 @@ export function createGameResultsReviewWorkflow(options = {}) {
           [
             'startup_local_ocr_retry_count',
             'startup_local_ocr_retry_at',
+            'startup_local_ocr_retry_revision',
             'startup_timeout_retry_count',
             'startup_timeout_retry_at',
           ].flatMap((key) =>
