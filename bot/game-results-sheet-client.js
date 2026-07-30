@@ -20,7 +20,7 @@ const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token'
 const GOOGLE_SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets'
 const GOOGLE_SHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets'
 const DEFAULT_TIMEOUT_MS = 15_000
-const READ_RANGES = ['B8:C32', 'H7:AA32']
+const READ_RANGES = ['B8:C32', 'H6:AA32']
 const MVP_READ_RANGES = [
   `${DEFAULT_PRODUCTION_WORKSHEET_NAME}!H7:AA32`,
   `'${DEFAULT_MVP_WORKSHEET_NAME}'!C8:L27`,

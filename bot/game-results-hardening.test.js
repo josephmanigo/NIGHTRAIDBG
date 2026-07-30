@@ -85,6 +85,25 @@ test('validates deployment aliases and loads the service-account file without ex
     resolveGoogleServiceAccount(env).privateKey,
     'secret-private-key',
   )
+  assert.equal(
+    resolveGameResultsConfig(env, {
+      cwd: directory,
+      requireSecrets: true,
+      productionOnly: true,
+    }).mode,
+    'production',
+  )
+  assert.equal(
+    resolveGameResultsConfig(
+      { ...env, SCORE_SHEET_MODE: 'production' },
+      {
+        cwd: directory,
+        requireSecrets: true,
+        productionOnly: true,
+      },
+    ).mode,
+    'production',
+  )
   assert.throws(
     () => resolveGameResultsConfig({ ...env, SCORE_SHEET_MODE: 'live' }),
     /exactly "test" or "production"/,

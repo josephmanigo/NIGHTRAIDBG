@@ -6,6 +6,8 @@ ENV NODE_ENV=production \
     GAME_RESULTS_PYTHON_EXECUTABLE=python3 \
     GAME_RESULTS_LOCAL_OCR_LAYOUT_PATH=modules/scoreboard/layout.json \
     GAME_RESULTS_LOCAL_OCR_TIMEOUT_MS=120000 \
+    SCORE_SHEET_MODE=production \
+    PRODUCTION_WORKSHEET=New \
     TESSERACT_CMD=tesseract
 
 RUN apt-get update \

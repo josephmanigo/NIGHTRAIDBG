@@ -348,7 +348,7 @@ export function buildSafeSheetWritePlan({ submission, state, sheetConfig }) {
   if (cells.get(cellKey(6, columns.kills))?.formattedValue !== 'KILLS') {
     throw new Error(`Column ${columnName(columns.kills)} is not a designated KILLS input column.`)
   }
-  if (cells.get(cellKey(6, TEAM_NAME_COLUMN))?.formattedValue !== 'TEAM') {
+  if (cells.get(cellKey(5, TEAM_NAME_COLUMN))?.formattedValue !== 'TEAM') {
     throw new Error(`Column ${columnName(TEAM_NAME_COLUMN)} is not the designated TEAM column.`)
   }
 

@@ -10,20 +10,22 @@ test('Render container installs the free local OCR runtime and runs unprivileged
   assert.match(dockerfile, /\btesseract-ocr-eng\b/)
   assert.match(dockerfile, /requirements-scoreboard\.txt/)
   assert.match(dockerfile, /GAME_RESULTS_LOCAL_OCR_TIMEOUT_MS=120000/)
+  assert.match(dockerfile, /SCORE_SHEET_MODE=production/)
+  assert.match(dockerfile, /PRODUCTION_WORKSHEET=New/)
   assert.match(dockerfile, /npm ci --omit=dev --legacy-peer-deps/)
   assert.match(dockerfile, /^USER node$/m)
   assert.match(dockerfile, /node", "bot\/nickname-bot\.js"/)
   assert.doesNotMatch(dockerfile, /OPENAI_API_KEY|GEMINI_API_KEY|VISION_API_KEY/)
 })
 
-test('Render instructions default to test and require explicit production mode', async () => {
+test('Render instructions require production mode and target New only', async () => {
   const instructions = await readFile(
     new URL('../RENDER_LOCAL_OCR.md', import.meta.url),
     'utf8',
   )
   assert.match(instructions, /GAME_RESULTS_SCREENSHOT_READER=local/)
-  assert.match(instructions, /SCORE_SHEET_MODE=test/)
+  assert.match(instructions, /SCORE_SHEET_MODE=production/)
   assert.match(instructions, /TEST_WORKSHEET=Copy of New/)
-  assert.match(instructions, /enabled explicitly with `SCORE_SHEET_MODE=production`/)
-  assert.match(instructions, /strictly targets[\s\S]*`New` worksheet/)
+  assert.match(instructions, /writes scoring results only to the[\s\S]*`New` worksheet/)
+  assert.match(instructions, /forces production mode in code/)
 })

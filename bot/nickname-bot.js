@@ -75,6 +75,7 @@ const required = (name) => {
 const BOT_TOKEN = required('DISCORD_BOT_TOKEN')
 const gameResultsConfig = resolveGameResultsConfig(process.env, {
   requireSecrets: true,
+  productionOnly: true,
 })
 assertLocalOcrTestMode(gameResultsConfig.mode)
 const NICKNAME_CHANNEL_ID = required('DISCORD_NICKNAME_CHANNEL_ID')

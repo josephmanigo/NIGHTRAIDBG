@@ -34,3 +34,6 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+
+# Local game-results rollback snapshots
+game_results.db.backups/

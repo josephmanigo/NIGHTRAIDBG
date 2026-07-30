@@ -73,8 +73,10 @@ function scoreState() {
     values: [numberCell(index + 1), numberCell(placementPoints(index + 1))],
   }))
   const rows = []
+  const teamHeaders = Array.from({ length: 20 }, () => ({}))
+  teamHeaders[9 - 7] = textCell('TEAM')
+  rows.push({ values: teamHeaders })
   const headers = Array.from({ length: 20 }, () => ({}))
-  headers[9 - 7] = textCell('TEAM')
   for (const columns of ROUND_COLUMNS) {
     headers[columns.place - 7] = textCell('PLACE')
     headers[columns.points - 7] = textCell('PLACEMENT POINTS')
@@ -115,7 +117,7 @@ function scoreState() {
       protectedRanges: [],
       data: [
         { startRow: 7, startColumn: 1, rowData: scoringRows },
-        { startRow: 6, startColumn: 7, rowData: rows },
+        { startRow: 5, startColumn: 7, rowData: rows },
       ],
     }],
   }

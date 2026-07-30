@@ -88,9 +88,11 @@ function buildState(values = new Map(), options = {}) {
   }
 
   const gridRows = []
+  const teamHeaders = Array.from({ length: 20 }, () => ({}))
+  teamHeaders[9 - 7] = textCell('TEAM')
+  gridRows.push({ values: teamHeaders })
   const headers = Array.from({ length: 20 }, () => ({}))
   for (const [column, label] of [
-    [9, 'TEAM'],
     [10, 'PLACE'], [11, 'PLACEMENT POINTS'], [12, 'KILLS'],
     [13, 'PLACE'], [14, 'PLACEMENT POINTS'], [15, 'KILLS'],
     [16, 'PLACE'], [17, 'PLACEMENT POINTS'], [18, 'KILLS'],
@@ -156,17 +158,18 @@ function buildState(values = new Map(), options = {}) {
   }
 
   if (options.formulaTarget) {
-    const rowOffset = options.formulaTarget.row - 6
+    const rowOffset = options.formulaTarget.row - 5
     const columnOffset = options.formulaTarget.column - 7
     gridRows[rowOffset].values[columnOffset] = formulaCell('=1+1', { numberValue: 2 })
   }
   if (options.changedFormula) {
-    const rowOffset = options.changedFormula.row - 6
+    const rowOffset = options.changedFormula.row - 5
     const columnOffset = options.changedFormula.column - 7
     gridRows[rowOffset].values[columnOffset] = formulaCell('=999', { numberValue: 999 })
   }
   if (options.headerOverride) {
-    gridRows[0].values[options.headerOverride.column - 7] =
+    const headerRow = options.headerOverride.column === 9 ? 0 : 1
+    gridRows[headerRow].values[options.headerOverride.column - 7] =
       textCell(options.headerOverride.value)
   }
   return {
@@ -187,7 +190,7 @@ function buildState(values = new Map(), options = {}) {
           rowData: scoringRows,
         },
         {
-          startRow: 6,
+          startRow: 5,
           startColumn: 7,
           rowData: gridRows,
         },
@@ -863,7 +866,7 @@ test('the HTTP client reads first and accepts only precise single-cell value upd
   }])
 
   assert.equal(calls[0].init.method, 'GET')
-  assert.match(decodeURIComponent(calls[0].url).replaceAll('+', ' '), /'Copy of New'!H7:AA32/)
+  assert.match(decodeURIComponent(calls[0].url).replaceAll('+', ' '), /'Copy of New'!H6:AA32/)
   assert.equal(calls[1].init.method, 'POST')
   assert.match(calls[1].url, /:batchUpdate$/)
   const body = JSON.parse(calls[1].init.body)

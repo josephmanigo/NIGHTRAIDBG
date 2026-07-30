@@ -71,10 +71,11 @@ export function resolveGoogleServiceAccount(env = process.env, options = {}) {
 }
 
 export function resolveGameResultsConfig(env = process.env, options = {}) {
-  const mode = text(env, 'SCORE_SHEET_MODE', 'test')
-  if (!['test', 'production'].includes(mode)) {
+  const configuredMode = text(env, 'SCORE_SHEET_MODE', 'test')
+  if (!['test', 'production'].includes(configuredMode)) {
     throw new Error('SCORE_SHEET_MODE must be exactly "test" or "production".')
   }
+  const mode = options.productionOnly ? 'production' : configuredMode
   const spreadsheetId =
     text(env, 'GOOGLE_SPREADSHEET_ID')
     ?? text(env, 'GAME_RESULTS_SPREADSHEET_ID')
