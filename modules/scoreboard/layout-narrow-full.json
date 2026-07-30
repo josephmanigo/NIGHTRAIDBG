@@ -7,7 +7,7 @@
     "height": 986
   },
   "aspect_ratio_tolerance": 0.04,
-  "leaderboard_region": [0, 0, 220, 1000],
+  "leaderboard_region": [0, 0, 220, 963],
   "rows": [
     [0, 0, 1000, 91],
     [0, 91, 1000, 91],
@@ -22,17 +22,7 @@
     [0, 910, 1000, 90]
   ],
   "placement_hints": {
-    "0": 1,
-    "1": 2,
-    "2": 3,
-    "3": 4,
-    "4": 5,
-    "5": 6,
-    "6": 7,
-    "7": 8,
-    "8": 9,
-    "9": 10,
-    "10": 11
+    "0": 1
   },
   "columns": {
     "placement": [0, 150, 325, 700],
@@ -73,11 +63,11 @@
     "parallel_workers": 4
   },
   "calibration": {
-    "status": "round3-original-attachments",
+    "status": "production-sequence-inference-v2",
     "source_dimensions": [
       [1058, 957],
       [1074, 965]
     ],
-    "note": "Calibrated against the two original Round 3 Discord attachments from message 1532419674774438090."
+    "note": "Row geometry is calibrated to the visible leaderboard strip. Only the pinned medal row is fixed; numbered placements are read and sequence-validated from the screenshot."
   }
 }

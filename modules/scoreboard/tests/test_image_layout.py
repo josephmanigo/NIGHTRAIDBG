@@ -50,6 +50,18 @@ class ImageLayoutTests(unittest.TestCase):
             path.write_text(json.dumps(test_layout()), encoding="utf-8")
             self.assertEqual(load_layout(path)["id"], "test-layout")
 
+    def test_production_layouts_infer_numbered_places_from_the_image(self) -> None:
+        scoreboard_directory = Path(__file__).parents[1]
+        for filename in (
+            "layout.json",
+            "layout-narrow-full.json",
+            "layout-narrow-padded.json",
+            "layout-wide.json",
+            "layout-wide-full.json",
+        ):
+            layout = load_layout(scoreboard_directory / filename)
+            self.assertEqual(layout.get("placement_hints"), {"0": 1})
+
     def test_invalid_rect_is_rejected(self) -> None:
         layout = test_layout()
         layout["leaderboard_region"] = [900, 0, 200, 1000]

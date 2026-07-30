@@ -20,7 +20,7 @@ const SUPPORTED_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp'])
 const SUPPORTED_CONTENT_TYPES = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp'])
 const ROUND_BUTTON_PATTERN = /^nr-game-results-round:(\d{16,22}):([1-4])$/
 const DISCORD_MESSAGE_LIMIT = 2_000
-const LOCAL_OCR_RECOVERY_REVISION = 'fixed-scoreboard-layout-v4'
+const LOCAL_OCR_RECOVERY_REVISION = 'fixed-scoreboard-layout-v5'
 
 function configuredRoleIds(value) {
   if (value instanceof Set) return new Set(value)

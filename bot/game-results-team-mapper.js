@@ -179,6 +179,18 @@ function nameValidation(team, mappedTeam, officialTeams, fuzzyThreshold) {
   const detectedName = detectedTeamName(team)
   const suggestions = fuzzySuggestions(detectedName, officialTeams, fuzzyThreshold)
   if (!detectedName) {
+    if (
+      mappedTeam?.official_team_name
+      && mappedTeam.official_team_name_source === 'discord_registered_team_slot'
+    ) {
+      return {
+        status: 'resolved_by_registered_slot',
+        detected_name: null,
+        official_name: mappedTeam.official_team_name,
+        similarity: null,
+        suggestions: [],
+      }
+    }
     return {
       status: 'not_provided',
       detected_name: null,

@@ -22,17 +22,7 @@
     [0, 910, 1000, 90]
   ],
   "placement_hints": {
-    "0": 1,
-    "1": 7,
-    "2": 8,
-    "3": 9,
-    "4": 10,
-    "5": 11,
-    "6": 12,
-    "7": 13,
-    "8": 14,
-    "9": 15,
-    "10": 16
+    "0": 1
   },
   "columns": {
     "placement": [0, 150, 325, 700],
@@ -73,10 +63,10 @@
     "parallel_workers": 4
   },
   "calibration": {
-    "status": "round3-original-attachments",
+    "status": "production-sequence-inference-v2",
     "source_dimensions": [
       [1074, 965]
     ],
-    "note": "Calibrated against the padded Round 3 Discord attachment from message 1532419674774438090."
+    "note": "Only the pinned medal row is fixed; numbered placements are read and sequence-validated from the screenshot."
   }
 }

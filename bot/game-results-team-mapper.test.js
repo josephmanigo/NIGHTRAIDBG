@@ -244,6 +244,36 @@ test('uses the screenshot letter to resolve the current registered team name', a
   assert.equal(result.review_required, false)
 })
 
+test('registered slot identity supplies the team name when local OCR reads no name', async () => {
+  const sheetSnapshot = fixtureSnapshot()
+  sheetSnapshot.official_teams.forEach((team) => {
+    team.official_team_name = null
+  })
+  const slots = Array(25).fill(null)
+  slots[14] = {
+    tag: 'NR',
+    name: 'NIGHTRAID',
+    sourceMessageId: 'registration-message-1',
+  }
+  const service = createTeamMappingService({
+    scoreSheetSource: sourceFor(sheetSnapshot),
+    registeredTeamSource: sourceFor(createRegisteredTeamSnapshot(slots)),
+  })
+  const result = await service.mapRoundResult(roundTeams([{
+    rank: 1,
+    team_code: 'O',
+    team_total_kills: 65,
+    players: [],
+  }]))
+  const team = result.teams[0]
+
+  assert.equal(team.detected.team_name, null)
+  assert.equal(team.mapping.official_team.official_team_name, 'NR - NIGHTRAID')
+  assert.equal(team.name_validation.status, 'resolved_by_registered_slot')
+  assert.doesNotMatch(team.review_reasons.join(','), /detected_team_name_missing/)
+  assert.equal(team.review_required, false)
+})
+
 test('registered names only apply when both the letter and slot number match', () => {
   const sheetSnapshot = fixtureSnapshot()
   const registeredSnapshot = {

@@ -22,8 +22,13 @@ from modules.scoreboard.ocr_processor import (
     _classify_d_f_p_glyph,
     _classify_h_r_glyph,
     _reconcile_eight_nine,
+    _reconcile_missing_leading_one,
     _reconcile_repeated_one,
     _reconcile_slot_marker,
+    _reconcile_supported_numeric,
+    _reconcile_terminal_six,
+    _reconcile_three_misread_as_four,
+    _reconcile_uncontested_three,
     _reconcile_unreadable_seventeen,
     _reconcile_zero_kill,
 )
@@ -159,6 +164,122 @@ class ReaderPipelineTests(unittest.TestCase):
         self.assertEqual(_classify_d_f_p_glyph(crop(f_pixels)), "F")
         self.assertEqual(_classify_d_f_p_glyph(crop(p_pixels)), "P")
 
+    def test_opencv_recovers_missing_leading_one_in_team_kills(self) -> None:
+        active_cv2 = require_opencv()
+        pixels = np.zeros((40, 50, 3), dtype=np.uint8)
+        active_cv2.line(pixels, (12, 5), (12, 34), (255, 255, 255), 2)
+        active_cv2.line(pixels, (16, 5), (29, 5), (255, 255, 255), 2)
+        active_cv2.line(pixels, (29, 5), (21, 34), (255, 255, 255), 2)
+
+        corrected = _reconcile_missing_leading_one(
+            FieldReading(value=7, confidence=0.99),
+            FieldCrop(0, "kills", (0, 0, 50, 40), pixels),
+        )
+
+        self.assertEqual(corrected.value, 17)
+        self.assertEqual(corrected.source, "ocr+opencv_digit_topology")
+        self.assertFalse(corrected.review_required)
+
+    def test_opencv_resolves_conflicted_thirty_and_terminal_six(self) -> None:
+        active_cv2 = require_opencv()
+        thirty_pixels = np.zeros((30, 45, 3), dtype=np.uint8)
+        three = [
+            "..#.#.",
+            "######",
+            "##...#",
+            ".....#",
+            ".....#",
+            "..####",
+            ".....#",
+            ".....#",
+            "#....#",
+            "##...#",
+            ".#####",
+        ]
+        for y, line in enumerate(three, start=7):
+            for x, value in enumerate(line, start=10):
+                if value == "#":
+                    thirty_pixels[y, x] = 255
+        active_cv2.rectangle(thirty_pixels, (24, 7), (31, 17), (255, 255, 255), 1)
+        thirty = _reconcile_three_misread_as_four(
+            FieldReading(
+                value=40,
+                confidence=0.6,
+                raw_text="gray_160:40 | otsu:30",
+                review_required=True,
+            ),
+            FieldCrop(0, "kills", (0, 0, 45, 30), thirty_pixels),
+        )
+
+        sixteen_pixels = np.zeros((30, 70, 3), dtype=np.uint8)
+        active_cv2.line(sixteen_pixels, (30, 6), (30, 23), (255, 255, 255), 2)
+        active_cv2.rectangle(sixteen_pixels, (42, 6), (52, 23), (255, 255, 255), 2)
+        active_cv2.line(sixteen_pixels, (42, 14), (52, 14), (255, 255, 255), 2)
+        sixteen = _reconcile_terminal_six(
+            FieldReading(value=16, confidence=0.6, review_required=True),
+            FieldCrop(0, "kills", (0, 0, 70, 30), sixteen_pixels),
+        )
+
+        self.assertEqual(thirty.value, 30)
+        self.assertFalse(thirty.review_required)
+        self.assertEqual(sixteen.value, 16)
+        self.assertFalse(sixteen.review_required)
+
+    def test_opencv_promotes_majority_supported_multi_digit_kills(self) -> None:
+        active_cv2 = require_opencv()
+        pixels = np.zeros((30, 55, 3), dtype=np.uint8)
+        active_cv2.rectangle(pixels, (30, 8), (35, 19), (255, 255, 255), 1)
+        active_cv2.rectangle(pixels, (39, 8), (44, 19), (255, 255, 255), 1)
+
+        promoted = _reconcile_supported_numeric(
+            FieldReading(
+                value=22,
+                confidence=0.81,
+                raw_text="gray_160:22 | gray_200:2c | otsu:ee",
+                review_required=True,
+            ),
+            FieldCrop(0, "kills", (0, 0, 55, 30), pixels),
+        )
+
+        self.assertEqual(promoted.value, 22)
+        self.assertEqual(promoted.confidence, 0.86)
+        self.assertFalse(promoted.review_required)
+
+    def test_opencv_promotes_one_uncontested_visible_three(self) -> None:
+        active_cv2 = require_opencv()
+        pixels = np.zeros((30, 50, 3), dtype=np.uint8)
+        three = [
+            "..###.",
+            ".#####",
+            "##...#",
+            ".....#",
+            ".....#",
+            "..####",
+            ".....#",
+            ".....#",
+            "##...#",
+            "##...#",
+            ".#####",
+        ]
+        for y, line in enumerate(three, start=7):
+            for x, value in enumerate(line, start=30):
+                if value == "#":
+                    pixels[y, x] = 255
+
+        promoted = _reconcile_uncontested_three(
+            FieldReading(
+                value=3,
+                confidence=0.78,
+                raw_text="otsu:3",
+                review_required=True,
+            ),
+            FieldCrop(0, "kills", (0, 0, 50, 30), pixels),
+        )
+
+        self.assertEqual(promoted.value, 3)
+        self.assertEqual(promoted.confidence, 0.86)
+        self.assertFalse(promoted.review_required)
+
     def test_opencv_corrects_a_terminal_nine_when_the_glyph_has_two_holes(
         self,
     ) -> None:
@@ -246,6 +367,7 @@ class ReaderPipelineTests(unittest.TestCase):
             "slot_color_palette": {
                 "D": [24, 225, 187],
                 "F": [24, 225, 187],
+                "P": [24, 222, 172],
             },
             "slot_color_max_distance": 18,
             "slot_color_ambiguity_margin": 2,
@@ -275,11 +397,22 @@ class ReaderPipelineTests(unittest.TestCase):
             layout,
             FieldCrop(0, "slot", (0, 0, 30, 40), open_pixels),
         )
+        p_pixels = np.zeros((40, 30, 3), dtype=np.uint8)
+        active_cv2.line(p_pixels, (6, 8), (6, 31), bgr.tolist(), 4)
+        active_cv2.rectangle(p_pixels, (6, 8), (24, 20), bgr.tolist(), 4)
+        resolved_p = _reconcile_slot_marker(
+            unreadable,
+            marker,
+            layout,
+            FieldCrop(0, "slot", (0, 0, 30, 40), p_pixels),
+        )
 
         self.assertEqual(resolved_d.value, "D")
         self.assertEqual(resolved_f.value, "F")
+        self.assertEqual(resolved_p.value, "P")
         self.assertFalse(resolved_d.review_required)
         self.assertFalse(resolved_f.review_required)
+        self.assertFalse(resolved_p.review_required)
 
     def test_opencv_verifies_only_a_single_large_closed_zero_glyph(self) -> None:
         ring = np.full((80, 60), 255, dtype=np.uint8)

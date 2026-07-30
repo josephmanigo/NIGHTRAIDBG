@@ -509,6 +509,25 @@ def _reconcile_slot_marker(
         for slot, distance in candidates
         if distance - best_distance < max(5, ambiguity_margin)
     }
+    if {"D", "F", "P"}.issubset(near_slots) and glyph_crop is not None:
+        classified = _classify_d_f_p_glyph(glyph_crop)
+        if classified is not None:
+            return FieldReading(
+                value=classified,
+                confidence=0.92,
+                raw_text=reading.raw_text,
+                source="ocr+fixed_color_marker+opencv_topology",
+                corrections=tuple(
+                    dict.fromkeys(
+                        (
+                            *reading.corrections,
+                            "D_F_P_disambiguated_from_fixed_glyph_topology",
+                        )
+                    )
+                ),
+                review_required=False,
+                bbox=reading.bbox,
+            )
     if {"H", "R"}.issubset(near_slots) and glyph_crop is not None:
         classified = _classify_h_r_glyph(glyph_crop)
         if classified is not None:
@@ -731,6 +750,295 @@ def _classify_h_r_glyph(crop: FieldCrop) -> str | None:
     return "R" if float((top_center > 0).mean()) >= 0.4 else "H"
 
 
+def _kill_glyph_components(
+    crop: FieldCrop,
+) -> list[tuple[np.ndarray, tuple[int, int, int, int, int]]]:
+    """Return fixed-font kill glyphs after removing the skull and tiny noise."""
+
+    if crop.field != "kills":
+        return []
+    active_cv2 = require_opencv()
+    grayscale = active_cv2.cvtColor(crop.pixels, active_cv2.COLOR_BGR2GRAY)
+    mask = isolate_kill_digits(
+        np.where(grayscale > 160, 255, 0).astype(np.uint8)
+    )
+    component_count, labels, stats, _centroids = (
+        active_cv2.connectedComponentsWithStats(mask)
+    )
+    output: list[tuple[np.ndarray, tuple[int, int, int, int, int]]] = []
+    for index in range(1, component_count):
+        component = tuple(int(item) for item in stats[index])
+        left, top, width, height, area = component
+        if area < 8 or height < max(5, round(crop.pixels.shape[0] * 0.2)):
+            continue
+        glyph = np.where(
+            labels[top : top + height, left : left + width] == index,
+            255,
+            0,
+        ).astype(np.uint8)
+        output.append((glyph, component))
+    return sorted(
+        output,
+        key=lambda item: item[1][active_cv2.CC_STAT_LEFT],
+    )
+
+
+def _glyph_hole_count(glyph: np.ndarray) -> int:
+    active_cv2 = require_opencv()
+    contours, hierarchy = active_cv2.findContours(
+        glyph,
+        active_cv2.RETR_CCOMP,
+        active_cv2.CHAIN_APPROX_SIMPLE,
+    )
+    if hierarchy is None:
+        return 0
+    return sum(
+        1
+        for index, item in enumerate(hierarchy[0])
+        if item[3] >= 0 and active_cv2.contourArea(contours[index]) >= 2
+    )
+
+
+def _reconcile_missing_leading_one(
+    reading: FieldReading,
+    crop: FieldCrop,
+) -> FieldReading:
+    """Recover a leading 1 that batched Tesseract occasionally drops."""
+
+    if (
+        crop.field != "kills"
+        or not isinstance(reading.value, int)
+        or not 0 <= reading.value <= 9
+    ):
+        return reading
+    glyphs = _kill_glyph_components(crop)
+    if len(glyphs) != 2:
+        return reading
+    first_glyph, first = glyphs[0]
+    _second_glyph, second = glyphs[1]
+    first_width = first[2]
+    first_height = first[3]
+    second_width = second[2]
+    second_height = second[3]
+    gap = second[0] - first[0] - first_width
+    occupied_rows = np.count_nonzero(np.any(first_glyph > 0, axis=1))
+    if (
+        abs(first_height - second_height) > 2
+        or first_width > first_height * 0.55
+        or first_width > second_width * 0.85
+        or not 0 <= gap <= 4
+        or occupied_rows < first_height * 0.75
+    ):
+        return reading
+    return FieldReading(
+        value=10 + reading.value,
+        confidence=max(0.93, reading.confidence),
+        raw_text=reading.raw_text,
+        source="ocr+opencv_digit_topology",
+        corrections=tuple(
+            dict.fromkeys(
+                (*reading.corrections, "missing_leading_one_recovered")
+            )
+        ),
+        review_required=False,
+        bbox=reading.bbox,
+    )
+
+
+def _reconcile_three_misread_as_four(
+    reading: FieldReading,
+    crop: FieldCrop,
+) -> FieldReading:
+    """Resolve the fixed-font 30/40 conflict using the 4 crossbar."""
+
+    if (
+        crop.field != "kills"
+        or reading.value != 40
+        or not reading.review_required
+        or not re.search(r":[#]?3(?:0)?(?:\s*(?:\||$))", reading.raw_text)
+    ):
+        return reading
+    glyphs = _kill_glyph_components(crop)
+    if len(glyphs) != 2:
+        return reading
+    leading = glyphs[0][0]
+    height = leading.shape[0]
+    middle_lower = leading[
+        max(0, round(height * 0.45)) : max(1, round(height * 0.82))
+    ]
+    has_four_crossbar = bool(
+        len(middle_lower)
+        and np.max(np.mean(middle_lower > 0, axis=1)) >= 0.85
+    )
+    if has_four_crossbar:
+        return reading
+    return FieldReading(
+        value=30,
+        confidence=max(0.93, reading.confidence),
+        raw_text=reading.raw_text,
+        source="ocr+opencv_digit_topology",
+        corrections=tuple(
+            dict.fromkeys(
+                (*reading.corrections, "leading_three_verified_without_four_crossbar")
+            )
+        ),
+        review_required=False,
+        bbox=reading.bbox,
+    )
+
+
+def _reconcile_terminal_six(
+    reading: FieldReading,
+    crop: FieldCrop,
+) -> FieldReading:
+    """Promote a conflicted terminal 6 only when its closed loop is visible."""
+
+    if (
+        crop.field != "kills"
+        or not isinstance(reading.value, int)
+        or reading.value % 10 != 6
+        or not reading.review_required
+    ):
+        return reading
+    glyphs = _kill_glyph_components(crop)
+    if not glyphs or _glyph_hole_count(glyphs[-1][0]) < 1:
+        return reading
+    return FieldReading(
+        value=reading.value,
+        confidence=max(0.93, reading.confidence),
+        raw_text=reading.raw_text,
+        source="ocr+opencv_digit_topology",
+        corrections=tuple(
+            dict.fromkeys((*reading.corrections, "terminal_six_loop_verified"))
+        ),
+        review_required=False,
+        bbox=reading.bbox,
+    )
+
+
+def _reconcile_uncontested_three(
+    reading: FieldReading,
+    crop: FieldCrop,
+) -> FieldReading:
+    """Accept a visible 3 only when OCR agrees and fixed-font topology matches."""
+
+    if (
+        crop.field != "kills"
+        or not isinstance(reading.value, int)
+        or reading.value != 3
+        or not reading.review_required
+    ):
+        return reading
+    candidate_values = {
+        normalized.value
+        for part in reading.raw_text.split("|")
+        if ":" in part
+        for normalized in [
+            normalize_integer_candidate(
+                part.split(":", 1)[1].strip(),
+                minimum=0,
+                maximum=999,
+            )
+        ]
+        if normalized.value is not None
+    }
+    if candidate_values != {reading.value}:
+        return reading
+    glyphs = _kill_glyph_components(crop)
+    if len(glyphs) != 1:
+        return reading
+    glyph = glyphs[0][0]
+    if _glyph_hole_count(glyph) != 0 or glyph.shape[1] < 4:
+        return reading
+    height, width = glyph.shape
+    row_density = np.mean(glyph > 0, axis=1)
+    thirds = (
+        row_density[: max(1, height // 3)],
+        row_density[height // 3 : max(height // 3 + 1, 2 * height // 3)],
+        row_density[2 * height // 3 :],
+    )
+    right_density = float(
+        np.mean(glyph[:, max(0, round(width * 0.6)) :] > 0)
+    )
+    if (
+        any(len(section) == 0 for section in thirds)
+        or float(np.max(thirds[0])) < 0.7
+        or float(np.max(thirds[1])) < 0.6
+        or float(np.max(thirds[2])) < 0.7
+        or right_density < 0.45
+    ):
+        return reading
+    return FieldReading(
+        value=reading.value,
+        confidence=max(0.86, reading.confidence),
+        raw_text=reading.raw_text,
+        source="ocr+opencv_digit_topology",
+        corrections=tuple(
+            dict.fromkeys(
+                (*reading.corrections, "uncontested_three_glyph_verified")
+            )
+        ),
+        review_required=False,
+        bbox=reading.bbox,
+    )
+
+
+def _reconcile_supported_numeric(
+    reading: FieldReading,
+    crop: FieldCrop,
+) -> FieldReading:
+    """Promote a multi-digit value supported by a strict OCR majority and glyph count."""
+
+    if (
+        crop.field != "kills"
+        or not isinstance(reading.value, int)
+        or reading.value < 10
+        or not reading.review_required
+    ):
+        return reading
+    candidate_observations: set[tuple[str, int]] = set()
+    for part in reading.raw_text.split("|"):
+        if ":" not in part:
+            continue
+        variant, text = part.split(":", 1)
+        normalized = normalize_integer_candidate(
+            text.strip(),
+            minimum=0,
+            maximum=999,
+        )
+        if isinstance(normalized.value, int):
+            candidate_observations.add((variant.strip(), normalized.value))
+    counts = Counter(value for _variant, value in candidate_observations)
+    selected_count = counts.get(reading.value, 0)
+    competing_count = max(
+        (count for value, count in counts.items() if value != reading.value),
+        default=0,
+    )
+    glyphs = _kill_glyph_components(crop)
+    if (
+        selected_count < 2
+        or selected_count <= competing_count
+        or len(glyphs) != len(str(reading.value))
+    ):
+        return reading
+    glyph_heights = [component[3] for _glyph, component in glyphs]
+    if max(glyph_heights) - min(glyph_heights) > 2:
+        return reading
+    return FieldReading(
+        value=reading.value,
+        confidence=max(0.86, reading.confidence),
+        raw_text=reading.raw_text,
+        source="ocr+opencv_digit_topology",
+        corrections=tuple(
+            dict.fromkeys(
+                (*reading.corrections, "numeric_majority_and_glyph_count_verified")
+            )
+        ),
+        review_required=False,
+        bbox=reading.bbox,
+    )
+
+
 def _reconcile_repeated_one(
     reading: FieldReading,
     crop: FieldCrop,
@@ -738,23 +1046,11 @@ def _reconcile_repeated_one(
     if crop.field != "kills" or reading.value != 1:
         return reading
     active_cv2 = require_opencv()
-    grayscale = active_cv2.cvtColor(crop.pixels, active_cv2.COLOR_BGR2GRAY)
-    mask = isolate_kill_digits(
-        np.where(grayscale > 160, 255, 0).astype(np.uint8)
-    )
-    component_count, _labels, stats, _centroids = (
-        active_cv2.connectedComponentsWithStats(mask)
-    )
     glyphs = [
-        tuple(int(item) for item in stats[index])
-        for index in range(1, component_count)
-        if (
-            int(stats[index][active_cv2.CC_STAT_AREA]) >= 8
-            and int(stats[index][active_cv2.CC_STAT_HEIGHT])
-            >= max(5, crop.pixels.shape[0] // 3)
-            and int(stats[index][active_cv2.CC_STAT_WIDTH])
-            <= max(5, crop.pixels.shape[1] // 3)
-        )
+        component
+        for _glyph, component in _kill_glyph_components(crop)
+        if component[active_cv2.CC_STAT_WIDTH]
+        <= max(5, crop.pixels.shape[1] // 3)
     ]
     if len(glyphs) != 2:
         return reading
@@ -1138,8 +1434,13 @@ class LocalScoreboardReader:
                     )
                 )
         for crop, reading in zip(crops, readings):
+            reading = _reconcile_missing_leading_one(reading, crop)
             reading = _reconcile_repeated_one(reading, crop)
             reading = _reconcile_unreadable_seventeen(reading, crop)
+            reading = _reconcile_three_misread_as_four(reading, crop)
+            reading = _reconcile_terminal_six(reading, crop)
+            reading = _reconcile_supported_numeric(reading, crop)
+            reading = _reconcile_uncontested_three(reading, crop)
             reading = _reconcile_zero_kill(reading, crop, layout)
             reading = _reconcile_eight_nine(reading, crop)
             fields[crop.row_index][crop.field] = reading

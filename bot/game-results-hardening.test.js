@@ -544,5 +544,5 @@ test('startup recovery retries one latest local-worker failure for each round', 
   assert.equal(saved.every((item) =>
     item.payload.startup_local_ocr_retry_count === 1), true)
   assert.equal(saved.every((item) =>
-    item.payload.startup_local_ocr_retry_revision === 'fixed-scoreboard-layout-v4'), true)
+    item.payload.startup_local_ocr_retry_revision === 'fixed-scoreboard-layout-v5'), true)
 })
