@@ -62,27 +62,41 @@ class PytesseractEngine:
             pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
 
     @staticmethod
-    def _config(field: str) -> str:
-        page_segmentation_mode = 10 if field in {"slot", "kills"} else 7
+    def _config(field: str, *, batch: bool = False) -> str:
+        page_segmentation_mode = (
+            6 if batch else (10 if field in {"slot", "kills"} else 7)
+        )
+        whitelist = (
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZ0"
+            if field == "slot"
+            else "0123456789GOSBDIlZzCcEe/"
+        )
         return (
             f"--oem 1 --psm {page_segmentation_mode} "
-            "-c preserve_interword_spaces=0"
+            "-c preserve_interword_spaces=0 "
+            f"-c tessedit_char_whitelist={whitelist}"
         )
 
-    def recognize(self, image: np.ndarray, field: str, variant: str) -> OcrAttempt:
-        try:
-            payload = pytesseract.image_to_data(
-                image,
-                config=self._config(field),
-                output_type=Output.DICT,
-            )
-        except (pytesseract.TesseractNotFoundError, OSError) as reason:
-            raise TesseractDependencyError(
-                "Native Tesseract was not found. Install tesseract-ocr and English trained data."
-            ) from reason
+    @staticmethod
+    def _attempt(
+        payload: dict[str, list[object]],
+        variant: str,
+        indexes: list[int] | None = None,
+    ) -> OcrAttempt:
+        selected = (
+            indexes
+            if indexes is not None
+            else range(len(payload.get("text", [])))
+        )
         tokens: list[str] = []
         confidences: list[float] = []
-        for text, confidence in zip(payload.get("text", []), payload.get("conf", [])):
+        texts = payload.get("text", [])
+        confidence_values = payload.get("conf", [])
+        for index in selected:
+            if index >= len(texts) or index >= len(confidence_values):
+                continue
+            text = texts[index]
+            confidence = confidence_values[index]
             clean_text = str(text or "").strip()
             try:
                 numeric_confidence = float(confidence)
@@ -99,6 +113,89 @@ class PytesseractEngine:
             ),
             variant=variant,
         )
+
+    def _recognize_payload(
+        self,
+        image: np.ndarray,
+        field: str,
+        *,
+        batch: bool = False,
+    ) -> dict[str, list[object]]:
+        try:
+            return pytesseract.image_to_data(
+                image,
+                config=self._config(field, batch=batch),
+                output_type=Output.DICT,
+            )
+        except (pytesseract.TesseractNotFoundError, OSError) as reason:
+            raise TesseractDependencyError(
+                "Native Tesseract was not found. Install tesseract-ocr and English trained data."
+            ) from reason
+
+    def recognize(self, image: np.ndarray, field: str, variant: str) -> OcrAttempt:
+        return self._attempt(
+            self._recognize_payload(image, field),
+            variant,
+        )
+
+    def recognize_many(
+        self,
+        images: list[np.ndarray],
+        field: str,
+        variant: str,
+    ) -> list[OcrAttempt]:
+        """Read one fixed field variant for every row in one Tesseract process."""
+
+        if not images:
+            return []
+        active_cv2 = require_opencv()
+        grayscale_images = [
+            active_cv2.cvtColor(image, active_cv2.COLOR_BGR2GRAY)
+            if image.ndim == 3
+            else image
+            for image in images
+        ]
+        horizontal_padding = 24
+        vertical_padding = 36
+        width = max(image.shape[1] for image in grayscale_images) + horizontal_padding * 2
+        height = (
+            sum(image.shape[0] for image in grayscale_images)
+            + vertical_padding * (len(grayscale_images) + 1)
+        )
+        sheet = np.full((height, width), 255, dtype=np.uint8)
+        segments: list[tuple[int, int]] = []
+        top = vertical_padding
+        for image in grayscale_images:
+            inner_width = width - horizontal_padding * 2
+            left = horizontal_padding + max(
+                0,
+                (inner_width - image.shape[1]) // 2,
+            )
+            bottom = top + image.shape[0]
+            sheet[top:bottom, left:left + image.shape[1]] = image
+            segments.append((top, bottom))
+            top = bottom + vertical_padding
+
+        payload = self._recognize_payload(sheet, field, batch=True)
+        token_indexes: list[list[int]] = [[] for _image in grayscale_images]
+        tops = payload.get("top", [])
+        heights = payload.get("height", [])
+        texts = payload.get("text", [])
+        for token_index, text in enumerate(texts):
+            if not str(text or "").strip():
+                continue
+            try:
+                center = float(tops[token_index]) + float(heights[token_index]) / 2
+            except (IndexError, TypeError, ValueError):
+                continue
+            for image_index, (segment_top, segment_bottom) in enumerate(segments):
+                if segment_top <= center <= segment_bottom:
+                    token_indexes[image_index].append(token_index)
+                    break
+        return [
+            self._attempt(payload, variant, indexes)
+            for indexes in token_indexes
+        ]
 
 
 @dataclass(frozen=True)
@@ -567,6 +664,46 @@ class LocalScoreboardReader:
             bbox=crop.bbox,
         )
 
+    def _read_crops_batched(
+        self,
+        crops: list[FieldCrop],
+        layout: dict[str, Any],
+    ) -> list[FieldReading]:
+        attempts_by_crop: list[list[OcrAttempt]] = [[] for _crop in crops]
+        groups: dict[tuple[str, str], list[tuple[int, np.ndarray]]] = defaultdict(list)
+        for crop_index, crop in enumerate(crops):
+            for variant, image in preprocessing_variants(
+                crop.pixels,
+                upscale=int(layout["ocr"]["upscale"]),
+                field=crop.field,
+            ).items():
+                groups[(crop.field, variant)].append((crop_index, image))
+
+        for (field, variant), entries in groups.items():
+            attempts = self.engine.recognize_many(
+                [image for _crop_index, image in entries],
+                field,
+                variant,
+            )
+            if len(attempts) != len(entries):
+                raise RuntimeError(
+                    "The batched Tesseract reader returned an unexpected row count."
+                )
+            for (crop_index, _image), attempt in zip(entries, attempts):
+                attempts_by_crop[crop_index].append(attempt)
+
+        return [
+            choose_consensus(
+                attempts,
+                crop.field,
+                minimum_confidence=float(layout["ocr"]["minimum_confidence"]),
+                max_placement=int(layout["ocr"]["max_placement"]),
+                max_kills=int(layout["ocr"]["max_kills"]),
+                bbox=crop.bbox,
+            )
+            for crop, attempts in zip(crops, attempts_by_crop)
+        ]
+
     def read(self, image_path: str | Path) -> ScoreboardResult:
         started = time.perf_counter()
         layout = load_layout(self.layout_path)
@@ -579,7 +716,9 @@ class LocalScoreboardReader:
         crops = [crop for crop in crops if crop.field != "slot_color"]
         fields: dict[int, dict[str, FieldReading]] = defaultdict(dict)
         parallel_workers = int(layout["ocr"].get("parallel_workers", 1))
-        if parallel_workers == 1:
+        if callable(getattr(self.engine, "recognize_many", None)):
+            readings = self._read_crops_batched(crops, layout)
+        elif parallel_workers == 1:
             readings = [self._read_crop(crop, layout) for crop in crops]
         else:
             with ThreadPoolExecutor(max_workers=parallel_workers) as executor:
