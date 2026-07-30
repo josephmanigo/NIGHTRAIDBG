@@ -94,6 +94,17 @@ test('validates deployment aliases and loads the service-account file without ex
     'production',
   )
   assert.equal(
+    resolveGameResultsConfig({
+      ...env,
+      GAME_RESULTS_LOCAL_OCR_TIMEOUT_MS: '90000',
+    }, {
+      cwd: directory,
+      requireSecrets: true,
+      productionOnly: true,
+    }).localOcr.timeoutMs,
+    180_000,
+  )
+  assert.equal(
     resolveGameResultsConfig(
       { ...env, SCORE_SHEET_MODE: 'production' },
       {

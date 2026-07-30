@@ -1,22 +1,25 @@
 {
-  "id": "blood-strike-fixed-team-strip-wide-v1",
+  "id": "blood-strike-fixed-team-strip-narrow-full-v1",
   "version": 1,
   "coordinate_space": 1000,
   "reference_size": {
-    "width": 1470,
+    "width": 1090,
     "height": 986
   },
-  "aspect_ratio_tolerance": 0.05,
-  "leaderboard_region": [0, 0, 220, 963],
+  "aspect_ratio_tolerance": 0.04,
+  "leaderboard_region": [0, 0, 220, 1000],
   "rows": [
-    [0, 0, 1000, 122],
-    [0, 122, 1000, 122],
-    [0, 244, 1000, 122],
-    [0, 366, 1000, 122],
-    [0, 488, 1000, 122],
-    [0, 610, 1000, 122],
-    [0, 732, 1000, 122],
-    [0, 854, 1000, 122]
+    [0, 0, 1000, 91],
+    [0, 91, 1000, 91],
+    [0, 182, 1000, 91],
+    [0, 273, 1000, 91],
+    [0, 364, 1000, 91],
+    [0, 455, 1000, 91],
+    [0, 546, 1000, 91],
+    [0, 637, 1000, 91],
+    [0, 728, 1000, 91],
+    [0, 819, 1000, 91],
+    [0, 910, 1000, 90]
   ],
   "placement_hints": {
     "0": 1
@@ -59,11 +62,11 @@
     "parallel_workers": 4
   },
   "calibration": {
-    "status": "round4-original-attachments",
+    "status": "round3-original-attachments",
     "source_dimensions": [
-      [1394, 960],
-      [1403, 923]
+      [1058, 957],
+      [1074, 965]
     ],
-    "note": "Calibrated against the two original Round 4 Discord attachments from message 1532414127799275673."
+    "note": "Calibrated against the two original Round 3 Discord attachments from message 1532419674774438090."
   }
 }

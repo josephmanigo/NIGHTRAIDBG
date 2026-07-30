@@ -380,6 +380,23 @@ class ReaderPipelineTests(unittest.TestCase):
         self.assertEqual([row.slot.value for row in result.rows], ["O", "M", "R"])
         self.assertEqual([row.kills.value for row in result.rows], [65, 7, 31])
 
+    def test_fast_mode_uses_only_bounded_batch_variants(self) -> None:
+        layout = pipeline_layout()
+        layout["ocr"]["fast_mode"] = True
+        crop = FieldCrop(
+            row_index=0,
+            field="kills",
+            bbox=(0, 0, 10, 10),
+            pixels=np.zeros((10, 10, 3), dtype=np.uint8),
+        )
+        reader = LocalScoreboardReader(
+            layout_path="layout.json",
+            engine=FakeBatchEngine(),
+        )
+        variants = reader._preprocessing_variants(crop, layout)
+
+        self.assertEqual(list(variants), ["gray_160", "otsu"])
+
 
 if __name__ == "__main__":
     unittest.main()

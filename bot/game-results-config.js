@@ -102,6 +102,13 @@ export function resolveGameResultsConfig(env = process.env, options = {}) {
       'GAME_RESULTS_SCREENSHOT_READER must be "local"; paid vision providers are disabled.',
     )
   }
+  const configuredLocalOcrTimeoutMs = integer(
+    text(env, 'GAME_RESULTS_LOCAL_OCR_TIMEOUT_MS'),
+    120_000,
+    1_000,
+    300_000,
+    'GAME_RESULTS_LOCAL_OCR_TIMEOUT_MS',
+  )
   if (options.requireSecrets) {
     if (!text(env, 'DISCORD_BOT_TOKEN')) throw new Error('DISCORD_BOT_TOKEN is required.')
     if (!credentials.email || !credentials.privateKey) {
@@ -189,13 +196,9 @@ export function resolveGameResultsConfig(env = process.env, options = {}) {
         ),
       ),
       tesseractCommand: text(env, 'TESSERACT_CMD'),
-      timeoutMs: integer(
-        text(env, 'GAME_RESULTS_LOCAL_OCR_TIMEOUT_MS'),
-        120_000,
-        1_000,
-        300_000,
-        'GAME_RESULTS_LOCAL_OCR_TIMEOUT_MS',
-      ),
+      timeoutMs: options.productionOnly
+        ? Math.max(180_000, configuredLocalOcrTimeoutMs)
+        : configuredLocalOcrTimeoutMs,
     },
     databasePath,
     minimumConfidence: decimal(

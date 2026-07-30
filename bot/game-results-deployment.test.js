@@ -9,7 +9,7 @@ test('Render container installs the free local OCR runtime and runs unprivileged
   assert.match(dockerfile, /\btesseract-ocr\b/)
   assert.match(dockerfile, /\btesseract-ocr-eng\b/)
   assert.match(dockerfile, /requirements-scoreboard\.txt/)
-  assert.match(dockerfile, /GAME_RESULTS_LOCAL_OCR_TIMEOUT_MS=120000/)
+  assert.match(dockerfile, /GAME_RESULTS_LOCAL_OCR_TIMEOUT_MS=180000/)
   assert.match(dockerfile, /SCORE_SHEET_MODE=production/)
   assert.match(dockerfile, /PRODUCTION_WORKSHEET=New/)
   assert.match(dockerfile, /npm ci --omit=dev --legacy-peer-deps/)

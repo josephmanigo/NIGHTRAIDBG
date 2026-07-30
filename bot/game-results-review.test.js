@@ -836,7 +836,13 @@ test('processing log records the required timestamp, OCR values, and final score
 })
 
 test('automatic tally stops without persistent review when required score data stays unsafe', async () => {
-  const store = memoryStore()
+  const retryTimestamp = '2026-07-30T15:55:00.000Z'
+  const store = memoryStore(storedSubmission({
+    reviewPayload: {
+      startup_local_ocr_retry_count: 1,
+      startup_local_ocr_retry_at: retryTimestamp,
+    },
+  }))
   let writes = 0
   let reads = 0
   const automaticInteraction = interaction()
@@ -867,6 +873,11 @@ test('automatic tally stops without persistent review when required score data s
   assert.equal(reads, 2)
   assert.equal(writes, 0)
   assert.equal(store.current().status, 'failed')
+  assert.equal(store.current().reviewPayload.startup_local_ocr_retry_count, 1)
+  assert.equal(
+    store.current().reviewPayload.startup_local_ocr_retry_at,
+    retryTimestamp,
+  )
   assert.ok(result.blockingIssueCount > 0)
   assert.equal(automaticInteraction.followUps.length, 1)
   assert.match(automaticInteraction.followUps[0].content, /automatic tally stopped/)

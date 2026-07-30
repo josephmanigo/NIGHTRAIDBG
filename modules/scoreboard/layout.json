@@ -7,7 +7,12 @@
     "height": 986
   },
   "aspect_ratio_tolerance": 0.04,
-  "alternate_layouts": ["layout-wide.json"],
+  "alternate_layouts": [
+    "layout-narrow-full.json",
+    "layout-narrow-padded.json",
+    "layout-wide.json",
+    "layout-wide-full.json"
+  ],
   "leaderboard_region": [0, 0, 220, 963],
   "rows": [
     [0, 0, 1000, 91],
@@ -27,8 +32,8 @@
   },
   "columns": {
     "placement": [0, 150, 325, 700],
-    "slot": [436, 200, 90, 400],
-    "kills": [470, 560, 98, 280],
+    "slot": [420, 80, 130, 520],
+    "kills": [380, 450, 250, 500],
     "slot_color": [855, 320, 90, 250]
   },
   "slot_color_palette": {
@@ -44,6 +49,7 @@
     "M": [106, 231, 146],
     "N": [120, 200, 205],
     "O": [128, 152, 106],
+    "P": [24, 222, 172],
     "Q": [28, 204, 155],
     "R": [39, 212, 125],
     "T": [164, 200, 208],
@@ -52,7 +58,8 @@
   "slot_color_max_distance": 18,
   "slot_color_ambiguity_margin": 2,
   "ocr": {
-    "upscale": 6,
+    "upscale": 4,
+    "fast_mode": true,
     "minimum_confidence": 0.82,
     "sequence_anchor_confidence": 0.7,
     "placement_hint_confidence": 0.96,

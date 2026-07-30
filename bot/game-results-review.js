@@ -1225,6 +1225,17 @@ export function createGameResultsReviewWorkflow(options = {}) {
       }
       payload = {
         ...payload,
+        ...Object.fromEntries(
+          [
+            'startup_local_ocr_retry_count',
+            'startup_local_ocr_retry_at',
+            'startup_timeout_retry_count',
+            'startup_timeout_retry_at',
+          ].flatMap((key) =>
+            submission.reviewPayload?.[key] === undefined
+              ? []
+              : [[key, submission.reviewPayload[key]]]),
+        ),
         processing_log: buildAutomaticProcessingLog(submission, payload),
       }
 

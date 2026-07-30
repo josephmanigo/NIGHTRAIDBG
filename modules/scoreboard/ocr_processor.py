@@ -751,6 +751,29 @@ class LocalScoreboardReader:
         self.engine = engine or PytesseractEngine(tesseract_cmd=tesseract_cmd)
         self.team_registry = team_registry
 
+    @staticmethod
+    def _preprocessing_variants(
+        crop: FieldCrop,
+        layout: dict[str, Any],
+    ) -> dict[str, np.ndarray]:
+        variants = preprocessing_variants(
+            crop.pixels,
+            upscale=int(layout["ocr"]["upscale"]),
+            field=crop.field,
+        )
+        if not layout["ocr"].get("fast_mode", False):
+            return variants
+        preferred = {
+            "placement": ("inverted_otsu",),
+            "slot": ("raw", "inner"),
+            "kills": ("gray_160", "otsu"),
+        }[crop.field]
+        return {
+            variant: variants[variant]
+            for variant in preferred
+            if variant in variants
+        }
+
     def _read_crop(
         self,
         crop: FieldCrop,
@@ -758,11 +781,7 @@ class LocalScoreboardReader:
     ) -> FieldReading:
         attempts = [
             self.engine.recognize(image, crop.field, variant)
-            for variant, image in preprocessing_variants(
-                crop.pixels,
-                upscale=int(layout["ocr"]["upscale"]),
-                field=crop.field,
-            ).items()
+            for variant, image in self._preprocessing_variants(crop, layout).items()
         ]
         return choose_consensus(
             attempts,
@@ -785,11 +804,7 @@ class LocalScoreboardReader:
             for row_index in layout.get("placement_hints", {})
         }
         for crop_index, crop in enumerate(crops):
-            variants = preprocessing_variants(
-                crop.pixels,
-                upscale=int(layout["ocr"]["upscale"]),
-                field=crop.field,
-            )
+            variants = self._preprocessing_variants(crop, layout)
             if crop.field == "placement" and crop.row_index in placement_hints:
                 continue
             for variant, image in variants.items():
@@ -819,15 +834,13 @@ class LocalScoreboardReader:
             )
             for crop, attempts in zip(crops, attempts_by_crop)
         ]
+        if layout["ocr"].get("fast_mode", False):
+            return readings
         for crop_index, (crop, reading) in enumerate(zip(crops, readings)):
             if crop.row_index in placement_hints and crop.field == "placement":
                 continue
             if reading.review_required:
-                variants = preprocessing_variants(
-                    crop.pixels,
-                    upscale=int(layout["ocr"]["upscale"]),
-                    field=crop.field,
-                )
+                variants = self._preprocessing_variants(crop, layout)
                 preferred = {
                     "placement": "inverted_otsu",
                     "slot": "inner",

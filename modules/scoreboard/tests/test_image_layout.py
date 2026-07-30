@@ -9,6 +9,7 @@ import numpy as np
 
 from modules.scoreboard.image_processor import (
     crop_scoreboard_fields,
+    isolate_kill_digits,
     load_layout,
     select_layout_for_image,
     validate_layout,
@@ -60,6 +61,23 @@ class ImageLayoutTests(unittest.TestCase):
         layout["alternate_layouts"] = ["../outside.json"]
         with self.assertRaises(ValueError):
             validate_layout(layout)
+
+    def test_fast_mode_must_be_boolean(self) -> None:
+        layout = test_layout()
+        layout["ocr"]["fast_mode"] = "yes"
+        with self.assertRaises(ValueError):
+            validate_layout(layout)
+
+    def test_kill_crop_removes_the_large_left_skull_and_keeps_digits(self) -> None:
+        mask = np.zeros((30, 60), dtype=np.uint8)
+        mask[5:25, 2:22] = 255
+        mask[8:24, 32:38] = 255
+        mask[8:24, 44:50] = 255
+
+        digits = isolate_kill_digits(mask)
+
+        self.assertEqual(int(digits[:, :23].sum()), 0)
+        self.assertGreater(int(digits[:, 30:].sum()), 0)
 
     def test_closest_fixed_layout_is_selected_by_aspect_ratio(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

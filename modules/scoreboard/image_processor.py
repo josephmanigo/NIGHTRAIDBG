@@ -148,6 +148,8 @@ def validate_layout(layout: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(ocr, dict):
         raise ValueError("layout.ocr is required")
     _positive_integer(ocr.get("upscale"), "layout.ocr.upscale")
+    if not isinstance(ocr.get("fast_mode", False), bool):
+        raise ValueError("layout.ocr.fast_mode must be a boolean")
     _fraction(ocr.get("minimum_confidence"), "layout.ocr.minimum_confidence")
     _fraction(
         ocr.get("sequence_anchor_confidence"),
@@ -387,6 +389,7 @@ def preprocessing_variants(
         }
 
         def clean_numeric_mask(value: np.ndarray) -> np.ndarray:
+            value = isolate_kill_digits(value)
             y_points, x_points = np.where(value > 0)
             if len(x_points):
                 left = max(0, int(x_points.min()) - 1)
@@ -461,3 +464,75 @@ def preprocessing_variants(
         "inverted_otsu": bordered(active_cv2.bitwise_not(otsu)),
         "adaptive": bordered(adaptive),
     }
+
+
+def isolate_kill_digits(mask: np.ndarray) -> np.ndarray:
+    """Remove the fixed skull icon to the left of its adjacent kill number."""
+
+    active_cv2 = require_opencv()
+    output = mask.copy()
+    width = output.shape[1]
+    height = output.shape[0]
+
+    def components_for(value: np.ndarray) -> list[tuple[int, ...]]:
+        component_count, _labels, stats, _centroids = (
+            active_cv2.connectedComponentsWithStats(value)
+        )
+        return [
+            tuple(int(item) for item in stats[index])
+            for index in range(1, component_count)
+            if int(stats[index][active_cv2.CC_STAT_AREA]) >= 3
+        ]
+
+    components = components_for(output)
+    for component in components:
+        left = component[active_cv2.CC_STAT_LEFT]
+        top = component[active_cv2.CC_STAT_TOP]
+        component_width = component[active_cv2.CC_STAT_WIDTH]
+        component_height = component[active_cv2.CC_STAT_HEIGHT]
+        area = component[active_cv2.CC_STAT_AREA]
+        if (
+            area < max(4, round(width * height * 0.003))
+            or (
+                component_width <= max(2, round(width * 0.04))
+                and component_height >= height * 0.7
+            )
+        ):
+            output[
+                top : top + component_height,
+                left : left + component_width,
+            ] = 0
+    components = components_for(output)
+    if len(components) < 2:
+        return output
+    left_components = [
+        component
+        for component in components
+        if (
+            component[active_cv2.CC_STAT_LEFT] < width * 0.55
+            and component[active_cv2.CC_STAT_WIDTH] >= max(3, width * 0.18)
+            and component[active_cv2.CC_STAT_HEIGHT] >= max(5, height * 0.25)
+        )
+    ]
+    if not left_components:
+        return output
+    skull = max(
+        left_components,
+        key=lambda component: component[active_cv2.CC_STAT_AREA],
+    )
+    other_areas = [
+        component[active_cv2.CC_STAT_AREA]
+        for component in components
+        if component != skull
+    ]
+    if (
+        not other_areas
+        or skull[active_cv2.CC_STAT_AREA] < max(other_areas) * 1.8
+    ):
+        return output
+    skull_right = (
+        skull[active_cv2.CC_STAT_LEFT]
+        + skull[active_cv2.CC_STAT_WIDTH]
+    )
+    output[:, : min(width, skull_right + 1)] = 0
+    return output
