@@ -490,6 +490,7 @@ def _reconcile_slot_marker(
     reading: FieldReading,
     marker_crop: FieldCrop | None,
     layout: dict[str, Any],
+    glyph_crop: FieldCrop | None = None,
 ) -> FieldReading:
     if marker_crop is None:
         return reading
@@ -518,6 +519,24 @@ def _reconcile_slot_marker(
                 confidence=round(max(reading.confidence, marker_confidence), 3),
                 source="ocr+fixed_color_marker",
                 review_required=False,
+            )
+        if tied_slots == {"D", "F"} and glyph_crop is not None:
+            closed_glyph = _slot_glyph_has_hole(glyph_crop)
+            return FieldReading(
+                value="D" if closed_glyph else "F",
+                confidence=0.9,
+                raw_text=reading.raw_text,
+                source="ocr+fixed_color_marker+opencv_topology",
+                corrections=tuple(
+                    dict.fromkeys(
+                        (
+                            *reading.corrections,
+                            "D_F_disambiguated_from_fixed_glyph_topology",
+                        )
+                    )
+                ),
+                review_required=False,
+                bbox=reading.bbox,
             )
         if reading.value in tied_slots:
             return replace(
@@ -583,6 +602,27 @@ def _reconcile_slot_marker(
     )
 
 
+def _slot_glyph_has_hole(crop: FieldCrop) -> bool:
+    active_cv2 = require_opencv()
+    hsv = active_cv2.cvtColor(crop.pixels, active_cv2.COLOR_BGR2HSV)
+    mask = np.where(
+        (hsv[:, :, 1] > 100) & (hsv[:, :, 2] > 55),
+        255,
+        0,
+    ).astype(np.uint8)
+    contours, hierarchy = active_cv2.findContours(
+        mask,
+        active_cv2.RETR_CCOMP,
+        active_cv2.CHAIN_APPROX_SIMPLE,
+    )
+    if hierarchy is None:
+        return False
+    return any(
+        item[3] >= 0 and active_cv2.contourArea(contours[index]) >= 10
+        for index, item in enumerate(hierarchy[0])
+    )
+
+
 def _reconcile_repeated_one(
     reading: FieldReading,
     crop: FieldCrop,
@@ -631,6 +671,61 @@ def _reconcile_repeated_one(
         source="ocr+opencv_components",
         corrections=tuple(
             dict.fromkeys((*reading.corrections, "two_one_glyphs_verified"))
+        ),
+        review_required=False,
+        bbox=reading.bbox,
+    )
+
+
+def _reconcile_zero_kill(
+    reading: FieldReading,
+    crop: FieldCrop,
+    layout: dict[str, Any],
+) -> FieldReading:
+    if crop.field != "kills" or reading.value is not None:
+        return reading
+    active_cv2 = require_opencv()
+    variants = preprocessing_variants(
+        crop.pixels,
+        upscale=int(layout["ocr"]["upscale"]),
+        field="kills",
+    )
+    image = variants.get("gray_160")
+    if image is None:
+        return reading
+    mask = np.where(image < 128, 255, 0).astype(np.uint8)
+    component_count, _labels, stats, _centroids = (
+        active_cv2.connectedComponentsWithStats(mask)
+    )
+    components = [
+        index
+        for index in range(1, component_count)
+        if int(stats[index][active_cv2.CC_STAT_AREA]) >= 20
+    ]
+    if len(components) != 1:
+        return reading
+    component_area = int(stats[components[0]][active_cv2.CC_STAT_AREA])
+    contours, hierarchy = active_cv2.findContours(
+        mask,
+        active_cv2.RETR_CCOMP,
+        active_cv2.CHAIN_APPROX_SIMPLE,
+    )
+    if hierarchy is None:
+        return reading
+    hole_areas = [
+        active_cv2.contourArea(contours[index])
+        for index, item in enumerate(hierarchy[0])
+        if item[3] >= 0
+    ]
+    if not hole_areas or max(hole_areas) < component_area * 0.65:
+        return reading
+    return FieldReading(
+        value=0,
+        confidence=0.93,
+        raw_text=reading.raw_text,
+        source="ocr+opencv_closed_zero",
+        corrections=tuple(
+            dict.fromkeys((*reading.corrections, "zero_verified_from_fixed_glyph"))
         ),
         review_required=False,
         bbox=reading.bbox,
@@ -759,6 +854,9 @@ class LocalScoreboardReader:
         marker_crops = {
             crop.row_index: crop for crop in crops if crop.field == "slot_color"
         }
+        slot_crops = {
+            crop.row_index: crop for crop in crops if crop.field == "slot"
+        }
         crops = [crop for crop in crops if crop.field != "slot_color"]
         fields: dict[int, dict[str, FieldReading]] = defaultdict(dict)
         parallel_workers = int(layout["ocr"].get("parallel_workers", 1))
@@ -776,12 +874,14 @@ class LocalScoreboardReader:
                 )
         for crop, reading in zip(crops, readings):
             reading = _reconcile_repeated_one(reading, crop)
+            reading = _reconcile_zero_kill(reading, crop, layout)
             fields[crop.row_index][crop.field] = reading
         for row_index, row_fields in fields.items():
             row_fields["slot"] = _reconcile_slot_marker(
                 row_fields["slot"],
                 marker_crops.get(row_index),
                 layout,
+                slot_crops.get(row_index),
             )
 
         active_rows = {

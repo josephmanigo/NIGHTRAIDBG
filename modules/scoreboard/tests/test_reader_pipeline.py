@@ -9,11 +9,18 @@ from unittest.mock import patch
 
 import numpy as np
 
-from modules.scoreboard.image_processor import FieldCrop, LoadedImage
+from modules.scoreboard.contracts import FieldReading
+from modules.scoreboard.image_processor import (
+    FieldCrop,
+    LoadedImage,
+    require_opencv,
+)
 from modules.scoreboard.ocr_processor import (
     LocalScoreboardReader,
     OcrAttempt,
     PytesseractEngine,
+    _reconcile_slot_marker,
+    _reconcile_zero_kill,
 )
 from modules.scoreboard.team_manager import TeamRegistry
 
@@ -96,6 +103,86 @@ class FakeBatchEngine:
 
 
 class ReaderPipelineTests(unittest.TestCase):
+    def test_opencv_topology_disambiguates_tied_d_and_f_markers(self) -> None:
+        active_cv2 = require_opencv()
+        bgr = active_cv2.cvtColor(
+            np.array([[[24, 225, 187]]], dtype=np.uint8),
+            active_cv2.COLOR_HSV2BGR,
+        )[0, 0]
+        marker = FieldCrop(
+            row_index=0,
+            field="slot_color",
+            bbox=(0, 0, 20, 20),
+            pixels=np.tile(bgr, (20, 20, 1)),
+        )
+        layout = {
+            "slot_color_palette": {
+                "D": [24, 225, 187],
+                "F": [24, 225, 187],
+            },
+            "slot_color_max_distance": 18,
+            "slot_color_ambiguity_margin": 2,
+            "ocr": {"minimum_confidence": 0.82},
+        }
+        unreadable = FieldReading(
+            value=None,
+            confidence=0,
+            review_required=True,
+        )
+        closed_pixels = np.zeros((40, 30, 3), dtype=np.uint8)
+        active_cv2.rectangle(closed_pixels, (5, 5), (24, 34), bgr.tolist(), 4)
+        open_pixels = np.zeros((40, 30, 3), dtype=np.uint8)
+        active_cv2.line(open_pixels, (6, 5), (6, 34), bgr.tolist(), 4)
+        active_cv2.line(open_pixels, (6, 6), (24, 6), bgr.tolist(), 4)
+        active_cv2.line(open_pixels, (6, 19), (20, 19), bgr.tolist(), 4)
+
+        resolved_d = _reconcile_slot_marker(
+            unreadable,
+            marker,
+            layout,
+            FieldCrop(0, "slot", (0, 0, 30, 40), closed_pixels),
+        )
+        resolved_f = _reconcile_slot_marker(
+            unreadable,
+            marker,
+            layout,
+            FieldCrop(0, "slot", (0, 0, 30, 40), open_pixels),
+        )
+
+        self.assertEqual(resolved_d.value, "D")
+        self.assertEqual(resolved_f.value, "F")
+        self.assertFalse(resolved_d.review_required)
+        self.assertFalse(resolved_f.review_required)
+
+    def test_opencv_verifies_only_a_single_large_closed_zero_glyph(self) -> None:
+        ring = np.full((80, 60), 255, dtype=np.uint8)
+        active_cv2 = require_opencv()
+        active_cv2.rectangle(ring, (12, 8), (47, 71), 0, 6)
+        unreadable = FieldReading(
+            value=None,
+            confidence=0,
+            review_required=True,
+        )
+        crop = FieldCrop(
+            row_index=0,
+            field="kills",
+            bbox=(0, 0, 10, 10),
+            pixels=np.zeros((10, 10, 3), dtype=np.uint8),
+        )
+        with patch(
+            "modules.scoreboard.ocr_processor.preprocessing_variants",
+            return_value={"gray_160": ring},
+        ):
+            resolved = _reconcile_zero_kill(
+                unreadable,
+                crop,
+                {"ocr": {"upscale": 6}},
+            )
+
+        self.assertEqual(resolved.value, 0)
+        self.assertEqual(resolved.source, "ocr+opencv_closed_zero")
+        self.assertFalse(resolved.review_required)
+
     def test_tesseract_batch_assigns_tokens_to_their_fixed_rows(self) -> None:
         payload = {
             "text": ["O", "M"],
