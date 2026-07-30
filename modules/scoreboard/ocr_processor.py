@@ -68,15 +68,23 @@ class PytesseractEngine:
             if batch
             else (10 if field in {"slot", "kills"} else 7)
         )
-        whitelist = (
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZ0"
-            if field == "slot"
-            else "0123456789GOSBDIlZzCcEe/"
+        if field == "slot":
+            whitelist = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0"
+        elif field == "placement":
+            whitelist = "#0123456789GOSBDIlZzCcEe/"
+        else:
+            whitelist = "0123456789GOSBDIlZzCcEe/"
+        numeric_mode = (
+            " -c classify_bln_numeric_mode=1"
+            if field in {"placement", "kills"}
+            else ""
         )
         return (
             f"--oem 1 --psm {page_segmentation_mode} "
             "-c preserve_interword_spaces=0 "
+            "-c user_defined_dpi=300 "
             f"-c tessedit_char_whitelist={whitelist}"
+            f"{numeric_mode}"
         )
 
     @staticmethod

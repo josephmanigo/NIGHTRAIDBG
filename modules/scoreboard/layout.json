@@ -49,7 +49,7 @@
     "U": [148, 228, 196]
   },
   "slot_color_max_distance": 18,
-  "slot_color_ambiguity_margin": 5,
+  "slot_color_ambiguity_margin": 2,
   "ocr": {
     "upscale": 6,
     "minimum_confidence": 0.82,

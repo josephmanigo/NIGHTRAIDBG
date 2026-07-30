@@ -121,6 +121,32 @@ class ReaderPipelineTests(unittest.TestCase):
         self.assertEqual(image_to_data.call_count, 1)
         self.assertIn("--psm 6", image_to_data.call_args.kwargs["config"])
 
+    def test_placement_batch_keeps_hash_and_uses_numeric_single_column_mode(
+        self,
+    ) -> None:
+        payload = {
+            "text": ["#4"],
+            "conf": ["96"],
+            "top": [38],
+            "height": [5],
+        }
+        with patch(
+            "modules.scoreboard.ocr_processor.pytesseract.image_to_data",
+            return_value=payload,
+        ) as image_to_data:
+            attempts = PytesseractEngine().recognize_many(
+                [np.zeros((10, 10), dtype=np.uint8)],
+                "placement",
+                "inverted_otsu",
+            )
+
+        self.assertEqual(attempts[0].text, "#4")
+        config = image_to_data.call_args.kwargs["config"]
+        self.assertIn("--psm 4", config)
+        self.assertIn("tessedit_char_whitelist=#0123456789", config)
+        self.assertIn("user_defined_dpi=300", config)
+        self.assertIn("classify_bln_numeric_mode=1", config)
+
     def test_reader_extracts_known_rows_and_infers_medal_placement(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             layout_path = Path(directory, "layout.json")
