@@ -5,6 +5,7 @@ ENV NODE_ENV=production \
     PATH="/opt/nightraid-ocr/bin:${PATH}" \
     GAME_RESULTS_PYTHON_EXECUTABLE=python3 \
     GAME_RESULTS_LOCAL_OCR_LAYOUT_PATH=modules/scoreboard/layout.json \
+    GAME_RESULTS_LOCAL_OCR_TIMEOUT_MS=120000 \
     TESSERACT_CMD=tesseract
 
 RUN apt-get update \

@@ -20,7 +20,8 @@ const SUPPORTED_MIME_TYPES = new Map([
   ['image/jpg', '.jpg'],
   ['image/webp', '.webp'],
 ])
-const DEFAULT_TIMEOUT_MS = 20_000
+const DEFAULT_TIMEOUT_MS = 120_000
+const MAX_TIMEOUT_MS = 300_000
 const DEFAULT_MAX_OUTPUT_BYTES = 2 * 1024 * 1024
 const DEFAULT_MAX_INPUT_BYTES = 25 * 1024 * 1024
 
@@ -206,7 +207,7 @@ function collectChildProcess(child, options = {}) {
     options.timeoutMs,
     DEFAULT_TIMEOUT_MS,
     1_000,
-    120_000,
+    MAX_TIMEOUT_MS,
     'Local OCR timeout',
   )
   const maxOutputBytes = boundedInteger(
@@ -299,7 +300,7 @@ export function resolveLocalScoreboardReaderConfig(env = process.env, options = 
       options.timeoutMs ?? env.GAME_RESULTS_LOCAL_OCR_TIMEOUT_MS,
       DEFAULT_TIMEOUT_MS,
       1_000,
-      120_000,
+      MAX_TIMEOUT_MS,
       'GAME_RESULTS_LOCAL_OCR_TIMEOUT_MS',
     ),
     maxOutputBytes: boundedInteger(

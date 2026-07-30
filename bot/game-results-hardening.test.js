@@ -78,6 +78,7 @@ test('validates deployment aliases and loads the service-account file without ex
   assert.equal(config.maxImageSizeMb, 15)
   assert.equal(config.screenshotReader, 'local')
   assert.equal(config.localOcr.pythonExecutable, 'python3')
+  assert.equal(config.localOcr.timeoutMs, 120_000)
   assert.equal(config.authorizedRoleIds.size, 3)
   assert.equal(config.serviceAccountEmail, 'bot@example.iam.gserviceaccount.com')
   assert.equal(

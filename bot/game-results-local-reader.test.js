@@ -204,6 +204,24 @@ test('integration gate permits explicit test and production modes only', () => {
   )
 })
 
+test('uses a Render-safe OCR timeout and permits an explicit longer limit', () => {
+  const defaultReader = createLocalGameResultScreenshotReader({
+    projectRoot: process.cwd(),
+    env: {},
+    runWorker: async () => ({}),
+  })
+  assert.equal(defaultReader.config.timeoutMs, 120_000)
+
+  const configuredReader = createLocalGameResultScreenshotReader({
+    projectRoot: process.cwd(),
+    env: {
+      GAME_RESULTS_LOCAL_OCR_TIMEOUT_MS: '240000',
+    },
+    runWorker: async () => ({}),
+  })
+  assert.equal(configuredReader.config.timeoutMs, 240_000)
+})
+
 test('startup diagnostic proves the local OCR runtime and logs no paid AI', async () => {
   const events = []
   const report = await verifyLocalScoreboardRuntime({

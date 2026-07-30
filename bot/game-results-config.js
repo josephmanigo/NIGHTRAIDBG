@@ -190,9 +190,9 @@ export function resolveGameResultsConfig(env = process.env, options = {}) {
       tesseractCommand: text(env, 'TESSERACT_CMD'),
       timeoutMs: integer(
         text(env, 'GAME_RESULTS_LOCAL_OCR_TIMEOUT_MS'),
-        20_000,
-        1_000,
         120_000,
+        1_000,
+        300_000,
         'GAME_RESULTS_LOCAL_OCR_TIMEOUT_MS',
       ),
     },
