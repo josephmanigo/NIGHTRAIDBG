@@ -9,6 +9,7 @@ test('Render container installs the free local OCR runtime and runs unprivileged
   assert.match(dockerfile, /\btesseract-ocr\b/)
   assert.match(dockerfile, /\btesseract-ocr-eng\b/)
   assert.match(dockerfile, /requirements-scoreboard\.txt/)
+  assert.match(dockerfile, /npm ci --omit=dev --legacy-peer-deps/)
   assert.match(dockerfile, /^USER node$/m)
   assert.match(dockerfile, /node", "bot\/nickname-bot\.js"/)
   assert.doesNotMatch(dockerfile, /OPENAI_API_KEY|GEMINI_API_KEY|VISION_API_KEY/)

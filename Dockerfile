@@ -19,7 +19,7 @@ RUN apt-get update \
 WORKDIR /app
 
 COPY package.json package-lock.json requirements-scoreboard.txt ./
-RUN npm ci --omit=dev \
+RUN npm ci --omit=dev --legacy-peer-deps \
     && python3 -m venv /opt/nightraid-ocr \
     && /opt/nightraid-ocr/bin/pip install \
       --no-cache-dir \
