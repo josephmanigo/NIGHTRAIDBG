@@ -410,6 +410,7 @@ test('startup recovery retries only the newest automatic OCR timeout once', asyn
     ...base,
     submissionId: 'timed-out-new',
     messageId: 'message-new',
+    status: 'processing',
   }
   const resumed = []
   const saved = []

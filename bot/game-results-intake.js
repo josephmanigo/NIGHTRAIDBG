@@ -582,7 +582,7 @@ export function createGameResultsIntake(options = {}) {
     const latestTimedOutAutomaticSubmission = new Map()
     for (const submission of submissions) {
       const timedOut = (
-        submission.status === 'failed'
+        ['failed', 'processing'].includes(submission.status)
         && submission.reviewPayload?.automatic_tally === true
         && (submission.reviewPayload?.issues ?? []).some((issue) =>
           issue?.severity === 'blocking'
@@ -614,7 +614,7 @@ export function createGameResultsIntake(options = {}) {
         submission.reviewPayload?.startup_timeout_retry_count ?? 0,
       )
       const timedOutAutomaticRetry = (
-        submission.status === 'failed'
+        ['failed', 'processing'].includes(submission.status)
         && submission.reviewPayload?.automatic_tally === true
         && Number.isInteger(timeoutRecoveryCount)
         && timeoutRecoveryCount < 1
