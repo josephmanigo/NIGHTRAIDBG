@@ -6,6 +6,7 @@ import {
   assertLocalOcrTestMode,
   createLocalGameResultScreenshotReader,
   parseLocalScoreboardWorkerOutput,
+  verifyLocalScoreboardRuntime,
 } from './game-results-local-reader.js'
 import { createRoundSubmissionReader } from './game-results-round-reader.js'
 
@@ -199,6 +200,62 @@ test('integration gate permits Copy of New test mode and refuses production', ()
   assert.throws(
     () => assertLocalOcrTestMode('production'),
     /approved only for SCORE_SHEET_MODE=test/,
+  )
+})
+
+test('startup diagnostic proves the local OCR runtime and logs no paid AI', async () => {
+  const events = []
+  const report = await verifyLocalScoreboardRuntime({
+    diagnose: async () => ({
+      ok: true,
+      ready: true,
+      paid_ai_used: false,
+      python: '3.13.5',
+      opencv: '4.14.0',
+      pytesseract: '0.3.13',
+      tesseract: '5.5.1',
+    }),
+  }, {
+    logger: {
+      info(event, fields) {
+        events.push({ event, fields })
+      },
+    },
+  })
+
+  assert.equal(report.ready, true)
+  assert.deepEqual(events, [{
+    event: 'GAME_RESULTS_LOCAL_OCR_READY',
+    fields: {
+      python: '3.13.5',
+      opencv: '4.14.0',
+      pytesseract: '0.3.13',
+      tesseract: '5.5.1',
+      paid_ai_used: false,
+    },
+  }])
+})
+
+test('startup diagnostic rejects unavailable or paid OCR readers', async () => {
+  await assert.rejects(
+    verifyLocalScoreboardRuntime({
+      diagnose: async () => ({
+        ok: false,
+        ready: false,
+        paid_ai_used: false,
+      }),
+    }),
+    /not ready/,
+  )
+  await assert.rejects(
+    verifyLocalScoreboardRuntime({
+      diagnose: async () => ({
+        ok: true,
+        ready: true,
+        paid_ai_used: true,
+      }),
+    }),
+    /paid_ai_used=false/,
   )
 })
 

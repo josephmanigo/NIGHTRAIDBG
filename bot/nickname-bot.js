@@ -45,6 +45,7 @@ import { installGameResultsIntake } from './game-results-intake.js'
 import {
   assertLocalOcrTestMode,
   createLocalGameResultScreenshotReader,
+  verifyLocalScoreboardRuntime,
 } from './game-results-local-reader.js'
 import {
   GAME_RESULTS_MVP_COMMAND,
@@ -463,6 +464,14 @@ client.once(Events.ClientReady, () => {
     .catch((reason) => {
       gameResultsErrorReporter.report('game_results_startup_backup', reason)
     })
+})
+
+client.once(Events.ClientReady, () => {
+  verifyLocalScoreboardRuntime(gameResultsLocalReader, {
+    logger: gameResultsLogger,
+  }).catch((reason) => {
+    gameResultsErrorReporter.report('game_results_local_ocr_startup', reason)
+  })
 })
 
 client.once(Events.ClientReady, async (readyClient) => {

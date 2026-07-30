@@ -418,6 +418,30 @@ export function createLocalGameResultScreenshotReader(options = {}) {
   }
 }
 
+export async function verifyLocalScoreboardRuntime(reader, options = {}) {
+  if (!reader?.diagnose) {
+    throw new Error('Local scoreboard reader diagnostics are unavailable.')
+  }
+  const report = await reader.diagnose()
+  if (
+    report?.ok !== true
+    || report?.ready !== true
+    || report?.paid_ai_used !== false
+  ) {
+    throw new Error(
+      'Local scoreboard OCR is not ready or did not confirm paid_ai_used=false.',
+    )
+  }
+  options.logger?.info?.('GAME_RESULTS_LOCAL_OCR_READY', {
+    python: report.python ?? null,
+    opencv: report.opencv ?? null,
+    pytesseract: report.pytesseract ?? null,
+    tesseract: report.tesseract ?? null,
+    paid_ai_used: false,
+  })
+  return report
+}
+
 export async function verifyLocalReaderFixture(reader, filename) {
   const buffer = await readFile(filename)
   return reader.read({
