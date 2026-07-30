@@ -5,6 +5,34 @@ The primary history store remains the existing Supabase database. `DATABASE_PATH
 is the local anchor for atomic JSON exports (and for a physical SQLite copy when
 one exists); it does not replace Supabase.
 
+## Architecture and implementation map
+
+1. `bot/game-results-intake.js` accepts authorized PNG/JPG/JPEG/WEBP messages
+   only from channel `1532004107404050534`, records metadata and hashes, and
+   reads the `ROUND 1` through `ROUND 4` label.
+2. `bot/game-results-local-reader.js` sends each preserved image to
+   `modules/scoreboard/worker.py` through a private temporary file.
+3. `modules/scoreboard/image_processor.py`, `layout.json`, and
+   `ocr_processor.py` resize the fixed scoreboard layout, crop PLACE/SLOT/KILLS,
+   preprocess locally with OpenCV, and read with native Tesseract.
+4. `bot/game-results-round-reader.js` merges overlapping screenshots without
+   treating perceptual similarity as an exact duplicate.
+5. `bot/scrim-automation.js` supplies the current A–Y registered-team snapshot;
+   `game-results-team-mapper.js` converts each screenshot letter to that
+   official slot and team.
+6. `modules/scoreboard/scoring.py` and the mapper validate the configured
+   placement/kill rules. Spreadsheet formulas remain authoritative.
+7. `bot/game-results-sheet-writer.js` backs up, writes only designated PLACE and
+   KILLS inputs, re-reads them, verifies formula recalculation, and records an
+   audit/rollback snapshot.
+8. `bot/game-results-review.js` posts plain Discord Markdown confirmations for
+   successful automatic tallies and stops safely when required fields are not
+   reliable.
+
+Runtime dependencies are Node.js, discord.js, Supabase, Python, OpenCV,
+pytesseract, native Tesseract English data, and the Google Sheets API. The
+scoreboard package has no paid-vision imports or network-based image reader.
+
 ## Safety boundary
 
 - Keep `SCORE_SHEET_MODE=test` during deployment verification.
@@ -46,8 +74,11 @@ TEST_WORKSHEET=Copy of New
 PRODUCTION_WORKSHEET=New
 SCORE_SHEET_MODE=test
 
-GEMINI_API_KEY=
-GEMINI_VISION_MODEL=gemini-3.6-flash
+GAME_RESULTS_SCREENSHOT_READER=local
+GAME_RESULTS_PYTHON_EXECUTABLE=python3
+GAME_RESULTS_LOCAL_OCR_LAYOUT_PATH=modules/scoreboard/layout.json
+TESSERACT_CMD=tesseract
+GAME_RESULTS_LOCAL_OCR_TIMEOUT_MS=20000
 MINIMUM_CONFIDENCE=0.85
 MAX_IMAGE_SIZE_MB=15
 DATABASE_PATH=game_results.db
@@ -69,10 +100,15 @@ Discord snowflakes at startup.
 
 ## Database preparation
 
-Apply migrations in order through `database/phase16.sql` in the Supabase SQL
+Apply migrations in order through `database/phase17.sql` in the Supabase SQL
 editor. The service-role credential is required because the tables remain
 service-role only. Before deployment, make a provider-level Supabase backup in
 addition to the bot's local JSON exports.
+
+`phase17.sql` replaces the screenshot-deletion function with a
+dependency-free implementation. It must be applied even if `phase16.sql` was
+already applied; otherwise a Supabase project without `digest()` on the
+function search path cannot release deleted screenshot hashes.
 
 Give the bot process write permission only to the directory containing
 `DATABASE_PATH`. The bot creates `<DATABASE_PATH>.backups` and writes each JSON
@@ -83,8 +119,12 @@ operations.
 
 ## Network and operational hardening
 
-- Discord attachment, Google OAuth/Sheets, and Gemini vision requests use a configurable
+- Discord attachment and Google OAuth/Sheets requests use a configurable
   timeout and retry transient `408`, `425`, `429`, and `5xx` responses.
+- Screenshot extraction runs only in the deployed container through fixed
+  OpenCV crops and native Tesseract OCR. Startup emits
+  `GAME_RESULTS_LOCAL_OCR_READY` only when Python, OpenCV, pytesseract, and
+  Tesseract are callable and the worker reports `paid_ai_used=false`.
 - `Retry-After` is honored with a capped delay; retries use bounded exponential
   backoff.
 - Discord's client handles gateway/API rate limits; screenshot intake also
@@ -136,7 +176,9 @@ submission.
    `game_results.db.backups`.
 5. Run `/health`; require `HEALTHY`, `mode test`, and worksheet `Copy of New`.
 6. Submit authorized test screenshots with `ROUND 1` in the same message in channel `1532004107404050534`.
-7. Complete review and verify only PLACE/KILLS changed in `Copy of New`.
+7. A valid read tallies automatically. Verify only PLACE/KILLS changed in
+   `Copy of New`; unsafe reads stop without writing and ask for clearer
+   screenshots.
 8. Restart during one pending round selection and confirm its existing controls
    still work or its selected submission resumes processing.
 9. Exercise `/edit-round`, `/rollback-update`, and `/sync-score-sheet` against
@@ -150,7 +192,7 @@ submission.
 Do not activate production until every item is checked:
 
 - [ ] Full tests, build, and API typecheck pass on the deployed commit.
-- [ ] Supabase migrations `phase9.sql` through `phase16.sql` are applied.
+- [ ] Supabase migrations `phase9.sql` through `phase17.sql` are applied.
 - [ ] A provider-level Supabase backup exists.
 - [ ] The bot created and can read a fresh local JSON backup.
 - [ ] Local backups are copied to protected off-host storage with retention.
@@ -170,7 +212,11 @@ Only then change the host secret:
 SCORE_SHEET_MODE=production
 ```
 
-Restart the process and run `/health`. It must report `mode production` and
+The local OCR path is intentionally code-locked to test mode until a separate
+production-activation change is approved. Do not change the host secret alone:
+remove that code gate only as part of the approved production activation.
+
+After that change, restart the process and run `/health`. It must report `mode production` and
 worksheet `New`. Perform one supervised round write, verify PLACE/KILLS and
 formula recalculation, and retain its audit/backup IDs. To retreat immediately,
 stop the bot, set `SCORE_SHEET_MODE=test`, restart, and use the authorized
