@@ -11,6 +11,8 @@ from modules.scoreboard.image_processor import (
     crop_scoreboard_fields,
     isolate_kill_digits,
     load_layout,
+    preprocessing_variants,
+    require_opencv,
     select_layout_for_image,
     validate_layout,
 )
@@ -96,6 +98,35 @@ class ImageLayoutTests(unittest.TestCase):
 
         self.assertEqual(int(digits[:, :23].sum()), 0)
         self.assertGreater(int(digits[:, 30:].sum()), 0)
+
+    def test_kill_preprocessing_removes_colored_slot_glyph_contamination(self) -> None:
+        active_cv2 = require_opencv()
+        crop = np.zeros((50, 70, 3), dtype=np.uint8)
+        colored = active_cv2.cvtColor(
+            np.array([[[24, 225, 187]]], dtype=np.uint8),
+            active_cv2.COLOR_HSV2BGR,
+        )[0, 0]
+        active_cv2.rectangle(crop, (10, 2), (25, 20), colored.tolist(), 3)
+        active_cv2.rectangle(crop, (2, 28), (22, 47), (255, 255, 255), -1)
+        active_cv2.line(crop, (34, 31), (34, 45), (255, 255, 255), 3)
+        active_cv2.rectangle(crop, (43, 31), (54, 45), (255, 255, 255), 2)
+        active_cv2.line(crop, (43, 38), (54, 38), (255, 255, 255), 2)
+
+        variant = preprocessing_variants(
+            crop,
+            upscale=2,
+            field="kills",
+        )["gray_160"]
+        mask = np.where(variant < 128, 255, 0).astype(np.uint8)
+        component_count, _labels, stats, _centroids = (
+            active_cv2.connectedComponentsWithStats(mask)
+        )
+        components = [
+            index for index in range(1, component_count)
+            if int(stats[index][active_cv2.CC_STAT_AREA]) >= 20
+        ]
+
+        self.assertEqual(len(components), 2)
 
     def test_closest_fixed_layout_is_selected_by_aspect_ratio(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

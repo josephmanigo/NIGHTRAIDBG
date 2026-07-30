@@ -22,6 +22,7 @@ from modules.scoreboard.ocr_processor import (
     _classify_d_f_p_glyph,
     _classify_h_r_glyph,
     _reconcile_eight_nine,
+    _reconcile_fixed_eighteen,
     _reconcile_missing_leading_one,
     _reconcile_repeated_one,
     _reconcile_slot_marker,
@@ -345,11 +346,28 @@ class ReaderPipelineTests(unittest.TestCase):
             FieldReading(value=None, confidence=0, review_required=True),
             FieldCrop(0, "kills", (0, 0, 60, 40), seventeen_pixels),
         )
+        seventeen_from_partial_ocr = _reconcile_unreadable_seventeen(
+            FieldReading(value=1, confidence=0.4, review_required=True),
+            FieldCrop(0, "kills", (0, 0, 60, 40), seventeen_pixels),
+        )
+        seventeen_from_misread_eleven = _reconcile_unreadable_seventeen(
+            FieldReading(value=11, confidence=0.9),
+            FieldCrop(0, "kills", (0, 0, 60, 40), seventeen_pixels),
+        )
+        verified_eleven = _reconcile_unreadable_seventeen(
+            FieldReading(value=11, confidence=0.9),
+            FieldCrop(0, "kills", (0, 0, 60, 40), eleven_pixels),
+        )
 
         self.assertEqual(eleven.value, 11)
         self.assertEqual(seventeen.value, 17)
+        self.assertEqual(seventeen_from_partial_ocr.value, 17)
+        self.assertEqual(seventeen_from_misread_eleven.value, 17)
+        self.assertEqual(verified_eleven.value, 11)
         self.assertFalse(eleven.review_required)
         self.assertFalse(seventeen.review_required)
+        self.assertFalse(seventeen_from_partial_ocr.review_required)
+        self.assertFalse(seventeen_from_misread_eleven.review_required)
 
     def test_opencv_topology_disambiguates_tied_d_and_f_markers(self) -> None:
         active_cv2 = require_opencv()
@@ -407,12 +425,49 @@ class ReaderPipelineTests(unittest.TestCase):
             FieldCrop(0, "slot", (0, 0, 30, 40), p_pixels),
         )
 
+        open_d_pixels = np.zeros((40, 30, 3), dtype=np.uint8)
+        active_cv2.line(open_d_pixels, (8, 8), (8, 31), bgr.tolist(), 4)
+        active_cv2.line(open_d_pixels, (8, 8), (18, 8), bgr.tolist(), 4)
+        active_cv2.line(open_d_pixels, (21, 11), (21, 31), bgr.tolist(), 4)
+        active_cv2.line(open_d_pixels, (8, 31), (21, 31), bgr.tolist(), 4)
+        resolved_open_d = _reconcile_slot_marker(
+            unreadable,
+            marker,
+            layout,
+            FieldCrop(0, "slot", (0, 0, 30, 40), open_d_pixels),
+        )
+
         self.assertEqual(resolved_d.value, "D")
         self.assertEqual(resolved_f.value, "F")
         self.assertEqual(resolved_p.value, "P")
+        self.assertEqual(resolved_open_d.value, "D")
         self.assertFalse(resolved_d.review_required)
         self.assertFalse(resolved_f.review_required)
         self.assertFalse(resolved_p.review_required)
+        self.assertFalse(resolved_open_d.review_required)
+
+    def test_opencv_recovers_fixed_eighteen_when_ocr_variants_disagree(
+        self,
+    ) -> None:
+        active_cv2 = require_opencv()
+        pixels = np.zeros((35, 55, 3), dtype=np.uint8)
+        active_cv2.line(pixels, (28, 9), (28, 25), (255, 255, 255), 3)
+        active_cv2.rectangle(pixels, (35, 9), (45, 25), (255, 255, 255), 2)
+        active_cv2.line(pixels, (35, 17), (45, 17), (255, 255, 255), 2)
+
+        resolved = _reconcile_fixed_eighteen(
+            FieldReading(
+                value=14,
+                confidence=0.6,
+                raw_text="gray_160:19 | gray_200:14 | otsu:16",
+                review_required=True,
+            ),
+            FieldCrop(0, "kills", (0, 0, 55, 35), pixels),
+        )
+
+        self.assertEqual(resolved.value, 18)
+        self.assertEqual(resolved.confidence, 0.93)
+        self.assertFalse(resolved.review_required)
 
     def test_opencv_verifies_only_a_single_large_closed_zero_glyph(self) -> None:
         ring = np.full((80, 60), 255, dtype=np.uint8)

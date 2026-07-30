@@ -544,5 +544,76 @@ test('startup recovery retries one latest local-worker failure for each round', 
   assert.equal(saved.every((item) =>
     item.payload.startup_local_ocr_retry_count === 1), true)
   assert.equal(saved.every((item) =>
-    item.payload.startup_local_ocr_retry_revision === 'fixed-scoreboard-layout-v5'), true)
+    item.payload.startup_local_ocr_retry_revision === 'fixed-scoreboard-layout-v6'), true)
+})
+
+test('startup recovery retries the newest OCR check failure after a reader revision', async () => {
+  let submission = {
+    submissionId: 'round-3-check-failure',
+    round: 3,
+    guildId: 'guild-1',
+    channelId: '1532004107404050534',
+    messageId: 'message-round-3',
+    discordUserId: 'user-1',
+    status: 'failed',
+    reviewVersion: 4,
+    reviewPayload: {
+      automatic_tally: true,
+      blocking_issue_count: 11,
+      spreadsheet_write_performed: false,
+      startup_local_ocr_retry_count: 1,
+      startup_local_ocr_retry_revision: 'fixed-scoreboard-layout-v5',
+      issues: [{
+        type: 'missing_rank',
+        severity: 'blocking',
+        message: 'Rank is missing or invalid.',
+      }],
+    },
+    records: [{ attachmentId: 'round-3-a', attachmentUrl: 'https://example.test/a.png' }],
+  }
+  const saved = []
+  const resumed = []
+  const controller = createGameResultsIntake({
+    runtimeConfig: runtimeConfig(),
+    authorizedRoleIds: ['123456789012345678'],
+    store: {
+      initialize: async () => undefined,
+      listRecoverableSubmissions: async () => [submission],
+      saveReviewState: async (input) => {
+        saved.push(input)
+        submission = {
+          ...submission,
+          reviewPayload: input.payload,
+          reviewVersion: input.expectedVersion + 1,
+        }
+        return structuredClone(submission)
+      },
+    },
+    logger: { info() {}, warn() {}, error() {} },
+    onOfficialSubmission: async (resumable) => {
+      resumed.push(resumable.submissionId)
+      return { status: 'confirmed' }
+    },
+  })
+
+  const first = await controller.recoverPendingSubmissions({
+    channels: {
+      fetch: async () => ({ send: async () => undefined }),
+    },
+  })
+  const second = await controller.recoverPendingSubmissions({
+    channels: {
+      fetch: async () => ({ send: async () => undefined }),
+    },
+  })
+
+  assert.equal(first.resumed, 1)
+  assert.equal(second.resumed, 0)
+  assert.deepEqual(resumed, ['round-3-check-failure'])
+  assert.equal(saved.length, 1)
+  assert.equal(saved[0].payload.startup_local_ocr_retry_count, 1)
+  assert.equal(
+    saved[0].payload.startup_local_ocr_retry_revision,
+    'fixed-scoreboard-layout-v6',
+  )
 })

@@ -388,6 +388,13 @@ def preprocessing_variants(
     else:
         grayscale = crop.copy()
     if field == "kills":
+        if crop.ndim == 3:
+            hsv = active_cv2.cvtColor(crop, active_cv2.COLOR_BGR2HSV)
+            grayscale = np.where(
+                hsv[:, :, 1] > 100,
+                0,
+                grayscale,
+            ).astype(np.uint8)
         masks = {
             "gray_160": np.where(grayscale > 160, 255, 0).astype(np.uint8),
             "gray_200": np.where(grayscale > 200, 255, 0).astype(np.uint8),

@@ -728,14 +728,15 @@ def _classify_d_f_p_glyph(crop: FieldCrop) -> str | None:
         item[3] >= 0 and active_cv2.contourArea(contours[index]) >= 3
         for index, item in enumerate(hierarchy[0])
     )
-    if not has_hole:
-        return "F"
     height, width = tight.shape
     bottom_right = tight[
         round(height * 0.62) :,
         round(width * 0.55) :,
     ]
-    return "D" if float((bottom_right > 0).mean()) >= 0.4 else "P"
+    bottom_right_density = float((bottom_right > 0).mean())
+    if not has_hole:
+        return "D" if bottom_right_density >= 0.45 else "F"
+    return "D" if bottom_right_density >= 0.4 else "P"
 
 
 def _classify_h_r_glyph(crop: FieldCrop) -> str | None:
@@ -759,6 +760,12 @@ def _kill_glyph_components(
         return []
     active_cv2 = require_opencv()
     grayscale = active_cv2.cvtColor(crop.pixels, active_cv2.COLOR_BGR2GRAY)
+    hsv = active_cv2.cvtColor(crop.pixels, active_cv2.COLOR_BGR2HSV)
+    grayscale = np.where(
+        hsv[:, :, 1] > 100,
+        0,
+        grayscale,
+    ).astype(np.uint8)
     mask = isolate_kill_digits(
         np.where(grayscale > 160, 255, 0).astype(np.uint8)
     )
@@ -1064,7 +1071,12 @@ def _reconcile_repeated_one(
         - first[active_cv2.CC_STAT_LEFT]
         - first[active_cv2.CC_STAT_WIDTH]
     )
-    if height_difference > 2 or not 0 <= horizontal_gap <= 5:
+    if (
+        height_difference > 2
+        or second[active_cv2.CC_STAT_WIDTH]
+        > first[active_cv2.CC_STAT_WIDTH] * 1.25
+        or not 0 <= horizontal_gap <= 5
+    ):
         return reading
     return FieldReading(
         value=11,
@@ -1079,11 +1091,55 @@ def _reconcile_repeated_one(
     )
 
 
+def _reconcile_fixed_eighteen(
+    reading: FieldReading,
+    crop: FieldCrop,
+) -> FieldReading:
+    """Recover fixed-font 18 when OCR variants disagree on the final digit."""
+
+    if crop.field != "kills" or not reading.review_required:
+        return reading
+    glyphs = _kill_glyph_components(crop)
+    if len(glyphs) != 2:
+        return reading
+    first_glyph, first = glyphs[0]
+    second_glyph, second = glyphs[1]
+    first_width = first[2]
+    first_height = first[3]
+    second_width = second[2]
+    second_height = second[3]
+    gap = second[0] - first[0] - first_width
+    occupied_rows = np.count_nonzero(np.any(first_glyph > 0, axis=1))
+    if (
+        abs(first_height - second_height) > 2
+        or first_width > first_height * 0.55
+        or first_width > second_width * 0.85
+        or not 0 <= gap <= 4
+        or occupied_rows < first_height * 0.75
+        or _glyph_hole_count(first_glyph) != 0
+        or _glyph_hole_count(second_glyph) < 2
+    ):
+        return reading
+    return FieldReading(
+        value=18,
+        confidence=max(0.93, reading.confidence),
+        raw_text=reading.raw_text,
+        source="ocr+opencv_digit_topology",
+        corrections=tuple(
+            dict.fromkeys(
+                (*reading.corrections, "fixed_18_verified_from_digit_topology")
+            )
+        ),
+        review_required=False,
+        bbox=reading.bbox,
+    )
+
+
 def _reconcile_unreadable_seventeen(
     reading: FieldReading,
     crop: FieldCrop,
 ) -> FieldReading:
-    if crop.field != "kills" or reading.value is not None:
+    if crop.field != "kills" or reading.value not in {None, 1, 11}:
         return reading
     active_cv2 = require_opencv()
     grayscale = active_cv2.cvtColor(crop.pixels, active_cv2.COLOR_BGR2GRAY)
@@ -1436,6 +1492,7 @@ class LocalScoreboardReader:
         for crop, reading in zip(crops, readings):
             reading = _reconcile_missing_leading_one(reading, crop)
             reading = _reconcile_repeated_one(reading, crop)
+            reading = _reconcile_fixed_eighteen(reading, crop)
             reading = _reconcile_unreadable_seventeen(reading, crop)
             reading = _reconcile_three_misread_as_four(reading, crop)
             reading = _reconcile_terminal_six(reading, crop)
