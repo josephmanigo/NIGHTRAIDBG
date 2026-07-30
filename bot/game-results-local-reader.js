@@ -320,9 +320,9 @@ export function resolveLocalScoreboardReaderConfig(env = process.env, options = 
 }
 
 export function assertLocalOcrTestMode(mode) {
-  if (mode !== 'test') {
+  if (!['test', 'production'].includes(mode)) {
     throw new Error(
-      'Local OCR integration is currently approved only for SCORE_SHEET_MODE=test and Copy of New.',
+      'Local OCR requires SCORE_SHEET_MODE to be exactly "test" or "production".',
     )
   }
 }

@@ -395,12 +395,37 @@ test('/correctscore previews first and writes only after authorized confirmation
   assert.equal(writes, 1)
 })
 
-test('workflow refuses any worksheet other than Copy of New', () => {
+test('workflow accepts matching production mode and New worksheet', () => {
+  const productionConfig = {
+    mode: 'production',
+    worksheetName: 'New',
+    sheetId: 417351865,
+  }
+  assert.doesNotThrow(
+    () => createGameResultsScoreboardWorkflow(workflowOptions({
+      scoreSheetMode: 'production',
+      worksheetName: 'New',
+      sheetClient: {
+        config: productionConfig,
+        readState: async () => sheetState(),
+      },
+      sheetWriter: {
+        config: productionConfig,
+        writeConfirmedSubmission: async (approved) => ({
+          status: 'verified',
+          submission: { ...approved, status: 'confirmed' },
+        }),
+      },
+    })),
+  )
+})
+
+test('workflow refuses mismatched score-sheet mode and worksheet settings', () => {
   assert.throws(
     () => createGameResultsScoreboardWorkflow(workflowOptions({
       scoreSheetMode: 'production',
       worksheetName: 'New',
     })),
-    /locked to test mode/,
+    /do not match/,
   )
 })

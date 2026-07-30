@@ -369,9 +369,22 @@ export function createGameResultsScoreboardWorkflow(options = {}) {
   const gameResultsChannelId = String(options.gameResultsChannelId)
   const scoreSheetMode = options.scoreSheetMode ?? sheetClient.config.mode
   const worksheetName = options.worksheetName ?? sheetClient.config.worksheetName
-  if (scoreSheetMode !== 'test' || worksheetName !== 'Copy of New') {
+  const expectedWorksheet =
+    scoreSheetMode === 'production'
+      ? 'New'
+      : scoreSheetMode === 'test'
+        ? 'Copy of New'
+        : null
+  if (
+    !expectedWorksheet
+    || worksheetName !== expectedWorksheet
+    || sheetClient.config.mode !== scoreSheetMode
+    || sheetClient.config.worksheetName !== worksheetName
+    || sheetWriter.config.mode !== scoreSheetMode
+    || sheetWriter.config.worksheetName !== worksheetName
+  ) {
     throw new Error(
-      'Local OCR scoreboard commands are locked to test mode and "Copy of New".',
+      'The score-sheet mode, worksheet, reader, and writer configuration do not match.',
     )
   }
   const administratorIds = configuredIds(

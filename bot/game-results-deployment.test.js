@@ -15,7 +15,7 @@ test('Render container installs the free local OCR runtime and runs unprivileged
   assert.doesNotMatch(dockerfile, /OPENAI_API_KEY|GEMINI_API_KEY|VISION_API_KEY/)
 })
 
-test('Render instructions keep OCR and Google Sheets in test mode', async () => {
+test('Render instructions default to test and require explicit production mode', async () => {
   const instructions = await readFile(
     new URL('../RENDER_LOCAL_OCR.md', import.meta.url),
     'utf8',
@@ -23,5 +23,6 @@ test('Render instructions keep OCR and Google Sheets in test mode', async () => 
   assert.match(instructions, /GAME_RESULTS_SCREENSHOT_READER=local/)
   assert.match(instructions, /SCORE_SHEET_MODE=test/)
   assert.match(instructions, /TEST_WORKSHEET=Copy of New/)
-  assert.match(instructions, /Do not set `SCORE_SHEET_MODE=production`/)
+  assert.match(instructions, /enabled explicitly with `SCORE_SHEET_MODE=production`/)
+  assert.match(instructions, /strictly targets[\s\S]*`New` worksheet/)
 })

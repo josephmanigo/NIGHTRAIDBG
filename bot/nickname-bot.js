@@ -388,6 +388,15 @@ const gameResultsSheetWriter = createSafeGameResultsSheetWriter({
 })
 const gameResultsTeamMappingService = createTeamMappingService({
   registeredTeamSource: scrimAutomation.registeredTeamSource,
+  scoreSheet: {
+    spreadsheetId: gameResultsConfig.spreadsheetId,
+    worksheetName: gameResultsSheetWriter.config.worksheetName,
+    allowNonTestWorksheet: gameResultsConfig.mode === 'production',
+    serviceAccountEmail: gameResultsConfig.serviceAccountEmail,
+    privateKey: gameResultsConfig.serviceAccountPrivateKey,
+    timeoutMs: gameResultsConfig.networkTimeoutMs,
+    maxRetries: gameResultsConfig.networkRetries,
+  },
 })
 const gameResultsLocalReader = createLocalGameResultScreenshotReader({
   pythonExecutable: gameResultsConfig.localOcr.pythonExecutable,

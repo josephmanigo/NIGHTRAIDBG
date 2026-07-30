@@ -195,11 +195,12 @@ test('reader preserves the attachment, uses a private temporary file, and remove
   assert.deepEqual(original, Buffer.from('fake fixed-layout image bytes'))
 })
 
-test('integration gate permits Copy of New test mode and refuses production', () => {
+test('integration gate permits explicit test and production modes only', () => {
   assert.doesNotThrow(() => assertLocalOcrTestMode('test'))
+  assert.doesNotThrow(() => assertLocalOcrTestMode('production'))
   assert.throws(
-    () => assertLocalOcrTestMode('production'),
-    /approved only for SCORE_SHEET_MODE=test/,
+    () => assertLocalOcrTestMode('live'),
+    /exactly "test" or "production"/,
   )
 })
 
