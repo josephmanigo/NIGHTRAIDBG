@@ -504,6 +504,30 @@ def _reconcile_slot_marker(
     runner_up_distance = candidates[1][1] if len(candidates) > 1 else float("inf")
     if best_distance > maximum_distance:
         return reading
+    near_slots = {
+        slot
+        for slot, distance in candidates
+        if distance - best_distance < max(5, ambiguity_margin)
+    }
+    if {"H", "R"}.issubset(near_slots) and glyph_crop is not None:
+        classified = _classify_h_r_glyph(glyph_crop)
+        if classified is not None:
+            return FieldReading(
+                value=classified,
+                confidence=0.92,
+                raw_text=reading.raw_text,
+                source="ocr+fixed_color_marker+opencv_topology",
+                corrections=tuple(
+                    dict.fromkeys(
+                        (
+                            *reading.corrections,
+                            "H_R_disambiguated_from_fixed_glyph_topology",
+                        )
+                    )
+                ),
+                review_required=False,
+                bbox=reading.bbox,
+            )
     if runner_up_distance - best_distance < ambiguity_margin:
         tied_slots = {
             slot
@@ -552,25 +576,6 @@ def _reconcile_slot_marker(
                             (
                                 *reading.corrections,
                                 "D_F_P_disambiguated_from_fixed_glyph_topology",
-                            )
-                        )
-                    ),
-                    review_required=False,
-                    bbox=reading.bbox,
-                )
-        if tied_slots == {"H", "R"} and glyph_crop is not None:
-            classified = _classify_h_r_glyph(glyph_crop)
-            if classified is not None:
-                return FieldReading(
-                    value=classified,
-                    confidence=0.92,
-                    raw_text=reading.raw_text,
-                    source="ocr+fixed_color_marker+opencv_topology",
-                    corrections=tuple(
-                        dict.fromkeys(
-                            (
-                                *reading.corrections,
-                                "H_R_disambiguated_from_fixed_glyph_topology",
                             )
                         )
                     ),
@@ -733,12 +738,10 @@ def _reconcile_repeated_one(
     if crop.field != "kills" or reading.value != 1:
         return reading
     active_cv2 = require_opencv()
-    hsv = active_cv2.cvtColor(crop.pixels, active_cv2.COLOR_BGR2HSV)
-    mask = np.where(
-        (hsv[:, :, 1] < 100) & (hsv[:, :, 2] > 120),
-        255,
-        0,
-    ).astype(np.uint8)
+    grayscale = active_cv2.cvtColor(crop.pixels, active_cv2.COLOR_BGR2GRAY)
+    mask = isolate_kill_digits(
+        np.where(grayscale > 160, 255, 0).astype(np.uint8)
+    )
     component_count, _labels, stats, _centroids = (
         active_cv2.connectedComponentsWithStats(mask)
     )
@@ -774,6 +777,72 @@ def _reconcile_repeated_one(
         source="ocr+opencv_components",
         corrections=tuple(
             dict.fromkeys((*reading.corrections, "two_one_glyphs_verified"))
+        ),
+        review_required=False,
+        bbox=reading.bbox,
+    )
+
+
+def _reconcile_unreadable_seventeen(
+    reading: FieldReading,
+    crop: FieldCrop,
+) -> FieldReading:
+    if crop.field != "kills" or reading.value is not None:
+        return reading
+    active_cv2 = require_opencv()
+    grayscale = active_cv2.cvtColor(crop.pixels, active_cv2.COLOR_BGR2GRAY)
+    mask = isolate_kill_digits(
+        np.where(grayscale > 160, 255, 0).astype(np.uint8)
+    )
+    component_count, labels, stats, _centroids = (
+        active_cv2.connectedComponentsWithStats(mask)
+    )
+    components = sorted(
+        [
+            (index, tuple(int(item) for item in stats[index]))
+            for index in range(1, component_count)
+            if (
+                int(stats[index][active_cv2.CC_STAT_AREA]) >= 8
+                and int(stats[index][active_cv2.CC_STAT_HEIGHT]) >= 5
+            )
+        ],
+        key=lambda item: item[1][active_cv2.CC_STAT_LEFT],
+    )
+    if len(components) != 2:
+        return reading
+    (_first_index, first), (second_index, second) = components
+    first_width = first[active_cv2.CC_STAT_WIDTH]
+    first_height = first[active_cv2.CC_STAT_HEIGHT]
+    second_width = second[active_cv2.CC_STAT_WIDTH]
+    second_height = second[active_cv2.CC_STAT_HEIGHT]
+    if (
+        abs(first_height - second_height) > 2
+        or first_width > first_height * 0.5
+        or second_width < first_width * 1.3
+        or second_width < second_height * 0.45
+    ):
+        return reading
+    left = second[active_cv2.CC_STAT_LEFT]
+    top = second[active_cv2.CC_STAT_TOP]
+    glyph = np.where(
+        labels[
+            top : top + second_height,
+            left : left + second_width,
+        ] == second_index,
+        255,
+        0,
+    ).astype(np.uint8)
+    if float((glyph[: max(1, round(second_height * 0.3))] > 0).mean()) < 0.3:
+        return reading
+    return FieldReading(
+        value=17,
+        confidence=0.9,
+        raw_text=reading.raw_text,
+        source="ocr+opencv_digit_topology",
+        corrections=tuple(
+            dict.fromkeys(
+                (*reading.corrections, "unreadable_17_verified_from_fixed_glyphs")
+            )
         ),
         review_required=False,
         bbox=reading.bbox,
@@ -1070,6 +1139,7 @@ class LocalScoreboardReader:
                 )
         for crop, reading in zip(crops, readings):
             reading = _reconcile_repeated_one(reading, crop)
+            reading = _reconcile_unreadable_seventeen(reading, crop)
             reading = _reconcile_zero_kill(reading, crop, layout)
             reading = _reconcile_eight_nine(reading, crop)
             fields[crop.row_index][crop.field] = reading

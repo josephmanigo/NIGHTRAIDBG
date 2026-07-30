@@ -22,7 +22,9 @@ from modules.scoreboard.ocr_processor import (
     _classify_d_f_p_glyph,
     _classify_h_r_glyph,
     _reconcile_eight_nine,
+    _reconcile_repeated_one,
     _reconcile_slot_marker,
+    _reconcile_unreadable_seventeen,
     _reconcile_zero_kill,
 )
 from modules.scoreboard.team_manager import TeamRegistry
@@ -174,6 +176,59 @@ class ReaderPipelineTests(unittest.TestCase):
         self.assertEqual(corrected.value, 28)
         self.assertEqual(corrected.source, "ocr+opencv_digit_topology")
         self.assertFalse(corrected.review_required)
+
+    def test_opencv_recovers_fixed_eleven_and_seventeen_kill_glyphs(self) -> None:
+        active_cv2 = require_opencv()
+
+        def pixels() -> np.ndarray:
+            value = np.zeros((40, 60, 3), dtype=np.uint8)
+            active_cv2.rectangle(
+                value,
+                (2, 5),
+                (22, 25),
+                (255, 255, 255),
+                -1,
+            )
+            active_cv2.line(value, (32, 10), (32, 28), (255, 255, 255), 3)
+            return value
+
+        eleven_pixels = pixels()
+        active_cv2.line(
+            eleven_pixels,
+            (39, 10),
+            (39, 28),
+            (255, 255, 255),
+            3,
+        )
+        eleven = _reconcile_repeated_one(
+            FieldReading(value=1, confidence=0.86),
+            FieldCrop(0, "kills", (0, 0, 60, 40), eleven_pixels),
+        )
+
+        seventeen_pixels = pixels()
+        active_cv2.line(
+            seventeen_pixels,
+            (40, 10),
+            (48, 10),
+            (255, 255, 255),
+            3,
+        )
+        active_cv2.line(
+            seventeen_pixels,
+            (47, 10),
+            (47, 28),
+            (255, 255, 255),
+            3,
+        )
+        seventeen = _reconcile_unreadable_seventeen(
+            FieldReading(value=None, confidence=0, review_required=True),
+            FieldCrop(0, "kills", (0, 0, 60, 40), seventeen_pixels),
+        )
+
+        self.assertEqual(eleven.value, 11)
+        self.assertEqual(seventeen.value, 17)
+        self.assertFalse(eleven.review_required)
+        self.assertFalse(seventeen.review_required)
 
     def test_opencv_topology_disambiguates_tied_d_and_f_markers(self) -> None:
         active_cv2 = require_opencv()

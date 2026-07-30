@@ -841,7 +841,7 @@ test('automatic tally stops without persistent review when required score data s
     reviewPayload: {
       startup_local_ocr_retry_count: 1,
       startup_local_ocr_retry_at: retryTimestamp,
-      startup_local_ocr_retry_revision: 'fixed-scoreboard-layout-v3',
+      startup_local_ocr_retry_revision: 'fixed-scoreboard-layout-v4',
     },
   }))
   let writes = 0
@@ -881,7 +881,7 @@ test('automatic tally stops without persistent review when required score data s
   )
   assert.equal(
     store.current().reviewPayload.startup_local_ocr_retry_revision,
-    'fixed-scoreboard-layout-v3',
+    'fixed-scoreboard-layout-v4',
   )
   assert.ok(result.blockingIssueCount > 0)
   assert.equal(automaticInteraction.followUps.length, 1)
