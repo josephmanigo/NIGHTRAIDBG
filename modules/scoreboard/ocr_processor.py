@@ -64,7 +64,9 @@ class PytesseractEngine:
     @staticmethod
     def _config(field: str, *, batch: bool = False) -> str:
         page_segmentation_mode = (
-            6 if batch else (10 if field in {"slot", "kills"} else 7)
+            (4 if field == "placement" else 6)
+            if batch
+            else (10 if field in {"slot", "kills"} else 7)
         )
         whitelist = (
             "ABCDEFGHIJKLMNOPQRSTUVWXYZ0"
@@ -681,17 +683,7 @@ class LocalScoreboardReader:
                 upscale=int(layout["ocr"]["upscale"]),
                 field=crop.field,
             )
-            if crop.field == "placement":
-                if crop.row_index in placement_hints:
-                    continue
-                variant = (
-                    "inverted_otsu"
-                    if "inverted_otsu" in variants
-                    else next(iter(variants))
-                )
-                attempts_by_crop[crop_index].append(
-                    self.engine.recognize(variants[variant], crop.field, variant)
-                )
+            if crop.field == "placement" and crop.row_index in placement_hints:
                 continue
             for variant, image in variants.items():
                 groups[(crop.field, variant)].append((crop_index, image))
@@ -724,7 +716,30 @@ class LocalScoreboardReader:
             if crop.row_index in placement_hints and crop.field == "placement":
                 continue
             if reading.review_required:
-                readings[crop_index] = self._read_crop(crop, layout)
+                variants = preprocessing_variants(
+                    crop.pixels,
+                    upscale=int(layout["ocr"]["upscale"]),
+                    field=crop.field,
+                )
+                preferred = {
+                    "placement": "inverted_otsu",
+                    "slot": "inner",
+                    "kills": "gray_160",
+                }[crop.field]
+                variant = preferred if preferred in variants else next(iter(variants))
+                fallback = self.engine.recognize(
+                    variants[variant],
+                    crop.field,
+                    variant,
+                )
+                readings[crop_index] = choose_consensus(
+                    [*attempts_by_crop[crop_index], fallback],
+                    crop.field,
+                    minimum_confidence=float(layout["ocr"]["minimum_confidence"]),
+                    max_placement=int(layout["ocr"]["max_placement"]),
+                    max_kills=int(layout["ocr"]["max_kills"]),
+                    bbox=crop.bbox,
+                )
         return readings
 
     def read(self, image_path: str | Path) -> ScoreboardResult:

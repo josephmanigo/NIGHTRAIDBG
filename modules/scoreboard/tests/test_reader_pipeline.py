@@ -240,18 +240,12 @@ class ReaderPipelineTests(unittest.TestCase):
         self.assertEqual(
             engine.calls,
             [
+                ("placement", "test", 3),
                 ("slot", "test", 3),
                 ("kills", "test", 3),
             ],
         )
-        self.assertEqual(
-            engine.single_calls,
-            [
-                ("placement", "test"),
-                ("placement", "test"),
-                ("placement", "test"),
-            ],
-        )
+        self.assertEqual(engine.single_calls, [])
         self.assertEqual([row.slot.value for row in result.rows], ["O", "M", "R"])
         self.assertEqual([row.kills.value for row in result.rows], [65, 7, 31])
 
