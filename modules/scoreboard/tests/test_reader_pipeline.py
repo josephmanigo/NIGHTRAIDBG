@@ -107,7 +107,7 @@ class ReaderPipelineTests(unittest.TestCase):
         self.assertEqual([attempt.text for attempt in attempts], ["O", "M"])
         self.assertEqual([attempt.confidence for attempt in attempts], [0.95, 0.9])
         self.assertEqual(image_to_data.call_count, 1)
-        self.assertIn("--psm 6", image_to_data.call_args.kwargs["config"])
+        self.assertIn("--psm 11", image_to_data.call_args.kwargs["config"])
 
     def test_reader_extracts_known_rows_and_infers_medal_placement(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

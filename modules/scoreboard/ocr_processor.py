@@ -64,7 +64,7 @@ class PytesseractEngine:
     @staticmethod
     def _config(field: str, *, batch: bool = False) -> str:
         page_segmentation_mode = (
-            6 if batch else (10 if field in {"slot", "kills"} else 7)
+            11 if batch else (10 if field in {"slot", "kills"} else 7)
         )
         whitelist = (
             "ABCDEFGHIJKLMNOPQRSTUVWXYZ0"
