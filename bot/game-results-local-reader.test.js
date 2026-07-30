@@ -294,14 +294,14 @@ test('startup diagnostic rejects unavailable or paid OCR readers', async () => {
   )
 })
 
-test('round reader defaults to the local worker adapter instead of paid vision', async () => {
+test('the local worker adapter still drives the round reader when it is injected', async () => {
   const original = Buffer.from('default local round reader')
   const sha256 = createHash('sha256').update(original).digest('hex')
   const reader = createRoundSubmissionReader({
-    localScreenshot: {
+    singleScreenshotReader: createLocalGameResultScreenshotReader({
       projectRoot: process.cwd(),
       runWorker: async () => workerPayload(sha256),
-    },
+    }),
     attachmentLoader: async () => ({
       buffer: original,
       mimeType: 'image/png',

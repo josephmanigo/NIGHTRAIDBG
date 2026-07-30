@@ -140,9 +140,9 @@ test('validates deployment aliases and loads the service-account file without ex
   assert.throws(
     () => resolveGameResultsConfig({
       ...env,
-      GAME_RESULTS_SCREENSHOT_READER: 'gemini',
+      GAME_RESULTS_SCREENSHOT_READER: 'openai',
     }),
-    /paid vision providers are disabled/,
+    /must be "gemini" or "local"/,
   )
 })
 

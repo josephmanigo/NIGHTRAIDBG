@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { createLocalGameResultScreenshotReader } from './game-results-local-reader.js'
+import { createSingleScreenshotReader } from './game-results-reader.js'
 import { fetchWithRetry } from './game-results-runtime.js'
 
 const DEFAULT_MAX_FILE_SIZE_MB = 10
@@ -521,7 +521,7 @@ export function createRoundSubmissionReader(options = {}) {
   const ownsSingleReader = !options.singleScreenshotReader
   const singleScreenshotReader =
     options.singleScreenshotReader
-    ?? createLocalGameResultScreenshotReader(options.localScreenshot)
+    ?? createSingleScreenshotReader(options.screenshotReader)
   const attachmentLoader =
     options.attachmentLoader
     ?? ((record) => downloadSubmissionScreenshot(record, options.download))

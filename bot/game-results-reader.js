@@ -145,7 +145,7 @@ function sameValue(left, right, type) {
   return String(left).normalize('NFKC') === String(right).normalize('NFKC')
 }
 
-function finalizeField(candidate, ocrField, type, path, verification, reviewFields) {
+function finalizeField(candidate, ocrField, type, path, verification, reviewFields, ocrEnabled = true) {
   const aiConfidence = Number(candidate.confidence.toFixed(3))
   const ocrConfidence = Number(ocrField?.confidence ?? 0)
   const hasOcrCandidate = ocrField?.candidate !== null && ocrField?.candidate !== undefined
@@ -157,8 +157,12 @@ function finalizeField(candidate, ocrField, type, path, verification, reviewFiel
     && !matches
     && ocrConfidence >= verification.ocr_conflict_confidence
   const lowAiConfidence = aiConfidence < verification.minimum_ai_confidence
+  // minimum_unverified_ai_confidence is the stricter bar for values the secondary
+  // OCR pass could not corroborate. With no secondary reader configured, nothing is
+  // corroboratable by design, so applying it would send every field to review.
   const weakUnverifiedValue =
-    !matches
+    ocrEnabled
+    && !matches
     && aiConfidence < verification.minimum_unverified_ai_confidence
   const shouldReview =
     candidate.value === null
@@ -175,7 +179,9 @@ function finalizeField(candidate, ocrField, type, path, verification, reviewFiel
     value,
     confidence: aiConfidence,
     ocr: {
-      status: matches ? 'matched' : conflicts ? 'conflict' : hasOcrCandidate ? 'unverified' : 'not_read',
+      status: !ocrEnabled
+        ? 'disabled'
+        : matches ? 'matched' : conflicts ? 'conflict' : hasOcrCandidate ? 'unverified' : 'not_read',
       candidate: ocrField?.candidate ?? null,
       confidence: Number(ocrConfidence.toFixed(3)),
     },
@@ -224,7 +230,7 @@ export function clampGameResultVisionGeometry(output) {
   }
 }
 
-function serializeTeam(team, teamIndex, ocr, layout, reviewFields) {
+function serializeTeam(team, teamIndex, ocr, layout, reviewFields, ocrEnabled = true) {
   const prefix = `teams[${teamIndex}]`
   const rank = finalizeField(
     team.rank,
@@ -233,6 +239,7 @@ function serializeTeam(team, teamIndex, ocr, layout, reviewFields) {
     `${prefix}.rank`,
     layout.verification,
     reviewFields,
+    ocrEnabled,
   )
   const teamCode = finalizeField(
     team.team_code,
@@ -241,6 +248,7 @@ function serializeTeam(team, teamIndex, ocr, layout, reviewFields) {
     `${prefix}.team_code`,
     layout.verification,
     reviewFields,
+    ocrEnabled,
   )
   const totalKills = finalizeField(
     team.team_total_kills,
@@ -249,6 +257,7 @@ function serializeTeam(team, teamIndex, ocr, layout, reviewFields) {
     `${prefix}.team_total_kills`,
     layout.verification,
     reviewFields,
+    ocrEnabled,
   )
   const players = team.players.map((player, playerIndex) => {
     const playerPrefix = `${prefix}.players[${playerIndex}]`
@@ -259,6 +268,7 @@ function serializeTeam(team, teamIndex, ocr, layout, reviewFields) {
       `${playerPrefix}.slot`,
       layout.verification,
       reviewFields,
+      ocrEnabled,
     )
     const name = finalizeField(
       player.name,
@@ -267,6 +277,7 @@ function serializeTeam(team, teamIndex, ocr, layout, reviewFields) {
       `${playerPrefix}.name`,
       layout.verification,
       reviewFields,
+      ocrEnabled,
     )
     const killMarkerReadable =
       player.skull_icon_detected
@@ -283,6 +294,7 @@ function serializeTeam(team, teamIndex, ocr, layout, reviewFields) {
       `${playerPrefix}.kills`,
       layout.verification,
       reviewFields,
+      ocrEnabled,
     )
     return {
       slot: slot.value,
@@ -325,9 +337,24 @@ function serializeTeam(team, teamIndex, ocr, layout, reviewFields) {
   }
 }
 
+const NO_OCR_RESULT = { engine: null, version: null, tokenCount: 0, fields: {} }
+
+function ocrVerificationEnabled(value) {
+  const setting = String(
+    value ?? process.env.GAME_RESULTS_OCR_VERIFICATION ?? 'off',
+  ).trim().toLowerCase()
+  return setting === 'on' || setting === 'true' || setting === '1'
+}
+
 export function createSingleScreenshotReader(options = {}) {
   const visionReader = options.visionReader ?? createGeminiGameResultVisionReader(options.vision)
-  const ocrService = options.ocrService ?? createTesseractGameResultOcrReader(options.ocr)
+  // Tesseract cross-checking is opt-in. Gemini reads the scoreboard on its own by
+  // default so the deployment does not need native Tesseract or OpenCV.
+  const ocrEnabled = options.ocrService
+    ? true
+    : ocrVerificationEnabled(options.verifyWithOcr)
+  const ocrService = options.ocrService
+    ?? (ocrEnabled ? createTesseractGameResultOcrReader(options.ocr) : null)
   const preprocess = options.preprocess ?? preprocessGameResultScreenshot
   const layoutLoader = options.layoutLoader ?? loadGameResultsLayout
 
@@ -353,14 +380,16 @@ export function createSingleScreenshotReader(options = {}) {
     const vision = gameResultVisionOutputSchema.parse(
       clampGameResultVisionGeometry(primary.output),
     )
-    const ocr = await ocrService.read({
-      enhancedBuffer: processed.enhancedBuffer,
-      vision,
-      layout,
-    })
+    const ocr = ocrService
+      ? await ocrService.read({
+          enhancedBuffer: processed.enhancedBuffer,
+          vision,
+          layout,
+        })
+      : NO_OCR_RESULT
     const reviewFields = []
     const teams = vision.teams.map((team, index) =>
-      serializeTeam(team, index, ocr, layout, reviewFields))
+      serializeTeam(team, index, ocr, layout, reviewFields, ocrEnabled))
 
     return {
       schema_version: 'nightraid.single-screenshot.v1',
@@ -385,11 +414,13 @@ export function createSingleScreenshotReader(options = {}) {
           model: primary.model,
           included_original_image: primary.includedOriginalImage,
         },
-        secondary: {
-          engine: ocr.engine,
-          version: ocr.version,
-          token_count: ocr.tokenCount,
-        },
+        secondary: ocrEnabled
+          ? {
+              engine: ocr.engine,
+              version: ocr.version,
+              token_count: ocr.tokenCount,
+            }
+          : { engine: null, version: null, token_count: 0, status: 'disabled' },
       },
       detected_rows: processed.rows,
       teams,
@@ -400,6 +431,6 @@ export function createSingleScreenshotReader(options = {}) {
 
   return {
     read,
-    close: () => ocrService.terminate?.(),
+    close: () => ocrService?.terminate?.(),
   }
 }

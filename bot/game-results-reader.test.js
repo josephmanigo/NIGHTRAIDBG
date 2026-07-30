@@ -272,7 +272,7 @@ test('Gemini is the primary reader and receives structured original/enhanced ima
   assert.equal(requests.length, 1)
   assert.equal(
     requests[0].url,
-    'https://generativelanguage.googleapis.com/v1beta/interactions',
+    'https://generativelanguage.googleapis.com/v1/interactions',
   )
   assert.equal(requests[0].options.headers['x-goog-api-key'], 'test-key')
   const imageParts = requests[0].body.input.filter((part) =>
@@ -459,4 +459,54 @@ test('local OCR initializes from bundled English data without a network request'
   } finally {
     await service.terminate()
   }
+})
+
+test('Gemini-only mode keeps confident values that no secondary OCR corroborated', async () => {
+  const image = await generatedLeaderboardPng()
+  // 0.70 sits above minimum_ai_confidence (0.55) but below the stricter
+  // minimum_unverified_ai_confidence (0.82) that applies only when a secondary
+  // OCR pass exists and failed to corroborate the value.
+  const output = knownVisionOutput(0.7)
+  const reader = createSingleScreenshotReader({
+    visionReader: async () => output,
+    verifyWithOcr: 'off',
+  })
+  const result = await reader.read({ buffer: image, mimeType: 'image/png' })
+
+  assert.equal(result.teams[0].rank, 1)
+  assert.equal(result.review_required, false)
+  assert.deepEqual(result.review_fields, [])
+  assert.equal(result.readers.secondary.status, 'disabled')
+  assert.equal(result.teams[0].ocr_verification.rank.status, 'disabled')
+  for (const player of result.teams[0].players) {
+    assert.notEqual(player.kills, null)
+    assert.equal(player.ocr_verification.kills.status, 'disabled')
+  }
+})
+
+test('Gemini-only mode still sends genuinely low-confidence values to review', async () => {
+  const image = await generatedLeaderboardPng()
+  const output = knownVisionOutput(0.7)
+  output.teams[0].players[1].kills = field(3, 0.32)
+  const reader = createSingleScreenshotReader({
+    visionReader: async () => output,
+    verifyWithOcr: 'off',
+  })
+  const result = await reader.read({ buffer: image, mimeType: 'image/png' })
+
+  assert.equal(result.teams[0].players[1].kills, null)
+  assert.equal(result.review_required, true)
+  assert.ok(result.review_fields.includes('teams[0].players[1].kills'))
+})
+
+test('the secondary OCR cross-check still applies when it is switched on', async () => {
+  const image = await generatedLeaderboardPng()
+  const reader = createSingleScreenshotReader({
+    visionReader: async () => knownVisionOutput(0.7),
+    ocrService: matchingOcr(),
+  })
+  const result = await reader.read({ buffer: image, mimeType: 'image/png' })
+
+  assert.equal(result.teams[0].ocr_verification.rank.status, 'matched')
+  assert.equal(result.review_required, false)
 })

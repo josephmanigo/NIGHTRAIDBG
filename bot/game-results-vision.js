@@ -200,7 +200,7 @@ export function createGeminiGameResultVisionReader(options = {}) {
       ?? Number(process.env.GAME_RESULTS_NETWORK_RETRIES || 3)
     async function request(activeModel) {
       const response = await fetchWithRetry(
-        'https://generativelanguage.googleapis.com/v1beta/interactions',
+        'https://generativelanguage.googleapis.com/v1/interactions',
         {
           method: 'POST',
           headers: {

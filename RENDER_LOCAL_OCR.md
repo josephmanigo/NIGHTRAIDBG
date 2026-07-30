@@ -1,21 +1,28 @@
-# Render local-OCR deployment
+# Render deployment (Gemini screenshot reader)
 
-The Discord bot now needs native Python, OpenCV, and Tesseract. Configure the
-existing Render service to use this repository's `Dockerfile`; a plain Node
-runtime does not install Tesseract.
+The Discord bot reads scoreboard screenshots with Gemini vision through the
+stable Gemini Interactions API. It no longer needs native Python, OpenCV, or
+Tesseract, so the image is a plain Node runtime. Configure the existing Render
+service to use this repository's `Dockerfile`.
 
 Use these settings for the deployed NIGHTRAID bot:
 
 ```text
-GAME_RESULTS_SCREENSHOT_READER=local
-GAME_RESULTS_PYTHON_EXECUTABLE=python3
-GAME_RESULTS_LOCAL_OCR_LAYOUT_PATH=modules/scoreboard/layout.json
-GAME_RESULTS_LOCAL_OCR_TIMEOUT_MS=180000
-TESSERACT_CMD=tesseract
+GAME_RESULTS_SCREENSHOT_READER=gemini
+GAME_RESULTS_OCR_VERIFICATION=off
+GEMINI_VISION_MODEL=gemini-3.6-flash
+GAME_RESULTS_VISION_TIMEOUT_MS=45000
 SCORE_SHEET_MODE=production
 TEST_WORKSHEET=Copy of New
 PRODUCTION_WORKSHEET=New
 ```
+
+Set `GEMINI_API_KEY` as a Render environment variable. The bot refuses to start
+in `gemini` mode without it. Never commit the key or bake it into the image.
+
+`GAME_RESULTS_OCR_VERIFICATION=off` is the intended production setting: Gemini
+is the only reader. Turning it `on` re-enables the Tesseract cross-check, which
+needs native OCR packages that this image no longer installs.
 
 Create the Google service-account JSON as a Render Secret File named
 `google-service-account.json`, then set:

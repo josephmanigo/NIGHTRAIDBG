@@ -42,11 +42,8 @@ import {
   installGameResultsAdminWorkflow,
 } from './game-results-admin-review.js'
 import { installGameResultsIntake } from './game-results-intake.js'
-import {
-  assertLocalOcrTestMode,
-  createLocalGameResultScreenshotReader,
-  verifyLocalScoreboardRuntime,
-} from './game-results-local-reader.js'
+import { assertLocalOcrTestMode } from './game-results-local-reader.js'
+import { createSingleScreenshotReader } from './game-results-reader.js'
 import {
   GAME_RESULTS_MVP_COMMAND,
   installGameResultsMvpWorkflow,
@@ -399,15 +396,17 @@ const gameResultsTeamMappingService = createTeamMappingService({
     maxRetries: gameResultsConfig.networkRetries,
   },
 })
-const gameResultsLocalReader = createLocalGameResultScreenshotReader({
-  pythonExecutable: gameResultsConfig.localOcr.pythonExecutable,
-  pythonPackagePath: gameResultsConfig.localOcr.pythonPackagePath,
-  layoutPath: gameResultsConfig.localOcr.layoutPath,
-  tesseractCommand: gameResultsConfig.localOcr.tesseractCommand,
-  timeoutMs: gameResultsConfig.localOcr.timeoutMs,
-})
+if (gameResultsConfig.screenshotReader !== 'gemini') {
+  throw new Error(
+    'The deployed bot reads screenshots with Gemini. Set GAME_RESULTS_SCREENSHOT_READER=gemini; '
+    + 'the container no longer ships the native Tesseract runtime the "local" reader needs.',
+  )
+}
+// Layout defaults to bot/game-results-layout.json (the vision layout). The
+// GAME_RESULTS_LOCAL_OCR_LAYOUT_PATH file is the local reader's separate schema.
+const gameResultsScreenshotReader = createSingleScreenshotReader()
 const gameResultsRoundReader = createRoundSubmissionReader({
-  singleScreenshotReader: gameResultsLocalReader,
+  singleScreenshotReader: gameResultsScreenshotReader,
 })
 installGameResultsMvpWorkflow(client, {
   store: gameResultsStore,
@@ -464,7 +463,6 @@ installGameResultsHealthWorkflow(client, {
   sheetClient: gameResultsSheetClient,
   backupService: gameResultsBackupService,
   runtimeConfig: gameResultsConfig,
-  localReader: gameResultsLocalReader,
   errorReporter: gameResultsErrorReporter,
 })
 
@@ -474,14 +472,6 @@ client.once(Events.ClientReady, () => {
     .catch((reason) => {
       gameResultsErrorReporter.report('game_results_startup_backup', reason)
     })
-})
-
-client.once(Events.ClientReady, () => {
-  verifyLocalScoreboardRuntime(gameResultsLocalReader, {
-    logger: gameResultsLogger,
-  }).catch((reason) => {
-    gameResultsErrorReporter.report('game_results_local_ocr_startup', reason)
-  })
 })
 
 client.once(Events.ClientReady, async (readyClient) => {

@@ -96,11 +96,12 @@ export function resolveGameResultsConfig(env = process.env, options = {}) {
     throw new Error(`PRODUCTION_WORKSHEET must remain "${DEFAULT_PRODUCTION_WORKSHEET_NAME}".`)
   }
   const credentials = serviceAccount(env, options)
-  const screenshotReader = text(env, 'GAME_RESULTS_SCREENSHOT_READER', 'local')
-  if (screenshotReader !== 'local') {
-    throw new Error(
-      'GAME_RESULTS_SCREENSHOT_READER must be "local"; paid vision providers are disabled.',
-    )
+  const screenshotReader = text(env, 'GAME_RESULTS_SCREENSHOT_READER', 'gemini')
+  if (screenshotReader !== 'gemini' && screenshotReader !== 'local') {
+    throw new Error('GAME_RESULTS_SCREENSHOT_READER must be "gemini" or "local".')
+  }
+  if (screenshotReader === 'gemini' && options.requireSecrets && !text(env, 'GEMINI_API_KEY')) {
+    throw new Error('GEMINI_API_KEY is required when GAME_RESULTS_SCREENSHOT_READER is "gemini".')
   }
   const configuredLocalOcrTimeoutMs = integer(
     text(env, 'GAME_RESULTS_LOCAL_OCR_TIMEOUT_MS'),
@@ -180,6 +181,7 @@ export function resolveGameResultsConfig(env = process.env, options = {}) {
     serviceAccountEmail: credentials.email,
     serviceAccountPrivateKey: credentials.privateKey,
     screenshotReader,
+    geminiApiKeyConfigured: Boolean(text(env, 'GEMINI_API_KEY')),
     localOcr: {
       pythonExecutable: text(
         env,

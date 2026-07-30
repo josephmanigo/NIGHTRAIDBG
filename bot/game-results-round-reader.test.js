@@ -296,3 +296,47 @@ test('a successfully decoded screenshot with no rows still requires review', asy
   assert.equal(result.review_required, true)
   assert.ok(result.conflicts.some((conflict) => conflict.type === 'screenshot_no_rows'))
 })
+
+test('the round reader defaults to the Gemini single-screenshot reader', async () => {
+  const requests = []
+  const reader = createRoundSubmissionReader({
+    screenshotReader: {
+      verifyWithOcr: 'off',
+      preprocess: async (buffer) => ({
+        enhancedBuffer: Buffer.from(buffer),
+        originalSha256: 'a'.repeat(64),
+        enhancedSha256: 'b'.repeat(64),
+        width: 1920,
+        height: 1080,
+        rows: [],
+      }),
+      visionReader: async (request) => {
+        requests.push(request)
+        return {
+          provider: 'gemini',
+          model: 'test-model',
+          includedOriginalImage: true,
+          output: { teams: [] },
+        }
+      },
+    },
+    attachmentLoader: async () => ({
+      buffer: Buffer.from('round-1-screenshot'),
+      mimeType: 'image/png',
+    }),
+  })
+  const result = await reader.readSubmission({
+    submissionId: 'gemini-default',
+    round: 1,
+    guildId: 'guild',
+    channelId: '1532004107404050534',
+    messageId: 'message',
+    records: [{ attachmentId: 'attachment', attachmentFilename: 'round1.png' }],
+  })
+
+  assert.equal(requests.length, 1)
+  assert.ok(Buffer.isBuffer(requests[0].originalBuffer))
+  assert.ok(Buffer.isBuffer(requests[0].enhancedBuffer))
+  assert.equal(result.screenshots[0].status, 'read')
+  await reader.close()
+})

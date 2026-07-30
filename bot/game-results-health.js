@@ -46,9 +46,11 @@ export function createGameResultsHealthService(options = {}) {
   const localReader = options.localReader ?? null
 
   async function check() {
+    const activeReader = runtimeConfig.screenshotReader ?? 'gemini'
     const localReaderConfigured =
-      (runtimeConfig.screenshotReader ?? 'local') === 'local'
-      && Boolean(runtimeConfig.localOcr?.pythonExecutable ?? 'python3')
+      activeReader === 'local'
+        ? Boolean(runtimeConfig.localOcr?.pythonExecutable ?? 'python3')
+        : Boolean(runtimeConfig.geminiApiKeyConfigured)
     const checks = {
       configuration: {
         ok: Boolean(
@@ -63,17 +65,19 @@ export function createGameResultsHealthService(options = {}) {
           runtimeConfig.mode === 'production'
             ? runtimeConfig.productionWorksheet
             : runtimeConfig.testWorksheet,
-        screenshotReader: runtimeConfig.screenshotReader ?? 'local',
+        screenshotReader: activeReader,
         localReaderConfigured,
         googleCredentialsConfigured: Boolean(
           runtimeConfig.serviceAccountEmail
           && runtimeConfig.serviceAccountPrivateKey,
         ),
       },
-      localOcr: {
-        ok: localReader ? false : localReaderConfigured,
-        status: localReader ? 'pending' : 'configuration_only',
-      },
+      localOcr: activeReader === 'local'
+        ? {
+            ok: localReader ? false : localReaderConfigured,
+            status: localReader ? 'pending' : 'configuration_only',
+          }
+        : { ok: localReaderConfigured, status: 'disabled', reader: activeReader },
       database: { ok: false },
       googleSheets: { ok: false },
       backup: {
@@ -82,7 +86,7 @@ export function createGameResultsHealthService(options = {}) {
       },
       errors: errorReporter?.snapshot?.() ?? { errorCount: 0, lastError: null },
     }
-    if (localReader) {
+    if (localReader && activeReader === 'local') {
       try {
         const startedAt = Date.now()
         const diagnostic = await localReader.diagnose()
