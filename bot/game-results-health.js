@@ -53,7 +53,7 @@ export function createGameResultsHealthService(options = {}) {
       configuration: {
         ok: Boolean(
           localReaderConfigured
-          && runtimeConfig.mode === 'test'
+          && ['test', 'production'].includes(runtimeConfig.mode)
           && runtimeConfig.serviceAccountEmail
           && runtimeConfig.serviceAccountPrivateKey
         ),

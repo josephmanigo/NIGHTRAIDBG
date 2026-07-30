@@ -246,7 +246,9 @@ test('creates an atomic database backup with a checksum', async () => {
 test('health command is authorized, read-only, and reports database, formulas, and backups', async () => {
   let reads = 0
   const service = createGameResultsHealthService({
-    runtimeConfig: runtimeConfig(),
+    runtimeConfig: runtimeConfig({
+      mode: 'production',
+    }),
     store: {
       healthCheck: async () => ({
         ok: true,
@@ -257,15 +259,15 @@ test('health command is authorized, read-only, and reports database, formulas, a
     },
     sheetClient: {
       config: {
-        mode: 'test',
-        worksheetName: 'Copy of New',
-        sheetId: 434373843,
+        mode: 'production',
+        worksheetName: 'New',
+        sheetId: 417351865,
       },
       readState: async () => {
         reads += 1
         return {
           sheets: [{
-            properties: { title: 'Copy of New', sheetId: 434373843 },
+            properties: { title: 'New', sheetId: 417351865 },
             data: [{ rowData: [{ values: [{
               userEnteredValue: { formulaValue: '=1+1' },
             }] }] }],
