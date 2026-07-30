@@ -10,6 +10,7 @@ const PLAYER_HISTORY_MIGRATION_URL = new URL('../database/phase13.sql', import.m
 const MVP_MIGRATION_URL = new URL('../database/phase14.sql', import.meta.url)
 const ADMIN_MIGRATION_URL = new URL('../database/phase15.sql', import.meta.url)
 const SCREENSHOT_DELETION_MIGRATION_URL = new URL('../database/phase16.sql', import.meta.url)
+const SCREENSHOT_DELETION_FIX_MIGRATION_URL = new URL('../database/phase17.sql', import.meta.url)
 
 test('defines the persistent submission schema and every required status', async () => {
   const sql = await readFile(MIGRATION_URL, 'utf8')
@@ -185,14 +186,28 @@ test('makes only canonical SHA-256 hashes unique, not perceptual hashes', async 
 })
 
 test('releases deleted Discord screenshots without erasing confirmed score audits', async () => {
-  const sql = await readFile(SCREENSHOT_DELETION_MIGRATION_URL, 'utf8')
-  assert.match(sql, /tombstone_deleted_game_result_message/i)
-  assert.match(sql, /where status not in \('duplicate', 'deleted'\)/i)
-  assert.match(sql, /screenshot_url = ''/i)
-  assert.match(sql, /filename = '\[deleted Discord screenshot\]'/i)
-  assert.match(sql, /sha256 = encode\(digest\('deleted-sha256:'/i)
-  assert.match(sql, /status = 'deleted'/i)
-  assert.match(sql, /when v_submission\.status::text in \('confirmed', 'corrected'\)/i)
-  assert.match(sql, /grant execute[\s\S]*to service_role/i)
-  assert.doesNotMatch(sql, /\bdelete\s+from\b/i)
+  for (const migrationUrl of [
+    SCREENSHOT_DELETION_MIGRATION_URL,
+    SCREENSHOT_DELETION_FIX_MIGRATION_URL,
+  ]) {
+    const sql = await readFile(migrationUrl, 'utf8')
+    assert.match(sql, /tombstone_deleted_game_result_message/i)
+    assert.match(sql, /screenshot_url = ''/i)
+    assert.match(sql, /filename = '\[deleted Discord screenshot\]'/i)
+    assert.match(
+      sql,
+      /sha256\s*=\s*lower\(replace\(id::text, '-', ''\)\)\s*\|\|\s*lower\(replace\(id::text, '-', ''\)\)/i,
+    )
+    assert.match(
+      sql,
+      /perceptual_hash\s*=\s*left\(lower\(replace\(id::text, '-', ''\)\), 16\)/i,
+    )
+    assert.match(sql, /status = 'deleted'/i)
+    assert.match(sql, /when v_submission\.status::text in \('confirmed', 'corrected'\)/i)
+    assert.match(sql, /grant execute[\s\S]*to service_role/i)
+    assert.doesNotMatch(sql, /\bdigest\s*\(/i)
+    assert.doesNotMatch(sql, /\bdelete\s+from\b/i)
+  }
+  const initialSql = await readFile(SCREENSHOT_DELETION_MIGRATION_URL, 'utf8')
+  assert.match(initialSql, /where status not in \('duplicate', 'deleted'\)/i)
 })

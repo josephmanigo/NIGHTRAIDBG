@@ -1,10 +1,5 @@
--- NIGHTRAID Phase 16: release screenshots when their Discord source is deleted.
--- Apply after database/phase15.sql, then restart the Discord bot.
-
-drop index if exists public.game_result_screenshots_canonical_sha256_idx;
-create unique index game_result_screenshots_canonical_sha256_idx
-  on public.game_result_screenshots (sha256)
-  where status not in ('duplicate', 'deleted');
+-- NIGHTRAID Phase 17: remove the pgcrypto dependency from screenshot tombstones.
+-- Apply after database/phase16.sql. This is safe to rerun.
 
 create or replace function public.tombstone_deleted_game_result_message(
   p_guild_id text,
@@ -86,4 +81,4 @@ grant execute on function public.tombstone_deleted_game_result_message(text, tex
   to service_role;
 
 comment on function public.tombstone_deleted_game_result_message(text, text, text) is
-  'Clears deleted Discord screenshot URLs and hashes, releases duplicate protection, and preserves confirmed score history.';
+  'Clears deleted Discord screenshot URLs and hashes without pgcrypto, releases duplicate protection, and preserves confirmed score history.';
