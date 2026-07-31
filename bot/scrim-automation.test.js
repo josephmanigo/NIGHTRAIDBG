@@ -1,7 +1,17 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { createWaitlistContent } from './scrim-automation.js'
+import { createInitialScrimSlots, createWaitlistContent } from './scrim-automation.js'
+
+test('reserves NIGHTRAID Esports in slot 1 and Apex Syndicate in slot 2', () => {
+  const slots = createInitialScrimSlots()
+
+  assert.equal(slots.length, 25)
+  assert.deepEqual(
+    slots.slice(0, 3).map((team) => team && `${team.tag} - ${team.name}`),
+    ['NR - NIGHTRAID ESPORTS', 'APXS - APEX SYNDICATE', null],
+  )
+})
 
 test('does not render a wait-list message while nobody is waiting', () => {
   assert.equal(createWaitlistContent([]), null)

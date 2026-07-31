@@ -216,7 +216,7 @@ Each valid line in the registration channel is added in message order:
 🇵🇭 | TAG - TEAM NAME
 ```
 
-One message may contain several valid lines. Every new cycle starts with `APXS - APEX SYNDICATE` reserved in `01A`; normal registrations fill the remaining slots from `02B` through `25Y`, then enter the waiting list in order. APXS can still cancel its reserved slot through the normal cancellation flow. Posting a new registration banner GIF closes the previous cycle and starts a fresh real-time board.
+One message may contain several valid lines. Every new cycle starts with `NR - NIGHTRAID ESPORTS` reserved in `01A` and `APXS - APEX SYNDICATE` reserved in `02B`; normal registrations fill the remaining slots from `03C` through `25Y`, then enter the waiting list in order. Either reserved team can still cancel its slot through the normal cancellation flow. Posting a new registration banner GIF closes the previous cycle and starts a fresh real-time board.
 
 Registration remains closed until EMS posts the official registration GIF in the team-registration channel. That GIF is the opening signal: the bot leaves the previous slot-list message unchanged as history, posts the banner GIF first in the registered-teams channel, follows it with a plain-text slot-list message and a plain-text waiting-list message, starts a new cycle at the opening GIF's timestamp, and logs only team messages sent after it. Random GIFs from applicants do not restart the board. Additional trusted opener IDs can be added as a comma-separated `SCRIM_REGISTRATION_OPENER_IDS` environment variable.
 

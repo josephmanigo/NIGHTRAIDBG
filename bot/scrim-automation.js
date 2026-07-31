@@ -26,8 +26,14 @@ const MAX_WAITLIST_DISPLAY = 40
 const EMPTY_WAITLIST_ROWS = 4
 const MAX_DISPLAY_TEAM_NAME = 32
 const MAX_WAITLIST_TEAM_NAME = 24
-const RESERVED_SLOT_TEAM = Object.freeze({ tag: 'APXS', name: 'APEX SYNDICATE' })
-const RESERVED_SLOT_TEAM_KEY = 'apxs apex syndicate'
+const RESERVED_SLOT_TEAMS = Object.freeze([
+  Object.freeze({ tag: 'NR', name: 'NIGHTRAID ESPORTS' }),
+  Object.freeze({ tag: 'APXS', name: 'APEX SYNDICATE' }),
+])
+const RESERVED_SLOT_TEAM_KEYS = new Set([
+  'nr nightraid esports',
+  'apxs apex syndicate',
+])
 const SLOT_CODES = Array.from(
   { length: MAX_SLOTS },
   (_value, index) => `${String(index + 1).padStart(2, '0')}${String.fromCharCode(65 + index)}`,
@@ -113,6 +119,14 @@ function makeTeam(tag, name) {
     name: safeName,
     key: normalize(`${safeTag} ${safeName}`),
   }
+}
+
+export function createInitialScrimSlots() {
+  const slots = Array(MAX_SLOTS).fill(null)
+  RESERVED_SLOT_TEAMS.forEach((team, index) => {
+    slots[index] = makeTeam(team.tag, team.name)
+  })
+  return slots
 }
 
 function parseRegistrationLine(line) {
@@ -236,7 +250,7 @@ function hasTeam(team) {
 
 function registerTeam(team) {
   if (hasTeam(team)) return { status: 'duplicate', team }
-  if (team.key === RESERVED_SLOT_TEAM_KEY) return { status: 'duplicate', team }
+  if (RESERVED_SLOT_TEAM_KEYS.has(team.key)) return { status: 'duplicate', team }
   const slotIndex = state.slots.findIndex(
     (entry, index) => !entry && !state.mineOnlySlots.has(index),
   )
@@ -357,8 +371,7 @@ function claimCanceledSlot(value, cancellationMessageId, claimMessageId = null) 
 }
 
 function resetBoard() {
-  state.slots = Array(MAX_SLOTS).fill(null)
-  state.slots[0] = makeTeam(RESERVED_SLOT_TEAM.tag, RESERVED_SLOT_TEAM.name)
+  state.slots = createInitialScrimSlots()
   state.waitlist = []
   state.pendingCancellations.clear()
   state.mineOnlySlots.clear()
