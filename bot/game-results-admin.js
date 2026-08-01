@@ -26,15 +26,17 @@ function compactError(reason) {
     .slice(0, 500)
 }
 
-function scoreFromTarget(target) {
+function sheetValueFromTarget(target) {
   const number = target?.user_entered_value?.numberValue
   if (Number.isInteger(number)) return number
-  return target?.user_entered_value?.stringValue === 'X' ? 'X' : null
+  const text = target?.user_entered_value?.stringValue
+  if (target?.role === 'team_name') return text ?? null
+  return text === 'X' ? 'X' : null
 }
 
 function sheetValues(inspection) {
   return Object.fromEntries(
-    (inspection.targets ?? []).map((target) => [target.a1, scoreFromTarget(target)]),
+    (inspection.targets ?? []).map((target) => [target.a1, sheetValueFromTarget(target)]),
   )
 }
 
@@ -208,6 +210,9 @@ export function createGameResultsAdminService(options = {}) {
       )).filter((item) => item.history?.submission?.reviewPayload)
       const inspection = await sheetService.inspectAllRounds()
       const currentSheetValues = sheetValues(inspection)
+      const teamNameNonblankCount = inspection.teamTargets.filter(
+        (target) => target.user_entered_value?.stringValue,
+      ).length
       const proposedSheetValues = Object.fromEntries(
         Object.keys(currentSheetValues).map((cell) => [cell, null]),
       )
@@ -259,7 +264,9 @@ export function createGameResultsAdminService(options = {}) {
           formula_cells_checked: inspection.formulas.length,
           formulas_will_be_written: false,
           deductions_will_be_written: false,
-          team_names_will_be_written: false,
+          team_names_will_be_cleared: true,
+          team_name_cells_checked: inspection.teamTargets.length,
+          team_name_nonblank_count: teamNameNonblankCount,
         },
         beforeSnapshot: inspection.beforeSnapshot,
         createdBy,
@@ -503,7 +510,7 @@ export function createGameResultsAdminService(options = {}) {
           cleared_rounds: [1, 2, 3, 4],
           deleted_history_rounds: sources.map((source) => source.round),
           deductions_preserved: true,
-          team_names_preserved: true,
+          team_names_cleared: true,
           formulas_preserved: true,
           rank_highlight_removed: true,
         }

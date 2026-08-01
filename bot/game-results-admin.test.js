@@ -49,6 +49,8 @@ function formulaCell(formula) {
 
 function stateFixture() {
   const rows = []
+  const teamHeader = Array.from({ length: 20 }, () => ({}))
+  teamHeader[9 - 7] = textCell('TEAM')
   const header = Array.from({ length: 20 }, () => ({}))
   for (const [column, label] of [
     [10, 'PLACE'], [11, 'PLACEMENT POINTS'], [12, 'KILLS'],
@@ -90,7 +92,10 @@ function stateFixture() {
       properties: { title: 'New', sheetId: CONFIG.sheetId },
       merges: [],
       protectedRanges: [],
-      data: [{ startRow: 6, startColumn: 7, rowData: rows }],
+      data: [
+        { startRow: 6, startColumn: 7, rowData: rows },
+        { startRow: 5, startColumn: 7, rowData: [{ values: teamHeader }] },
+      ],
     }],
   }
 }
@@ -115,7 +120,7 @@ function fakeSheetClient() {
         if (entered) {
           cell.userEnteredValue = structuredClone(entered)
           cell.effectiveValue = structuredClone(entered)
-          cell.formattedValue = String(entered.numberValue)
+          cell.formattedValue = entered.stringValue ?? String(entered.numberValue)
         }
       }
     },
@@ -393,7 +398,7 @@ test('clears and restores only designated round inputs while preserving formulas
   assert.equal(afterRestore.targets.find((target) => target.a1 === 'M8').user_entered_value.numberValue, 65)
 })
 
-test('clears all four rounds at once while preserving deductions, team names, and formulas', async () => {
+test('clears all four rounds and team names while preserving deductions and formulas', async () => {
   const client = fakeSheetClient()
   const firstRow = client.state.sheets[0].data[0].rowData[1].values
   firstRow[9 - 7] = textCell('Official A')
@@ -416,7 +421,7 @@ test('clears all four rounds at once while preserving deductions, team names, an
   assert.equal(cleared.verification.success, true)
   const afterClear = await service.inspectAllRounds()
   assert.equal(afterClear.targets.every((target) => target.user_entered_value === null), true)
-  assert.equal(firstRow[9 - 7].userEnteredValue.stringValue, 'Official A')
+  assert.equal(afterClear.teamTargets.every((target) => target.user_entered_value === null), true)
   assert.equal(firstRow[24 - 7].userEnteredValue.numberValue, 7)
   assert.equal(
     firstRow[20 - 7].userEnteredValue.formulaValue,
@@ -438,6 +443,11 @@ test('clears all four rounds at once while preserving deductions, team names, an
     afterRestore.targets.find((target) => target.a1 === 'V8')
       .user_entered_value.numberValue,
     30,
+  )
+  assert.equal(
+    afterRestore.teamTargets.find((target) => target.a1 === 'J8')
+      .user_entered_value.stringValue,
+    'Official A',
   )
   assert.equal(firstRow[24 - 7].userEnteredValue.numberValue, 7)
 })
@@ -465,13 +475,15 @@ test('/clear prepares one confirmed audit and clears every round input', async (
   })
   assert.equal(operation.preview.clear_all_rounds, true)
   assert.equal(operation.preview.deductions_will_be_written, false)
-  assert.equal(operation.preview.team_names_will_be_written, false)
+  assert.equal(operation.preview.team_names_will_be_cleared, true)
+  assert.equal(operation.preview.team_name_cells_checked, 25)
   operation = await service.attachMessage(operation, 'message-clear')
   const completed = await service.executeOperation(operation, 'admin-1')
 
   assert.equal(completed.status, 'completed')
   assert.equal(completed.result.score_sheet_cleared, true)
   assert.equal(completed.result.rank_highlight_removed, true)
+  assert.equal(completed.result.team_names_cleared, true)
   assert.deepEqual(completed.result.cleared_rounds, [1, 2, 3, 4])
   assert.deepEqual(backups, ['before_production_all_rounds_clear'])
   const current = await sheetService.inspectAllRounds()
@@ -493,9 +505,9 @@ test('/clear accepts a semantically identical preview reordered by PostgreSQL js
   const originalClaim = store.claimAdminOperation
   store.claimAdminOperation = async (input) =>
     jsonbKeyOrder(await originalClaim(input))
-  const sheetService = createGameResultsAdministrativeSheetService({
-    sheetClient: fakeSheetClient(),
-  })
+  const client = fakeSheetClient()
+  client.state.sheets[0].data[0].rowData[1].values[9 - 7] = textCell('Official A')
+  const sheetService = createGameResultsAdministrativeSheetService({ sheetClient: client })
   const service = createGameResultsAdminService({
     store,
     sheetService,
@@ -553,7 +565,40 @@ test('/clear still refuses a genuine score-input change after its preview', asyn
   )
 })
 
-test('/clear restores every score input when a history reset fails', async () => {
+test('/clear refuses a genuine TEAM change after its preview', async () => {
+  const store = operationStore()
+  const client = fakeSheetClient()
+  const sheetService = createGameResultsAdministrativeSheetService({ sheetClient: client })
+  const service = createGameResultsAdminService({
+    store,
+    sheetService,
+    sheetWriter: { config: CONFIG },
+    mvpService: { previewCurrent: async () => ({ preview: {} }) },
+  })
+  let operation = await service.prepareOperation({
+    operationKind: 'delete_round',
+    round: 1,
+    changes: { clearAllRounds: true },
+    guildId: 'guild-1',
+    channelId: 'channel-1',
+    createdBy: 'admin-1',
+  })
+  operation = await service.attachMessage(operation, 'message-stale-team-clear')
+  client.state.sheets[0].data[0].rowData[1].values[9 - 7] = textCell('Changed Team')
+
+  await assert.rejects(
+    () => service.executeOperation(operation, 'admin-1'),
+    /score sheet changed after the all-round clear preview/i,
+  )
+  const current = await sheetService.inspectAllRounds()
+  assert.equal(
+    current.teamTargets.find((target) => target.a1 === 'J8')
+      .user_entered_value.stringValue,
+    'Changed Team',
+  )
+})
+
+test('/clear restores every TEAM and score input when a history reset fails', async () => {
   const store = operationStore()
   const originalDelete = store.deleteRoundHistory
   let deletionCalls = 0
@@ -562,9 +607,9 @@ test('/clear restores every score input when a history reset fails', async () =>
     if (deletionCalls === 2) throw new Error('round history reset failed')
     return originalDelete(input)
   }
-  const sheetService = createGameResultsAdministrativeSheetService({
-    sheetClient: fakeSheetClient(),
-  })
+  const client = fakeSheetClient()
+  client.state.sheets[0].data[0].rowData[1].values[9 - 7] = textCell('Official A')
+  const sheetService = createGameResultsAdministrativeSheetService({ sheetClient: client })
   const service = createGameResultsAdminService({
     store,
     sheetService,
@@ -596,6 +641,11 @@ test('/clear restores every score input when a history reset fails', async () =>
     current.targets.find((target) => target.a1 === 'M8')
       .user_entered_value.numberValue,
     65,
+  )
+  assert.equal(
+    current.teamTargets.find((target) => target.a1 === 'J8')
+      .user_entered_value.stringValue,
+    'Official A',
   )
   assert.equal(store.historyStatus, 'active')
   assert.equal(store.operations.get(operation.operationId).status, 'failed')
@@ -902,7 +952,7 @@ test('administrative previews show current values and never imply formula writes
   assert.match(content, /Confirm/)
 })
 
-test('/clear preview explicitly preserves deductions, team names, and formulas', () => {
+test('/clear preview explicitly clears team names while preserving deductions and formulas', () => {
   const content = renderAdminOperation({
     operationKind: 'delete_round',
     status: 'pending',
@@ -915,13 +965,15 @@ test('/clear preview explicitly preserves deductions, team names, and formulas',
       existing_sheet_values: { K8: 1, M8: 65, N8: 'X' },
       active_history_rounds: [1, 2, 3, 4],
       formula_cells_checked: 400,
+      team_name_nonblank_count: 18,
+      team_name_cells_checked: 25,
     },
   })
   assert.match(content, /Action: \*\*\/clear\*\*/)
   assert.match(content, /ALL FOUR ROUNDS/)
   assert.match(content, /Deduction writes: \*\*0\*\*/)
-  assert.match(content, /Team-name writes: \*\*0\*\*/)
-  assert.match(content, /Only PLACE and KILLS inputs will be cleared/)
+  assert.match(content, /Nonblank TEAM cells to clear: \*\*18\*\* of \*\*25\*\* checked/)
+  assert.match(content, /Only TEAM, PLACE, and KILLS inputs will be cleared/)
   assert.match(content, /Rank 1–3 yellow highlights will be removed automatically/)
   assert.match(content, /histories logically archived \(not erased\).*Rounds 1, 2, 3, 4/i)
 })

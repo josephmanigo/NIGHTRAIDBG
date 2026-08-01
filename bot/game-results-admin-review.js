@@ -167,7 +167,7 @@ export function renderAdminOperation(operation) {
   const existingValueSummary = clearsAllRounds
     ? (
         values.length > 0
-          ? `Nonblank PLACE/KILLS inputs to clear: **${values.length}**. The complete cell snapshot is stored in the audit.`
+          ? `Nonblank TEAM/PLACE/KILLS cells to clear: **${values.length}**. The complete cell snapshot is stored in the audit.`
           : 'All designated inputs are blank.'
       )
     : values.length > 0
@@ -184,7 +184,7 @@ export function renderAdminOperation(operation) {
     `History snapshot: \`${operation.sourceSnapshotId}\``,
     '',
     clearsAllRounds
-      ? '**Existing production PLACE/KILLS inputs across Rounds 1-4**'
+      ? '**Existing production TEAM/PLACE/KILLS inputs across Rounds 1-4**'
       : '**Existing production PLACE/KILLS inputs**',
     existingValueSummary,
   ]
@@ -209,8 +209,8 @@ export function renderAdminOperation(operation) {
     ...(clearsAllRounds
       ? [
           'Deduction writes: **0**',
-          'Team-name writes: **0**',
-          'Only PLACE and KILLS inputs will be cleared.',
+          `Nonblank TEAM cells to clear: **${operation.preview?.team_name_nonblank_count ?? 0}** of **${operation.preview?.team_name_cells_checked ?? 25}** checked.`,
+          'Only TEAM, PLACE, and KILLS inputs will be cleared.',
           'Rank 1–3 yellow highlights will be removed automatically.',
           operation.preview?.active_history_rounds?.length > 0
             ? `Active result/player histories logically archived (not erased): **Rounds ${operation.preview.active_history_rounds.join(', ')}**.`

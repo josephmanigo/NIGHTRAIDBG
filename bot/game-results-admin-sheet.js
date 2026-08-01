@@ -9,6 +9,7 @@ const ROUND_COLUMNS = Object.freeze({
 })
 const TEAM_FIRST_ROW = 7
 const TEAM_LAST_ROW_EXCLUSIVE = 32
+const TEAM_NAME_COLUMN = 9
 const TOTAL_COLUMN = 23
 const PENALTY_COLUMN = 24
 const FINAL_SCORE_COLUMN = 25
@@ -125,7 +126,12 @@ function sameJson(left, right) {
 function updateRequest(sheetId, target, value) {
   const cell = {}
   if (value !== null && value !== undefined) {
-    if (value === SCORE_MARKER) {
+    if (target.role === 'team_name') {
+      if (typeof value !== 'string' || value.trim().length === 0) {
+        throw new Error(`Administrative TEAM input ${target.a1} must be safe text or blank.`)
+      }
+      cell.userEnteredValue = { stringValue: value }
+    } else if (value === SCORE_MARKER) {
       cell.userEnteredValue = { stringValue: SCORE_MARKER }
     } else {
       if (!Number.isInteger(value) || value < 0) {
@@ -152,11 +158,38 @@ function updateRequest(sheetId, target, value) {
 }
 
 function valueFromTarget(target) {
+  if (target.role === 'team_name') {
+    return target.user_entered_value?.stringValue ?? null
+  }
   const number = target.user_entered_value?.numberValue
   if (Number.isInteger(number)) return number
   return target.user_entered_value?.stringValue === SCORE_MARKER
     ? SCORE_MARKER
     : null
+}
+
+function inspectAdministrativeTeamState({ state, sheetConfig }) {
+  const sheet = sheetForConfig(state, sheetConfig)
+  const cells = gridCells(sheet)
+  if (cells.get(cellKey(5, TEAM_NAME_COLUMN))?.formattedValue !== 'TEAM') {
+    throw new Error(`Column ${columnName(TEAM_NAME_COLUMN)} is not the designated TEAM input.`)
+  }
+  const targets = []
+  for (let row = TEAM_FIRST_ROW; row < TEAM_LAST_ROW_EXCLUSIVE; row += 1) {
+    const cell = cells.get(cellKey(row, TEAM_NAME_COLUMN)) ?? {}
+    const address = a1(row, TEAM_NAME_COLUMN)
+    if (cell.userEnteredValue?.formulaValue) {
+      throw new Error(`Administrative TEAM target ${address} contains a formula.`)
+    }
+    if (isProtected(sheet, row, TEAM_NAME_COLUMN)) {
+      throw new Error(`Administrative TEAM target ${address} is protected.`)
+    }
+    if (isMerged(sheet, row, TEAM_NAME_COLUMN)) {
+      throw new Error(`Administrative TEAM target ${address} is merged.`)
+    }
+    targets.push({ ...snapshot(cells, row, TEAM_NAME_COLUMN), role: 'team_name' })
+  }
+  return { targets }
 }
 
 export function inspectAdministrativeRoundState({ round, state, sheetConfig }) {
@@ -313,6 +346,7 @@ export function verifyAdministrativeRoundMutation({
 }
 
 export function inspectAdministrativeSheetState({ state, sheetConfig }) {
+  const teams = inspectAdministrativeTeamState({ state, sheetConfig })
   const rounds = [1, 2, 3, 4].map((round) =>
     inspectAdministrativeRoundState({ round, state, sheetConfig }))
   return {
@@ -320,11 +354,13 @@ export function inspectAdministrativeSheetState({ state, sheetConfig }) {
     spreadsheetId: sheetConfig.spreadsheetId,
     worksheetName: sheetConfig.worksheetName,
     sheetId: sheetConfig.sheetId,
+    teamTargets: teams.targets,
     rounds,
-    targets: rounds.flatMap((round) => round.targets),
+    targets: [...teams.targets, ...rounds.flatMap((round) => round.targets)],
     formulas: rounds.flatMap((round) => round.formulas),
     preservedCells: rounds.flatMap((round) => round.preservedCells),
     beforeSnapshot: {
+      team_cells: teams.targets,
       rounds: rounds.map((round) => ({
         round: round.round,
         before_snapshot: round.beforeSnapshot,
@@ -338,6 +374,25 @@ export function verifyAdministrativeSheetMutation({
   expectedValues,
   state,
 }) {
+  const values = expectedValues instanceof Map
+    ? expectedValues
+    : new Map(Object.entries(expectedValues ?? {}))
+  const currentTeams = inspectAdministrativeTeamState({
+    state,
+    sheetConfig: inspection,
+  })
+  const teamValuesMatch = currentTeams.targets.every((target) =>
+    valueFromTarget(target) === (values.get(target.a1) ?? null))
+  const teamFormattingPreserved = currentTeams.targets.every((target, index) =>
+    sameJson(
+      target.user_entered_format,
+      inspection.teamTargets[index].user_entered_format,
+    ))
+  const teamValidationPreserved = currentTeams.targets.every((target, index) =>
+    sameJson(
+      target.data_validation,
+      inspection.teamTargets[index].data_validation,
+    ))
   const roundVerifications = inspection.rounds.map((roundInspection) =>
     verifyAdministrativeRoundMutation({
       inspection: roundInspection,
@@ -345,19 +400,28 @@ export function verifyAdministrativeSheetMutation({
       state,
     }))
   return {
-    success: roundVerifications.every((item) => item.success),
-    target_values_match: roundVerifications.every((item) => item.target_values_match),
+    success:
+      teamValuesMatch
+      && teamFormattingPreserved
+      && teamValidationPreserved
+      && roundVerifications.every((item) => item.success),
+    target_values_match:
+      teamValuesMatch
+      && roundVerifications.every((item) => item.target_values_match),
     formulas_preserved: roundVerifications.every((item) => item.formulas_preserved),
-    formatting_preserved: roundVerifications.every((item) => item.formatting_preserved),
+    formatting_preserved:
+      teamFormattingPreserved
+      && roundVerifications.every((item) => item.formatting_preserved),
     data_validation_preserved: roundVerifications.every(
       (item) => item.data_validation_preserved,
-    ),
+    ) && teamValidationPreserved,
     penalties_preserved: roundVerifications.every((item) => item.penalties_preserved),
     sheet_structure_preserved: roundVerifications.every(
       (item) => item.sheet_structure_preserved,
     ),
     rounds: roundVerifications,
     afterSnapshot: {
+      team_cells: currentTeams.targets,
       rounds: roundVerifications.map((item, index) => ({
         round: inspection.rounds[index].round,
         after_snapshot: item.afterSnapshot,
@@ -425,11 +489,22 @@ export function createGameResultsAdministrativeSheetService(options = {}) {
         'The score inputs or protected formulas changed after the all-round preview.',
       )
     }
-    const requests = fresh.rounds.flatMap((roundInspection) =>
-      buildAdministrativeRoundRequests({
-        inspection: roundInspection,
-        targetValues,
-      }))
+    const values = targetValues instanceof Map
+      ? targetValues
+      : new Map(Object.entries(targetValues ?? {}))
+    const requests = [
+      ...fresh.teamTargets.map((target) =>
+        updateRequest(
+          fresh.sheetId,
+          target,
+          values.has(target.a1) ? values.get(target.a1) : null,
+        )),
+      ...fresh.rounds.flatMap((roundInspection) =>
+        buildAdministrativeRoundRequests({
+          inspection: roundInspection,
+          targetValues: values,
+        })),
+    ]
     await sheetClient.updateCells(requests)
     const afterState = await sheetClient.readState()
     const verification = verifyAdministrativeSheetMutation({
@@ -453,11 +528,11 @@ export function createGameResultsAdministrativeSheetService(options = {}) {
 
   async function restoreAllRounds({ inspection, restoreSnapshot }) {
     const values = new Map(
-      (restoreSnapshot?.rounds ?? []).flatMap((round) =>
-        (round.before_snapshot?.target_cells ?? []).map((target) => [
-          target.a1,
-          valueFromTarget(target),
-        ])),
+      [
+        ...(restoreSnapshot?.team_cells ?? []),
+        ...(restoreSnapshot?.rounds ?? []).flatMap((round) =>
+          round.before_snapshot?.target_cells ?? []),
+      ].map((target) => [target.a1, valueFromTarget(target)]),
     )
     return applyAllRoundValues({
       inspection,

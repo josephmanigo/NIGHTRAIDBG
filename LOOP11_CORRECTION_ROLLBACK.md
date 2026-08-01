@@ -34,11 +34,12 @@ Administrative writes require all of these production guards:
 
 The round sheet service can target only the designated PLACE/KILLS cells. A
 round command is limited to its 50 inputs; `/clear` targets those inputs across
-all four rounds in one verified batch. It rejects a changed header, worksheet
-identity, formula, protected target, merged target, or stale preview.
+all four rounds plus the 25 TEAM cells in one verified batch. It rejects a
+changed header, worksheet identity, formula, protected target, merged target,
+or stale preview.
 Placement-point, total, final-score, and rank formulas are checked before and
-after, but never included in a write request. `/clear` also preserves team
-names and every TOTAL POINTS DEDUCTED cell. Active result/player-history
+after, but never included in a write request. `/clear` clears TEAM names but
+preserves every TOTAL POINTS DEDUCTED cell. Active result/player-history
 snapshots for the cleared rounds are logically marked deleted rather than
 physically erased, preventing stale results from contaminating the next tally.
 The Rank 1–3 yellow highlight is conditional on at least one PLACE/KILLS input,
