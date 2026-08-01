@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util'
 import { createGameResultsSheetClient } from './game-results-sheet-client.js'
 
 const ROUND_COLUMNS = Object.freeze({
@@ -118,7 +119,7 @@ function expectedRankFormula(row) {
 }
 
 function sameJson(left, right) {
-  return JSON.stringify(left) === JSON.stringify(right)
+  return isDeepStrictEqual(left, right)
 }
 
 function updateRequest(sheetId, target, value) {

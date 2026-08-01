@@ -261,6 +261,16 @@ function operationStore() {
   }
 }
 
+function jsonbKeyOrder(value) {
+  if (Array.isArray(value)) return value.map(jsonbKeyOrder)
+  if (!value || typeof value !== 'object') return value
+  return Object.fromEntries(
+    Object.entries(value)
+      .reverse()
+      .map(([key, item]) => [key, jsonbKeyOrder(item)]),
+  )
+}
+
 test('registers all seven authorized administrative commands and persistent IDs', () => {
   assert.deepEqual(
     GAME_RESULTS_ADMIN_COMMANDS.map((command) => command.name),
@@ -475,6 +485,71 @@ test('/clear prepares one confirmed audit and clears every round input', async (
       createdBy: 'admin-1',
     }),
     /reset by \/clear.*tally it again/i,
+  )
+})
+
+test('/clear accepts a semantically identical preview reordered by PostgreSQL jsonb', async () => {
+  const store = operationStore()
+  const originalClaim = store.claimAdminOperation
+  store.claimAdminOperation = async (input) =>
+    jsonbKeyOrder(await originalClaim(input))
+  const sheetService = createGameResultsAdministrativeSheetService({
+    sheetClient: fakeSheetClient(),
+  })
+  const service = createGameResultsAdminService({
+    store,
+    sheetService,
+    sheetWriter: { config: CONFIG },
+    mvpService: { previewCurrent: async () => ({ preview: {} }) },
+  })
+  let operation = await service.prepareOperation({
+    operationKind: 'delete_round',
+    round: 1,
+    changes: { clearAllRounds: true },
+    guildId: 'guild-1',
+    channelId: 'channel-1',
+    createdBy: 'admin-1',
+  })
+  operation = await service.attachMessage(operation, 'message-jsonb-clear')
+
+  const completed = await service.executeOperation(operation, 'admin-1')
+
+  assert.equal(completed.status, 'completed')
+  assert.equal(completed.result.score_sheet_cleared, true)
+  const current = await sheetService.inspectAllRounds()
+  assert.equal(current.targets.every((target) => target.user_entered_value === null), true)
+})
+
+test('/clear still refuses a genuine score-input change after its preview', async () => {
+  const store = operationStore()
+  const client = fakeSheetClient()
+  const sheetService = createGameResultsAdministrativeSheetService({ sheetClient: client })
+  const service = createGameResultsAdminService({
+    store,
+    sheetService,
+    sheetWriter: { config: CONFIG },
+    mvpService: { previewCurrent: async () => ({ preview: {} }) },
+  })
+  let operation = await service.prepareOperation({
+    operationKind: 'delete_round',
+    round: 1,
+    changes: { clearAllRounds: true },
+    guildId: 'guild-1',
+    channelId: 'channel-1',
+    createdBy: 'admin-1',
+  })
+  operation = await service.attachMessage(operation, 'message-stale-clear')
+  client.state.sheets[0].data[0].rowData[1].values[10 - 7] = numberCell(2)
+
+  await assert.rejects(
+    () => service.executeOperation(operation, 'admin-1'),
+    /score sheet changed after the all-round clear preview/i,
+  )
+  const current = await sheetService.inspectAllRounds()
+  assert.equal(
+    current.targets.find((target) => target.a1 === 'K8')
+      .user_entered_value.numberValue,
+    2,
   )
 })
 

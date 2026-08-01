@@ -22,6 +22,8 @@ submission and player-history snapshot, current score-sheet values, requested
 change, and a complete before snapshot. Nothing changes until an authorized
 user presses **Confirm Administrative Action**. Cancel leaves the bot,
 spreadsheet, and player history unchanged while retaining the audit row.
+Persisted snapshot checks use structural equality because PostgreSQL `jsonb`
+may reorder object keys; real cell changes remain blocked as stale previews.
 
 Administrative writes require all of these production guards:
 

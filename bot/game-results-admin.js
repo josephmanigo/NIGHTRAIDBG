@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util'
 import {
   applyPlayerReviewEdit,
   applyTeamReviewEdit,
@@ -462,7 +463,7 @@ export function createGameResultsAdminService(options = {}) {
         }
         await backupService?.backupNow('before_production_all_rounds_clear')
         const inspection = await sheetService.inspectAllRounds()
-        if (JSON.stringify(inspection.beforeSnapshot) !== JSON.stringify(claimed.beforeSnapshot)) {
+        if (!isDeepStrictEqual(inspection.beforeSnapshot, claimed.beforeSnapshot)) {
           throw new Error('The score sheet changed after the all-round clear preview.')
         }
         const cleared = await sheetService.clearAllRounds({ inspection })
@@ -527,7 +528,7 @@ export function createGameResultsAdminService(options = {}) {
           `before_production_round_${claimed.round}_delete`,
         )
         const inspection = await sheetService.inspectRound(claimed.round)
-        if (JSON.stringify(inspection.beforeSnapshot) !== JSON.stringify(claimed.beforeSnapshot)) {
+        if (!isDeepStrictEqual(inspection.beforeSnapshot, claimed.beforeSnapshot)) {
           throw new Error('The round values changed after this deletion preview.')
         }
         const cleared = await sheetService.clearRound({ inspection })
