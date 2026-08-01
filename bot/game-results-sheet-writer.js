@@ -11,6 +11,16 @@ import {
   DEFAULT_GAME_RESULTS_SPREADSHEET_ID,
   DEFAULT_GAME_RESULTS_WORKSHEET_NAME,
 } from './game-results-scoresheet-source.js'
+import {
+  emptySlotFinalFormula,
+  emptySlotPlacementFormula,
+  emptySlotRankFormula,
+  emptySlotTotalFormula,
+  legacyFinalFormula,
+  legacyPlacementFormula,
+  legacyRankFormula,
+  legacyTotalFormula,
+} from './game-results-sheet-formulas.js'
 
 const ROUND_COLUMNS = Object.freeze({
   1: { place: 10, placementPoints: 11, kills: 12 },
@@ -157,28 +167,24 @@ function formula(cell) {
 }
 
 function expectedPlacementFormula(rowIndex, columns) {
-  const row = rowIndex + 1
-  return `=VLOOKUP(${a1(rowIndex, columns.place)},$B$8:$C$32,2,0)`
+  return emptySlotPlacementFormula(rowIndex, columns.place)
 }
 
 function expectedTotalFormula(rowIndex) {
-  const row = rowIndex + 1
-  return `=SUM(L${row},M${row},O${row},P${row},R${row},S${row},U${row},V${row})`
+  return emptySlotTotalFormula(rowIndex)
 }
 
 function expectedFinalFormula(rowIndex) {
-  const row = rowIndex + 1
-  return `=(X${row}-Y${row})`
+  return emptySlotFinalFormula(rowIndex)
 }
 
 function expectedRankFormula(rowIndex) {
-  const row = rowIndex + 1
-  return `=RANK(Z${row},$Z$8:$Z$32,0)`
+  return emptySlotRankFormula(rowIndex)
 }
 
-function checkExpectedFormula(cells, rowIndex, columnIndex, expected) {
+function checkExpectedFormula(cells, rowIndex, columnIndex, expected, legacy) {
   const actual = formula(cells.get(cellKey(rowIndex, columnIndex)))
-  if (actual !== expected) {
+  if (actual !== expected && actual !== legacy) {
     throw new Error(
       `Protected formula ${a1(rowIndex, columnIndex)} is missing or changed; refusing to write.`,
     )
@@ -467,13 +473,33 @@ export function buildSafeSheetWritePlan({ submission, state, sheetConfig }) {
       requests.push(numericCellRequest(sheetConfig.sheetId, team.rowIndex, column, value))
     }
 
-    for (const [role, column, expected] of [
-      ['placement_points', columns.placementPoints, expectedPlacementFormula(team.rowIndex, columns)],
-      ['total_points', TOTAL_COLUMN, expectedTotalFormula(team.rowIndex)],
-      ['final_score', FINAL_SCORE_COLUMN, expectedFinalFormula(team.rowIndex)],
-      ['rank', RANK_COLUMN, expectedRankFormula(team.rowIndex)],
+    for (const [role, column, expected, legacy] of [
+      [
+        'placement_points',
+        columns.placementPoints,
+        expectedPlacementFormula(team.rowIndex, columns),
+        legacyPlacementFormula(team.rowIndex, columns.place),
+      ],
+      [
+        'total_points',
+        TOTAL_COLUMN,
+        expectedTotalFormula(team.rowIndex),
+        legacyTotalFormula(team.rowIndex),
+      ],
+      [
+        'final_score',
+        FINAL_SCORE_COLUMN,
+        expectedFinalFormula(team.rowIndex),
+        legacyFinalFormula(team.rowIndex),
+      ],
+      [
+        'rank',
+        RANK_COLUMN,
+        expectedRankFormula(team.rowIndex),
+        legacyRankFormula(team.rowIndex),
+      ],
     ]) {
-      checkExpectedFormula(cells, team.rowIndex, column, expected)
+      checkExpectedFormula(cells, team.rowIndex, column, expected, legacy)
       formulas.push({
         ...cellSnapshot(cells, team.rowIndex, column),
         role,
@@ -666,8 +692,8 @@ export function createSafeGameResultsSheetWriter(options = {}) {
   const sheetClient = options.sheetClient ?? createGameResultsSheetClient(options.sheet)
 
   async function writeConfirmedSubmission(submission, actorUserId, writeOptions = {}) {
-    const state = await sheetClient.readState()
-    const plan = buildSafeSheetWritePlan({
+    let state = await sheetClient.readState()
+    let plan = buildSafeSheetWritePlan({
       submission,
       state,
       sheetConfig: sheetClient.config,
@@ -701,6 +727,17 @@ export function createSafeGameResultsSheetWriter(options = {}) {
     await options.backupService?.backupNow(
       `before_${plan.mode}_round_${plan.round}_${correctionRequested ? 'correction' : 'write'}`,
     )
+    const emptySlotDisplay = typeof sheetClient.ensureEmptySlotDisplay === 'function'
+      ? await sheetClient.ensureEmptySlotDisplay(state)
+      : { status: 'not_supported', changedCells: 0 }
+    if (emptySlotDisplay.status === 'configured') {
+      state = await sheetClient.readState()
+      plan = buildSafeSheetWritePlan({
+        submission,
+        state,
+        sheetConfig: sheetClient.config,
+      })
+    }
     const rankHighlight = typeof sheetClient.ensureTopRankHighlight === 'function'
       ? await sheetClient.ensureTopRankHighlight(state)
       : { status: 'not_supported' }
@@ -735,6 +772,7 @@ export function createSafeGameResultsSheetWriter(options = {}) {
         throw new Error(`The ${plan.worksheetName} update could not be verified safely.`)
       }
       verification.top_rank_highlight = rankHighlight
+      verification.empty_slot_display = emptySlotDisplay
       audit = await store.updateSheetWriteAudit({
         auditId: audit.auditId,
         status: 'verified',
@@ -794,6 +832,7 @@ export function createSafeGameResultsSheetWriter(options = {}) {
             placement_formulas_recalculated:
               verification.placement_formulas_recalculated,
             top_rank_highlight: verification.top_rank_highlight,
+            empty_slot_display: verification.empty_slot_display,
           },
         },
       }

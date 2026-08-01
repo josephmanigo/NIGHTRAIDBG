@@ -8,6 +8,7 @@ import {
   DEFAULT_GAME_RESULTS_SPREADSHEET_ID,
   DEFAULT_GAME_RESULTS_WORKSHEET_NAME,
 } from './game-results-scoresheet-source.js'
+import { scoreSheetFormulaContracts } from './game-results-sheet-formulas.js'
 
 export const GAME_RESULTS_TEST_SHEET_ID = 434373843
 export const GAME_RESULTS_PRODUCTION_SHEET_ID = 417351865
@@ -97,6 +98,61 @@ export function hasTopRankHighlightRule(state, sheetConfig) {
       === TOP_RANK_HIGHLIGHT_FORMULA
     && rule.ranges?.some((range) => sameTopRankRange(range, sheetConfig.sheetId))
     && yellowTopRankFormat(rule.booleanRule.format)) === true
+}
+
+function configuredScoreSheet(state, sheetConfig) {
+  const matches = (state?.sheets ?? []).filter((sheet) =>
+    sheet.properties?.sheetId === sheetConfig.sheetId
+    && sheet.properties?.title === sheetConfig.worksheetName)
+  if (matches.length !== 1) {
+    throw new Error('The configured score worksheet title or fixed sheet ID changed.')
+  }
+  return matches[0]
+}
+
+function stateGridCells(sheet) {
+  const cells = new Map()
+  for (const data of sheet?.data ?? []) {
+    const startRow = data.startRow ?? 0
+    const startColumn = data.startColumn ?? 0
+    ;(data.rowData ?? []).forEach((row, rowOffset) => {
+      ;(row.values ?? []).forEach((cell, columnOffset) => {
+        cells.set(`${startRow + rowOffset}:${startColumn + columnOffset}`, cell ?? {})
+      })
+    })
+  }
+  return cells
+}
+
+export function emptySlotFormulaRequests(state, sheetConfig) {
+  const cells = stateGridCells(configuredScoreSheet(state, sheetConfig))
+  const requests = []
+  for (const contract of scoreSheetFormulaContracts()) {
+    const current = cells.get(`${contract.rowIndex}:${contract.columnIndex}`)
+      ?.userEnteredValue?.formulaValue
+    if (current === contract.formula) continue
+    if (current !== contract.legacyFormula) {
+      throw new Error(
+        `Protected formula ${contract.rowIndex + 1}:${contract.columnIndex + 1} is missing or changed.`,
+      )
+    }
+    requests.push({
+      updateCells: {
+        range: {
+          sheetId: sheetConfig.sheetId,
+          startRowIndex: contract.rowIndex,
+          endRowIndex: contract.rowIndex + 1,
+          startColumnIndex: contract.columnIndex,
+          endColumnIndex: contract.columnIndex + 1,
+        },
+        rows: [{
+          values: [{ userEnteredValue: { formulaValue: contract.formula } }],
+        }],
+        fields: 'userEnteredValue',
+      },
+    })
+  }
+  return requests
 }
 
 function scoreSheetMode(value) {
@@ -368,6 +424,7 @@ function validateMvpUpdateRequests(requests) {
 export function createGameResultsSheetClient(options = {}) {
   const configValue = config(options)
   let topRankHighlightPromise = null
+  let emptySlotDisplayPromise = null
   const runtime = {
     fetchImpl: options.fetchImpl ?? fetch,
     tokenProvider: options.tokenProvider,
@@ -483,10 +540,55 @@ export function createGameResultsSheetClient(options = {}) {
     }
   }
 
+  async function ensureEmptySlotDisplay(state) {
+    if (!emptySlotDisplayPromise) {
+      emptySlotDisplayPromise = (async () => {
+        const currentState = state ?? await readState()
+        const requests = emptySlotFormulaRequests(currentState, configValue)
+        if (requests.length === 0) {
+          return { status: 'already_configured', changedCells: 0 }
+        }
+        const response = await fetchWithRetry(
+          `${GOOGLE_SHEETS_API}/${encodeURIComponent(configValue.spreadsheetId)}:batchUpdate`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${await token()}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              requests,
+              includeSpreadsheetInResponse: false,
+            }),
+          },
+          {
+            fetchImpl: runtime.fetchImpl,
+            timeoutMs: runtime.timeoutMs,
+            maxRetries: runtime.maxRetries,
+          },
+        )
+        if (!response.ok) {
+          throw new Error(
+            `Google Sheets empty-slot formula update failed: ${await responseError(response)}`,
+          )
+        }
+        await response.json()
+        return { status: 'configured', changedCells: requests.length }
+      })()
+    }
+    try {
+      return await emptySlotDisplayPromise
+    } catch (reason) {
+      emptySlotDisplayPromise = null
+      throw reason
+    }
+  }
+
   return {
     readState,
     updateCells,
     ensureTopRankHighlight,
+    ensureEmptySlotDisplay,
     config: {
       mode: configValue.mode,
       spreadsheetId: configValue.spreadsheetId,

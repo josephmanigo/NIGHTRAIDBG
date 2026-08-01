@@ -1,5 +1,15 @@
 import { isDeepStrictEqual } from 'node:util'
 import { createGameResultsSheetClient } from './game-results-sheet-client.js'
+import {
+  emptySlotFinalFormula,
+  emptySlotPlacementFormula,
+  emptySlotRankFormula,
+  emptySlotTotalFormula,
+  legacyFinalFormula,
+  legacyPlacementFormula,
+  legacyRankFormula,
+  legacyTotalFormula,
+} from './game-results-sheet-formulas.js'
 
 const ROUND_COLUMNS = Object.freeze({
   1: { place: 10, placementPoints: 11, kills: 12 },
@@ -104,19 +114,19 @@ function snapshot(cells, row, column) {
   }
 }
 function expectedPlacementFormula(row, columns) {
-  return `=VLOOKUP(${a1(row, columns.place)},$B$8:$C$32,2,0)`
+  return emptySlotPlacementFormula(row, columns.place)
 }
 
 function expectedTotalFormula(row) {
-  return `=SUM(L${row + 1},M${row + 1},O${row + 1},P${row + 1},R${row + 1},S${row + 1},U${row + 1},V${row + 1})`
+  return emptySlotTotalFormula(row)
 }
 
 function expectedFinalFormula(row) {
-  return `=(X${row + 1}-Y${row + 1})`
+  return emptySlotFinalFormula(row)
 }
 
 function expectedRankFormula(row) {
-  return `=RANK(Z${row + 1},$Z$8:$Z$32,0)`
+  return emptySlotRankFormula(row)
 }
 
 function sameJson(left, right) {
@@ -225,14 +235,20 @@ export function inspectAdministrativeRoundState({ round, state, sheetConfig }) {
       }
       targets.push({ ...snapshot(cells, row, column), role })
     }
-    for (const [role, column, expected] of [
-      ['placement_points', columns.placementPoints, expectedPlacementFormula(row, columns)],
-      ['total_points', TOTAL_COLUMN, expectedTotalFormula(row)],
-      ['final_score', FINAL_SCORE_COLUMN, expectedFinalFormula(row)],
-      ['rank', RANK_COLUMN, expectedRankFormula(row)],
+    for (const [role, column, expected, legacy] of [
+      [
+        'placement_points',
+        columns.placementPoints,
+        expectedPlacementFormula(row, columns),
+        legacyPlacementFormula(row, columns.place),
+      ],
+      ['total_points', TOTAL_COLUMN, expectedTotalFormula(row), legacyTotalFormula(row)],
+      ['final_score', FINAL_SCORE_COLUMN, expectedFinalFormula(row), legacyFinalFormula(row)],
+      ['rank', RANK_COLUMN, expectedRankFormula(row), legacyRankFormula(row)],
     ]) {
       const item = snapshot(cells, row, column)
-      if (item.user_entered_value?.formulaValue !== expected) {
+      const current = item.user_entered_value?.formulaValue
+      if (current !== expected && current !== legacy) {
         throw new Error(`Protected formula ${item.a1} is missing or changed.`)
       }
       formulas.push({ ...item, role })
@@ -450,13 +466,51 @@ export function createGameResultsAdministrativeSheetService(options = {}) {
     })
   }
 
+  function mutableSnapshot(inspection) {
+    if (inspection.rounds) {
+      return {
+        teamTargets: inspection.teamTargets,
+        rounds: inspection.rounds.map((round) => ({
+          round: round.round,
+          targets: round.targets,
+          preservedCells: round.preservedCells,
+          structure: round.structure,
+        })),
+      }
+    }
+    return {
+      round: inspection.round,
+      targets: inspection.targets,
+      preservedCells: inspection.preservedCells,
+      structure: inspection.structure,
+    }
+  }
+
+  async function configureEmptySlotDisplay(inspection, inspectFresh) {
+    if (typeof sheetClient.ensureEmptySlotDisplay !== 'function') {
+      return { inspection, result: { status: 'not_supported', changedCells: 0 } }
+    }
+    const before = mutableSnapshot(inspection)
+    const result = await sheetClient.ensureEmptySlotDisplay()
+    const refreshed = await inspectFresh()
+    if (!sameJson(before, mutableSnapshot(refreshed))) {
+      throw new Error('The score inputs changed while empty-slot formulas were configured.')
+    }
+    return { inspection: refreshed, result }
+  }
+
   async function applyValues({ inspection, expectedBefore, targetValues }) {
-    const fresh = await inspectRound(inspection.round)
+    let fresh = await inspectRound(inspection.round)
     if (!sameJson(fresh.beforeSnapshot, expectedBefore)) {
       throw new Error(
         'The round inputs or protected formulas changed after the administrative preview.',
       )
     }
+    const configured = await configureEmptySlotDisplay(
+      fresh,
+      () => inspectRound(inspection.round),
+    )
+    fresh = configured.inspection
     const requests = buildAdministrativeRoundRequests({
       inspection: fresh,
       targetValues,
@@ -468,6 +522,7 @@ export function createGameResultsAdministrativeSheetService(options = {}) {
       expectedValues: targetValues,
       state: afterState,
     })
+    verification.empty_slot_display = configured.result
     if (!verification.success) {
       throw new Error('The administrative round update could not be verified safely.')
     }
@@ -483,12 +538,14 @@ export function createGameResultsAdministrativeSheetService(options = {}) {
   }
 
   async function applyAllRoundValues({ inspection, expectedBefore, targetValues }) {
-    const fresh = await inspectAllRounds()
+    let fresh = await inspectAllRounds()
     if (!sameJson(fresh.beforeSnapshot, expectedBefore)) {
       throw new Error(
         'The score inputs or protected formulas changed after the all-round preview.',
       )
     }
+    const configured = await configureEmptySlotDisplay(fresh, inspectAllRounds)
+    fresh = configured.inspection
     const values = targetValues instanceof Map
       ? targetValues
       : new Map(Object.entries(targetValues ?? {}))
@@ -512,6 +569,7 @@ export function createGameResultsAdministrativeSheetService(options = {}) {
       expectedValues: targetValues,
       state: afterState,
     })
+    verification.empty_slot_display = configured.result
     if (!verification.success) {
       throw new Error('The all-round score-sheet clear could not be verified safely.')
     }

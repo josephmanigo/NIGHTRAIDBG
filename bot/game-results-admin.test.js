@@ -11,6 +11,7 @@ import {
   parseAdminCustomId,
   renderAdminOperation,
 } from './game-results-admin-review.js'
+import { scoreSheetFormulaContracts } from './game-results-sheet-formulas.js'
 
 const CONFIG = {
   mode: 'production',
@@ -100,7 +101,7 @@ function stateFixture() {
   }
 }
 
-function fakeSheetClient() {
+function fakeSheetClient(options = {}) {
   const state = stateFixture()
   return {
     config: CONFIG,
@@ -124,6 +125,21 @@ function fakeSheetClient() {
         }
       }
     },
+    ...(options.configureEmptySlotDisplay
+      ? {
+          async ensureEmptySlotDisplay() {
+            for (const contract of scoreSheetFormulaContracts()) {
+              const row = state.sheets[0].data[0]
+                .rowData[contract.rowIndex - 6]
+              const cell = row.values[contract.columnIndex - 7]
+              cell.userEnteredValue = { formulaValue: contract.formula }
+              cell.effectiveValue = { stringValue: 'X' }
+              cell.formattedValue = 'X'
+            }
+            return { status: 'configured', changedCells: 175 }
+          },
+        }
+      : {}),
   }
 }
 
@@ -448,6 +464,28 @@ test('clears all four rounds and team names while preserving deductions and form
     afterRestore.teamTargets.find((target) => target.a1 === 'J8')
       .user_entered_value.stringValue,
     'Official A',
+  )
+  assert.equal(firstRow[24 - 7].userEnteredValue.numberValue, 7)
+})
+
+test('/clear upgrades empty-slot formulas to X without touching deductions', async () => {
+  const client = fakeSheetClient({ configureEmptySlotDisplay: true })
+  const firstRow = client.state.sheets[0].data[0].rowData[1].values
+  firstRow[24 - 7] = numberCell(7)
+  const service = createGameResultsAdministrativeSheetService({ sheetClient: client })
+  const before = await service.inspectAllRounds()
+
+  const cleared = await service.clearAllRounds({ inspection: before })
+  const after = await service.inspectAllRounds()
+
+  assert.deepEqual(cleared.verification.empty_slot_display, {
+    status: 'configured',
+    changedCells: 175,
+  })
+  assert.equal(
+    after.formulas.find((formula) => formula.a1 === 'L8')
+      .user_entered_value.formulaValue,
+    '=IF(OR($J8="",$J8="X"),"X",VLOOKUP(K8,$B$8:$C$32,2,0))',
   )
   assert.equal(firstRow[24 - 7].userEnteredValue.numberValue, 7)
 })

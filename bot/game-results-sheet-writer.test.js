@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   createGameResultsSheetClient,
+  emptySlotFormulaRequests,
   GAME_RESULTS_PRODUCTION_SHEET_ID,
   GAME_RESULTS_TEST_SHEET_ID,
   hasTopRankHighlightRule,
@@ -12,6 +13,12 @@ import {
   buildSafeSheetWritePlan,
   createSafeGameResultsSheetWriter,
 } from './game-results-sheet-writer.js'
+import {
+  emptySlotFinalFormula,
+  emptySlotPlacementFormula,
+  emptySlotRankFormula,
+  emptySlotTotalFormula,
+} from './game-results-sheet-formulas.js'
 
 const SPREADSHEET_ID = '1SMXnqe-xQgaHXBFCm-hpbQDCMKE5m9VpoY_oRtyf_YI'
 const TEST_WORKSHEET = 'Copy of New'
@@ -130,7 +137,9 @@ function buildState(values = new Map(), options = {}) {
       cells[columns.place - 7] = scoreInputCell(place)
       cells[columns.kills - 7] = scoreInputCell(kills)
       cells[columns.points - 7] = formulaCell(
-        `=VLOOKUP(${String.fromCharCode(65 + columns.place)}${sheetRow},$B$8:$C$32,2,0)`,
+        options.emptySlotFormulas
+          ? emptySlotPlacementFormula(row, columns.place)
+          : `=VLOOKUP(${String.fromCharCode(65 + columns.place)}${sheetRow},$B$8:$C$32,2,0)`,
         Number.isInteger(place)
           ? { numberValue: placementPoints(place) }
           : errorValue(),
@@ -149,16 +158,22 @@ function buildState(values = new Map(), options = {}) {
         )
       : null
     cells[23 - 7] = formulaCell(
-      `=SUM(L${sheetRow},M${sheetRow},O${sheetRow},P${sheetRow},R${sheetRow},S${sheetRow},U${sheetRow},V${sheetRow})`,
+      options.emptySlotFormulas
+        ? emptySlotTotalFormula(row)
+        : `=SUM(L${sheetRow},M${sheetRow},O${sheetRow},P${sheetRow},R${sheetRow},S${sheetRow},U${sheetRow},V${sheetRow})`,
       total === null ? errorValue() : { numberValue: total },
     )
     cells[24 - 7] = numberCell(null)
     cells[25 - 7] = formulaCell(
-      `=(X${sheetRow}-Y${sheetRow})`,
+      options.emptySlotFormulas
+        ? emptySlotFinalFormula(row)
+        : `=(X${sheetRow}-Y${sheetRow})`,
       total === null ? errorValue() : { numberValue: total },
     )
     cells[26 - 7] = formulaCell(
-      `=RANK(Z${sheetRow},$Z$8:$Z$32,0)`,
+      options.emptySlotFormulas
+        ? emptySlotRankFormula(row)
+        : `=RANK(Z${sheetRow},$Z$8:$Z$32,0)`,
       total === null ? errorValue() : { numberValue: 1 },
     )
     gridRows.push({ values: cells })
@@ -383,6 +398,7 @@ function memorySheetClient(options = {}) {
   const values = options.values ?? new Map()
   const stateOptions = options.stateOptions ?? {}
   const events = []
+  let emptySlotFormulas = options.emptySlotFormulas === true
   return {
     events,
     config: sheetConfig(options.config),
@@ -392,6 +408,7 @@ function memorySheetClient(options = {}) {
       return buildState(values, {
         ...stateOptions,
         mode: options.config?.mode ?? 'test',
+        emptySlotFormulas,
       })
     },
     async updateCells(requests) {
@@ -417,6 +434,15 @@ function memorySheetClient(options = {}) {
       options.timeline?.push('rank-highlight-ensured')
       if (options.highlightError) throw options.highlightError
       return { status: 'configured', formula: TOP_RANK_HIGHLIGHT_FORMULA }
+    },
+    async ensureEmptySlotDisplay() {
+      if (!options.configureEmptySlotDisplay || emptySlotFormulas) {
+        return { status: 'already_configured', changedCells: 0 }
+      }
+      emptySlotFormulas = true
+      events.push('empty-slot-display-configured')
+      options.timeline?.push('empty-slot-display-configured')
+      return { status: 'configured', changedCells: 175 }
     },
     values,
   }
@@ -681,6 +707,32 @@ test('creates the backup before writing and verifies Round 1 recalculation', asy
     store.histories()[0].payload.players.map((player) => player.player_name),
     ['teZ', 'oreH', 'ikuR', 'nyeP'],
   )
+})
+
+test('a score write upgrades and re-reads empty-slot formulas before writing inputs', async () => {
+  const timeline = []
+  const store = memoryStore(rankOneSubmission(), timeline)
+  const sheetClient = memorySheetClient({
+    timeline,
+    configureEmptySlotDisplay: true,
+  })
+  const writer = createSafeGameResultsSheetWriter({ store, sheetClient })
+
+  const result = await writer.writeConfirmedSubmission(store.current(), 'reviewer-1')
+
+  assert.deepEqual(result.verification.empty_slot_display, {
+    status: 'configured',
+    changedCells: 175,
+  })
+  assert.ok(
+    timeline.indexOf('empty-slot-display-configured')
+      < timeline.indexOf('rank-highlight-ensured'),
+  )
+  assert.equal(
+    sheetClient.events.filter((event) => event === 'sheet-read').length,
+    3,
+  )
+  assert.equal(result.verification.formulas_preserved, true)
 })
 
 test('automatic score-only tally records missing player history without undoing PLACE and KILLS', async () => {
@@ -1076,4 +1128,50 @@ test('the live client accepts the writer plan containing exact X markers and rej
     /only non-negative integers, X, or blanks/,
   )
   assert.equal(calls.length, 1)
+})
+
+test('the live client upgrades only protected empty-slot formulas so N/A cells display X', async () => {
+  const state = buildState()
+  const calls = []
+  const client = createGameResultsSheetClient({
+    spreadsheetId: SPREADSHEET_ID,
+    worksheetName: TEST_WORKSHEET,
+    sheetId: GAME_RESULTS_TEST_SHEET_ID,
+    tokenProvider: async () => 'token',
+    fetchImpl: async (url, init) => {
+      calls.push({ url: String(url), init })
+      return new Response(JSON.stringify({}), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    },
+  })
+
+  const result = await client.ensureEmptySlotDisplay(state)
+
+  assert.deepEqual(result, { status: 'configured', changedCells: 175 })
+  assert.equal(calls.length, 1)
+  const body = JSON.parse(calls[0].init.body)
+  assert.equal(body.requests.length, 175)
+  assert.equal(
+    body.requests[0].updateCells.rows[0].values[0].userEnteredValue.formulaValue,
+    '=IF(OR($J8="",$J8="X"),"X",VLOOKUP(K8,$B$8:$C$32,2,0))',
+  )
+  assert.equal(
+    body.requests.find((request) =>
+      request.updateCells.range.startRowIndex === 7
+      && request.updateCells.range.startColumnIndex === 23)
+      .updateCells.rows[0].values[0].userEnteredValue.formulaValue,
+    '=IF(OR($J8="",$J8="X"),"X",SUM(L8,M8,O8,P8,R8,S8,U8,V8))',
+  )
+  assert.equal(body.requests.some((request) =>
+    request.updateCells.range.startColumnIndex === 24), false)
+
+  const changedState = buildState(new Map(), {
+    changedFormula: { row: 7, column: 11 },
+  })
+  assert.throws(
+    () => emptySlotFormulaRequests(changedState, client.config),
+    /Protected formula 8:12 is missing or changed/,
+  )
 })
