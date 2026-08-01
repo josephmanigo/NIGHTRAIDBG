@@ -122,14 +122,28 @@ function setsOverlap(left, right) {
 function sameTeamObservation(left, right) {
   const leftCode = identityText(left.team.team_code)
   const rightCode = identityText(right.team.team_code)
-  if (leftCode && rightCode && leftCode !== rightCode) return false
-  if (
+  const sameCode = Boolean(leftCode && rightCode && leftCode === rightCode)
+  const sameRank =
+    left.team.rank !== null
+    && left.team.rank === right.team.rank
+  const sameDisplayedKills =
+    left.team.team_total_kills !== null
+    && left.team.team_total_kills === right.team.team_total_kills
+  const differentScreenshots =
+    left.source.screenshotIndex !== right.source.screenshotIndex
+  const codeConflict = Boolean(leftCode && rightCode && leftCode !== rightCode)
+  const rankConflict =
     left.team.rank !== null
     && right.team.rank !== null
     && left.team.rank !== right.team.rank
-  ) return false
+  if (codeConflict) {
+    return differentScreenshots && sameRank && sameDisplayedKills
+  }
+  if (rankConflict) {
+    return differentScreenshots && sameCode && sameDisplayedKills
+  }
   if (leftCode && rightCode && leftCode === rightCode) return true
-  if (left.team.rank !== null && left.team.rank === right.team.rank) return true
+  if (sameRank) return true
   if (setsOverlap(playerSlots(left.team), playerSlots(right.team))) return true
 
   const leftNames = playerNames(left.team)
@@ -177,6 +191,45 @@ function filterRankOutliers(teams) {
     return false
   })
   return { teams: kept, ignored }
+}
+
+function ignoredRowMatchesObservation(ignored, observation) {
+  return ignored.screenshot_index !== observation.source.screenshotIndex
+    && ignored.rank === observation.team.rank
+    && identityText(ignored.team_code) !== null
+    && identityText(ignored.team_code) === identityText(observation.team.team_code)
+}
+
+function ignoredRowDuplicatesObservation(ignored, observation) {
+  return ignoredRowMatchesObservation(ignored, observation)
+    && Number.isInteger(ignored.team_total_kills)
+    && ignored.team_total_kills === observation.team.team_total_kills
+}
+
+function ignoredOverlapConflict(ignored, observation) {
+  return {
+    type: 'field_conflict',
+    field: `leaderboard.rank.${ignored.rank}.team_total_kills`,
+    candidates: [
+      {
+        value: ignored.team_total_kills,
+        confidence: null,
+        sources: [{
+          screenshot_index: ignored.screenshot_index,
+          attachment_id: ignored.attachment_id,
+          filename: ignored.filename,
+          team_index: ignored.team_index,
+          player_index: null,
+        }],
+      },
+      {
+        value: observation.team.team_total_kills,
+        confidence: observation.team.confidence.team_total_kills,
+        sources: [sourceReference(observation)],
+      },
+    ],
+    requires_manual_review: true,
+  }
 }
 
 function disjointSet(size) {
@@ -584,10 +637,29 @@ export function createRoundSubmissionReader(options = {}) {
           originalSha256: result.source.original_sha256 ?? record.sha256 ?? null,
         },
       })))
-    const conflicts = [...readErrors]
-    const reviewFields = readErrors.map((error) => `screenshots[${error.screenshot_index}]`)
+    const duplicateIgnoredRows = ignoredRows.filter((ignored) =>
+      observations.some((observation) =>
+        ignoredRowDuplicatesObservation(ignored, observation)))
+    const conflictingIgnoredRows = ignoredRows.flatMap((ignored) => {
+      if (duplicateIgnoredRows.includes(ignored)) return []
+      const match = observations.find((observation) =>
+        ignoredRowMatchesObservation(ignored, observation))
+      return match ? [ignoredOverlapConflict(ignored, match)] : []
+    })
+    const unresolvedIgnoredRows = ignoredRows.filter((ignored) =>
+      !duplicateIgnoredRows.includes(ignored))
+    const conflicts = [...readErrors, ...conflictingIgnoredRows]
+    const reviewFields = [
+      ...readErrors.map((error) => `screenshots[${error.screenshot_index}]`),
+      ...conflictingIgnoredRows.map((conflict) => conflict.field),
+    ]
     collectIdentityConflicts(observations, conflicts, reviewFields)
-    const teams = serializeMergedTeams(mergeTeams(observations), conflicts, reviewFields)
+    const mergedTeams = mergeTeams(observations)
+    const overlapRowsCollapsed = mergedTeams.reduce(
+      (count, team) => count + Math.max(0, team.sources.length - 1),
+      duplicateIgnoredRows.length,
+    )
+    const teams = serializeMergedTeams(mergedTeams, conflicts, reviewFields)
     const killTotalValidations = validatePlayerKillTotals(teams, conflicts, reviewFields)
 
     const uniqueReviewFields = [...new Set(reviewFields)]
@@ -602,6 +674,7 @@ export function createRoundSubmissionReader(options = {}) {
       },
       screenshot_count: submission.records.length,
       screenshots_read: screenshotReads.length,
+      overlap_rows_collapsed: overlapRowsCollapsed,
       screenshots: submission.records.map((record, screenshotIndex) => {
         const read = screenshotReads.find((item) => item.screenshotIndex === screenshotIndex)
         return {
@@ -632,7 +705,7 @@ export function createRoundSubmissionReader(options = {}) {
         }
       }),
       teams,
-      ignored_rows: ignoredRows,
+      ignored_rows: unresolvedIgnoredRows,
       kill_total_validations: killTotalValidations,
       conflicts,
       review_required: conflicts.length > 0 || uniqueReviewFields.length > 0,

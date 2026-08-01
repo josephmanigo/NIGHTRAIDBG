@@ -133,6 +133,7 @@ test('independently reads two overlapping screenshots into one unique Round 1 re
   assert.equal(result.submission.round, 1)
   assert.equal(result.screenshot_count, 2)
   assert.equal(result.screenshots_read, 2)
+  assert.equal(result.overlap_rows_collapsed, 1)
   assert.deepEqual(result.teams.map((item) => item.rank), [1, 2, 3, 4, 5])
   assert.deepEqual(result.teams.map((item) => item.team_code), ['O', 'P', 'Q', 'R', 'S'])
   assert.equal(new Set(result.teams.map((item) => item.rank)).size, result.teams.length)
@@ -143,6 +144,49 @@ test('independently reads two overlapping screenshots into one unique Round 1 re
   assert.equal(result.conflicts.length, 0)
   assert.equal(result.review_required, false)
   assert.ok(result.kill_total_validations.every((validation) => validation.status === 'matched'))
+})
+
+test('collapses the exact 1-11 plus overlapping 1 and 7-16 screenshot pattern', async () => {
+  const codes = ['O', 'M', 'R', 'I', 'D', 'J', 'H', 'B', 'U', 'Q', 'F', 'K', 'T', 'C', 'N', 'L']
+  const kills = [65, 7, 31, 22, 21, 37, 19, 16, 4, 12, 11, 6, 1, 16, 4, 0]
+  const rows = codes.map((code, index) => team(index + 1, code, kills[index], []))
+  const { reader } = testReader({
+    a: screenshotResult('round-1-a.png', rows.slice(0, 11)),
+    b: screenshotResult('round-1-b.png', [rows[0], ...rows.slice(6)]),
+  })
+
+  const result = await reader.readSubmission(submission(), { scoreOnly: true })
+
+  assert.equal(result.teams.length, 16)
+  assert.deepEqual(result.teams.map((item) => item.rank),
+    Array.from({ length: 16 }, (_value, index) => index + 1))
+  assert.deepEqual(result.teams.map((item) => item.team_code), codes)
+  assert.deepEqual(result.teams.map((item) => item.team_total_kills), kills)
+  assert.equal(new Set(result.teams.map((item) => item.rank)).size, 16)
+  assert.equal(new Set(result.teams.map((item) => item.team_code)).size, 16)
+  assert.equal(result.overlap_rows_collapsed, 6)
+  assert.deepEqual(result.ignored_rows, [])
+  assert.equal(result.conflicts.length, 0)
+})
+
+test('blocks a conflicting repeated pinned row instead of ignoring its score', async () => {
+  const rows = Array.from({ length: 16 }, (_value, index) =>
+    team(index + 1, String.fromCharCode(65 + index), index + 10, []))
+  const conflictingPinnedRow = structuredClone(rows[0])
+  conflictingPinnedRow.team_total_kills += 1
+  const { reader } = testReader({
+    a: screenshotResult('round-1-a.png', rows.slice(0, 11)),
+    b: screenshotResult('round-1-b.png', [conflictingPinnedRow, ...rows.slice(6)]),
+  })
+
+  const result = await reader.readSubmission(submission(), { scoreOnly: true })
+
+  assert.equal(result.teams.length, 16)
+  assert.equal(result.overlap_rows_collapsed, 5)
+  assert.equal(result.review_required, true)
+  assert.ok(result.conflicts.some((conflict) =>
+    conflict.type === 'field_conflict'
+    && conflict.field === 'leaderboard.rank.1.team_total_kills'))
 })
 
 test('preserves exact confident Rank 1 player names through overlap merging', async () => {
@@ -189,7 +233,7 @@ test('does not silently choose conflicting repeated-row values', async () => {
   assert.deepEqual(totalConflict.candidates.map((candidate) => candidate.value).sort(), [4, 5])
 })
 
-test('preserves conflicting same-rank teams as separate rows and exposes the identity conflict', async () => {
+test('collapses a same-rank same-score overlap but exposes its team identity conflict', async () => {
   const wrongIdentity = structuredClone(rankTwo)
   wrongIdentity.team_code = 'Z'
   wrongIdentity.players = wrongIdentity.players.map((entry, index) => ({
@@ -203,11 +247,10 @@ test('preserves conflicting same-rank teams as separate rows and exposes the ide
   const result = await reader.readSubmission(submission())
   const rankTwoRows = result.teams.filter((item) => item.rank === 2)
 
-  assert.equal(rankTwoRows.length, 2)
-  assert.deepEqual(
-    rankTwoRows.map((item) => item.team_code).sort(),
-    ['P', 'Z'],
-  )
+  assert.equal(rankTwoRows.length, 1)
+  assert.equal(rankTwoRows[0].team_code, null)
+  assert.equal(rankTwoRows[0].team_total_kills, 10)
+  assert.equal(result.overlap_rows_collapsed, 1)
   assert.equal(result.review_required, true)
   assert.ok(result.conflicts.some((conflict) =>
     conflict.type === 'team_identity_conflict'
