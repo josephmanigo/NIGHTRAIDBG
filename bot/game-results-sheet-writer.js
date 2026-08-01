@@ -12,8 +12,8 @@ import {
   DEFAULT_GAME_RESULTS_WORKSHEET_NAME,
 } from './game-results-scoresheet-source.js'
 import {
-  emptySlotFinalFormula,
   emptySlotPlacementFormula,
+  emptySlotFinalFormula,
   emptySlotRankFormula,
   emptySlotTotalFormula,
   legacyFinalFormula,
@@ -171,15 +171,15 @@ function expectedPlacementFormula(rowIndex, columns) {
 }
 
 function expectedTotalFormula(rowIndex) {
-  return emptySlotTotalFormula(rowIndex)
+  return legacyTotalFormula(rowIndex)
 }
 
 function expectedFinalFormula(rowIndex) {
-  return emptySlotFinalFormula(rowIndex)
+  return legacyFinalFormula(rowIndex)
 }
 
 function expectedRankFormula(rowIndex) {
-  return emptySlotRankFormula(rowIndex)
+  return legacyRankFormula(rowIndex)
 }
 
 function checkExpectedFormula(cells, rowIndex, columnIndex, expected, legacy) {
@@ -484,19 +484,19 @@ export function buildSafeSheetWritePlan({ submission, state, sheetConfig }) {
         'total_points',
         TOTAL_COLUMN,
         expectedTotalFormula(team.rowIndex),
-        legacyTotalFormula(team.rowIndex),
+        emptySlotTotalFormula(team.rowIndex),
       ],
       [
         'final_score',
         FINAL_SCORE_COLUMN,
         expectedFinalFormula(team.rowIndex),
-        legacyFinalFormula(team.rowIndex),
+        emptySlotFinalFormula(team.rowIndex),
       ],
       [
         'rank',
         RANK_COLUMN,
         expectedRankFormula(team.rowIndex),
-        legacyRankFormula(team.rowIndex),
+        emptySlotRankFormula(team.rowIndex),
       ],
     ]) {
       checkExpectedFormula(cells, team.rowIndex, column, expected, legacy)

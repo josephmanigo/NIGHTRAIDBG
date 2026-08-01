@@ -158,20 +158,20 @@ function buildState(values = new Map(), options = {}) {
         )
       : null
     cells[23 - 7] = formulaCell(
-      options.emptySlotFormulas
+      options.emptySlotSummaryFormulas
         ? emptySlotTotalFormula(row)
         : `=SUM(L${sheetRow},M${sheetRow},O${sheetRow},P${sheetRow},R${sheetRow},S${sheetRow},U${sheetRow},V${sheetRow})`,
       total === null ? errorValue() : { numberValue: total },
     )
     cells[24 - 7] = numberCell(null)
     cells[25 - 7] = formulaCell(
-      options.emptySlotFormulas
+      options.emptySlotSummaryFormulas
         ? emptySlotFinalFormula(row)
         : `=(X${sheetRow}-Y${sheetRow})`,
       total === null ? errorValue() : { numberValue: total },
     )
     cells[26 - 7] = formulaCell(
-      options.emptySlotFormulas
+      options.emptySlotSummaryFormulas
         ? emptySlotRankFormula(row)
         : `=RANK(Z${sheetRow},$Z$8:$Z$32,0)`,
       total === null ? errorValue() : { numberValue: 1 },
@@ -442,7 +442,7 @@ function memorySheetClient(options = {}) {
       emptySlotFormulas = true
       events.push('empty-slot-display-configured')
       options.timeline?.push('empty-slot-display-configured')
-      return { status: 'configured', changedCells: 175 }
+      return { status: 'configured', changedCells: 100 }
     },
     values,
   }
@@ -722,7 +722,7 @@ test('a score write upgrades and re-reads empty-slot formulas before writing inp
 
   assert.deepEqual(result.verification.empty_slot_display, {
     status: 'configured',
-    changedCells: 175,
+    changedCells: 100,
   })
   assert.ok(
     timeline.indexOf('empty-slot-display-configured')
@@ -1130,7 +1130,7 @@ test('the live client accepts the writer plan containing exact X markers and rej
   assert.equal(calls.length, 1)
 })
 
-test('the live client upgrades only protected empty-slot formulas so N/A cells display X', async () => {
+test('the live client upgrades only placement-point N/A formulas while summaries stay calculated', async () => {
   const state = buildState()
   const calls = []
   const client = createGameResultsSheetClient({
@@ -1149,23 +1149,32 @@ test('the live client upgrades only protected empty-slot formulas so N/A cells d
 
   const result = await client.ensureEmptySlotDisplay(state)
 
-  assert.deepEqual(result, { status: 'configured', changedCells: 175 })
+  assert.deepEqual(result, { status: 'configured', changedCells: 100 })
   assert.equal(calls.length, 1)
   const body = JSON.parse(calls[0].init.body)
-  assert.equal(body.requests.length, 175)
+  assert.equal(body.requests.length, 100)
   assert.equal(
     body.requests[0].updateCells.rows[0].values[0].userEnteredValue.formulaValue,
     '=IF(OR($J8="",$J8="X"),"X",VLOOKUP(K8,$B$8:$C$32,2,0))',
   )
+  assert.equal(body.requests.some((request) =>
+    [23, 24, 25, 26].includes(request.updateCells.range.startColumnIndex)), false)
+
+  const fullyMigratedState = buildState(new Map(), {
+    emptySlotFormulas: true,
+    emptySlotSummaryFormulas: true,
+  })
+  const summaryRollback = emptySlotFormulaRequests(fullyMigratedState, client.config)
+  assert.equal(summaryRollback.length, 75)
+  assert.equal(summaryRollback.every((request) =>
+    [23, 25, 26].includes(request.updateCells.range.startColumnIndex)), true)
   assert.equal(
-    body.requests.find((request) =>
+    summaryRollback.find((request) =>
       request.updateCells.range.startRowIndex === 7
       && request.updateCells.range.startColumnIndex === 23)
       .updateCells.rows[0].values[0].userEnteredValue.formulaValue,
-    '=IF(OR($J8="",$J8="X"),"X",SUM(L8,M8,O8,P8,R8,S8,U8,V8))',
+    '=SUM(L8,M8,O8,P8,R8,S8,U8,V8)',
   )
-  assert.equal(body.requests.some((request) =>
-    request.updateCells.range.startColumnIndex === 24), false)
 
   const changedState = buildState(new Map(), {
     changedFormula: { row: 7, column: 11 },

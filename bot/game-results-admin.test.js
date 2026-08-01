@@ -136,7 +136,7 @@ function fakeSheetClient(options = {}) {
               cell.effectiveValue = { stringValue: 'X' }
               cell.formattedValue = 'X'
             }
-            return { status: 'configured', changedCells: 175 }
+            return { status: 'configured', changedCells: 100 }
           },
         }
       : {}),
@@ -480,12 +480,27 @@ test('/clear upgrades empty-slot formulas to X without touching deductions', asy
 
   assert.deepEqual(cleared.verification.empty_slot_display, {
     status: 'configured',
-    changedCells: 175,
+    changedCells: 100,
   })
   assert.equal(
     after.formulas.find((formula) => formula.a1 === 'L8')
       .user_entered_value.formulaValue,
     '=IF(OR($J8="",$J8="X"),"X",VLOOKUP(K8,$B$8:$C$32,2,0))',
+  )
+  assert.equal(
+    after.formulas.find((formula) => formula.a1 === 'X8')
+      .user_entered_value.formulaValue,
+    '=SUM(L8,M8,O8,P8,R8,S8,U8,V8)',
+  )
+  assert.equal(
+    after.formulas.find((formula) => formula.a1 === 'Z8')
+      .user_entered_value.formulaValue,
+    '=(X8-Y8)',
+  )
+  assert.equal(
+    after.formulas.find((formula) => formula.a1 === 'AA8')
+      .user_entered_value.formulaValue,
+    '=RANK(Z8,$Z$8:$Z$32,0)',
   )
   assert.equal(firstRow[24 - 7].userEnteredValue.numberValue, 7)
 })

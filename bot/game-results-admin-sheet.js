@@ -118,15 +118,15 @@ function expectedPlacementFormula(row, columns) {
 }
 
 function expectedTotalFormula(row) {
-  return emptySlotTotalFormula(row)
+  return legacyTotalFormula(row)
 }
 
 function expectedFinalFormula(row) {
-  return emptySlotFinalFormula(row)
+  return legacyFinalFormula(row)
 }
 
 function expectedRankFormula(row) {
-  return emptySlotRankFormula(row)
+  return legacyRankFormula(row)
 }
 
 function sameJson(left, right) {
@@ -242,9 +242,9 @@ export function inspectAdministrativeRoundState({ round, state, sheetConfig }) {
         expectedPlacementFormula(row, columns),
         legacyPlacementFormula(row, columns.place),
       ],
-      ['total_points', TOTAL_COLUMN, expectedTotalFormula(row), legacyTotalFormula(row)],
-      ['final_score', FINAL_SCORE_COLUMN, expectedFinalFormula(row), legacyFinalFormula(row)],
-      ['rank', RANK_COLUMN, expectedRankFormula(row), legacyRankFormula(row)],
+      ['total_points', TOTAL_COLUMN, expectedTotalFormula(row), emptySlotTotalFormula(row)],
+      ['final_score', FINAL_SCORE_COLUMN, expectedFinalFormula(row), emptySlotFinalFormula(row)],
+      ['rank', RANK_COLUMN, expectedRankFormula(row), emptySlotRankFormula(row)],
     ]) {
       const item = snapshot(cells, row, column)
       const current = item.user_entered_value?.formulaValue

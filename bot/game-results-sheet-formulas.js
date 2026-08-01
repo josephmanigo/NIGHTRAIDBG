@@ -84,22 +84,22 @@ export function scoreSheetFormulaContracts() {
         rowIndex,
         columnIndex: 23,
         role: 'total_points',
-        legacyFormula: legacyTotalFormula(rowIndex),
-        formula: emptySlotTotalFormula(rowIndex),
+        legacyFormula: emptySlotTotalFormula(rowIndex),
+        formula: legacyTotalFormula(rowIndex),
       },
       {
         rowIndex,
         columnIndex: 25,
         role: 'final_score',
-        legacyFormula: legacyFinalFormula(rowIndex),
-        formula: emptySlotFinalFormula(rowIndex),
+        legacyFormula: emptySlotFinalFormula(rowIndex),
+        formula: legacyFinalFormula(rowIndex),
       },
       {
         rowIndex,
         columnIndex: 26,
         role: 'rank',
-        legacyFormula: legacyRankFormula(rowIndex),
-        formula: emptySlotRankFormula(rowIndex),
+        legacyFormula: emptySlotRankFormula(rowIndex),
+        formula: legacyRankFormula(rowIndex),
       },
     )
   }
