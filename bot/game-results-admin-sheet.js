@@ -9,6 +9,7 @@ import {
   legacyPlacementFormula,
   legacyRankFormula,
   legacyTotalFormula,
+  previousEmptyTeamPlacementFormula,
 } from './game-results-sheet-formulas.js'
 
 const ROUND_COLUMNS = Object.freeze({
@@ -235,20 +236,23 @@ export function inspectAdministrativeRoundState({ round, state, sheetConfig }) {
       }
       targets.push({ ...snapshot(cells, row, column), role })
     }
-    for (const [role, column, expected, legacy] of [
+    for (const [role, column, expected, alternatives] of [
       [
         'placement_points',
         columns.placementPoints,
         expectedPlacementFormula(row, columns),
-        legacyPlacementFormula(row, columns.place),
+        [
+          legacyPlacementFormula(row, columns.place),
+          previousEmptyTeamPlacementFormula(row, columns.place),
+        ],
       ],
-      ['total_points', TOTAL_COLUMN, expectedTotalFormula(row), emptySlotTotalFormula(row)],
-      ['final_score', FINAL_SCORE_COLUMN, expectedFinalFormula(row), emptySlotFinalFormula(row)],
-      ['rank', RANK_COLUMN, expectedRankFormula(row), emptySlotRankFormula(row)],
+      ['total_points', TOTAL_COLUMN, expectedTotalFormula(row), [emptySlotTotalFormula(row)]],
+      ['final_score', FINAL_SCORE_COLUMN, expectedFinalFormula(row), [emptySlotFinalFormula(row)]],
+      ['rank', RANK_COLUMN, expectedRankFormula(row), [emptySlotRankFormula(row)]],
     ]) {
       const item = snapshot(cells, row, column)
       const current = item.user_entered_value?.formulaValue
-      if (current !== expected && current !== legacy) {
+      if (current !== expected && !alternatives.includes(current)) {
         throw new Error(`Protected formula ${item.a1} is missing or changed.`)
       }
       formulas.push({ ...item, role })

@@ -30,6 +30,12 @@ export function legacyPlacementFormula(rowIndex, placeColumn) {
 }
 
 export function emptySlotPlacementFormula(rowIndex, placeColumn) {
+  const row = rowIndex + 1
+  const place = `${columnName(placeColumn)}${row}`
+  return `=IF(${place}="X","X",${legacyPlacementFormula(rowIndex, placeColumn).slice(1)})`
+}
+
+export function previousEmptyTeamPlacementFormula(rowIndex, placeColumn) {
   return emptySlotGuard(
     rowIndex,
     legacyPlacementFormula(rowIndex, placeColumn).slice(1),
@@ -76,6 +82,10 @@ export function scoreSheetFormulaContracts() {
         columnIndex: columns.placementPoints,
         role: 'placement_points',
         legacyFormula: legacyPlacementFormula(rowIndex, columns.place),
+        transitionalFormula: previousEmptyTeamPlacementFormula(
+          rowIndex,
+          columns.place,
+        ),
         formula: emptySlotPlacementFormula(rowIndex, columns.place),
       })
     }

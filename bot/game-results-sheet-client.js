@@ -131,7 +131,11 @@ export function emptySlotFormulaRequests(state, sheetConfig) {
     const current = cells.get(`${contract.rowIndex}:${contract.columnIndex}`)
       ?.userEnteredValue?.formulaValue
     if (current === contract.formula) continue
-    if (current !== contract.legacyFormula) {
+    const acceptedPrevious = [
+      contract.legacyFormula,
+      contract.transitionalFormula,
+    ].filter(Boolean)
+    if (!acceptedPrevious.includes(current)) {
       throw new Error(
         `Protected formula ${contract.rowIndex + 1}:${contract.columnIndex + 1} is missing or changed.`,
       )

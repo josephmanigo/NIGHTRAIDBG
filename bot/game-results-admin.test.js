@@ -485,7 +485,7 @@ test('/clear upgrades empty-slot formulas to X without touching deductions', asy
   assert.equal(
     after.formulas.find((formula) => formula.a1 === 'L8')
       .user_entered_value.formulaValue,
-    '=IF(OR($J8="",$J8="X"),"X",VLOOKUP(K8,$B$8:$C$32,2,0))',
+    '=IF(K8="X","X",VLOOKUP(K8,$B$8:$C$32,2,0))',
   )
   assert.equal(
     after.formulas.find((formula) => formula.a1 === 'X8')

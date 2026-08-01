@@ -18,6 +18,7 @@ import {
   emptySlotPlacementFormula,
   emptySlotRankFormula,
   emptySlotTotalFormula,
+  previousEmptyTeamPlacementFormula,
 } from './game-results-sheet-formulas.js'
 
 const SPREADSHEET_ID = '1SMXnqe-xQgaHXBFCm-hpbQDCMKE5m9VpoY_oRtyf_YI'
@@ -137,9 +138,11 @@ function buildState(values = new Map(), options = {}) {
       cells[columns.place - 7] = scoreInputCell(place)
       cells[columns.kills - 7] = scoreInputCell(kills)
       cells[columns.points - 7] = formulaCell(
-        options.emptySlotFormulas
-          ? emptySlotPlacementFormula(row, columns.place)
-          : `=VLOOKUP(${String.fromCharCode(65 + columns.place)}${sheetRow},$B$8:$C$32,2,0)`,
+        options.previousEmptyTeamFormulas
+          ? previousEmptyTeamPlacementFormula(row, columns.place)
+          : options.emptySlotFormulas
+            ? emptySlotPlacementFormula(row, columns.place)
+            : `=VLOOKUP(${String.fromCharCode(65 + columns.place)}${sheetRow},$B$8:$C$32,2,0)`,
         Number.isInteger(place)
           ? { numberValue: placementPoints(place) }
           : errorValue(),
@@ -1155,7 +1158,7 @@ test('the live client upgrades only placement-point N/A formulas while summaries
   assert.equal(body.requests.length, 100)
   assert.equal(
     body.requests[0].updateCells.rows[0].values[0].userEnteredValue.formulaValue,
-    '=IF(OR($J8="",$J8="X"),"X",VLOOKUP(K8,$B$8:$C$32,2,0))',
+    '=IF(K8="X","X",VLOOKUP(K8,$B$8:$C$32,2,0))',
   )
   assert.equal(body.requests.some((request) =>
     [23, 24, 25, 26].includes(request.updateCells.range.startColumnIndex)), false)
@@ -1176,11 +1179,32 @@ test('the live client upgrades only placement-point N/A formulas while summaries
     '=SUM(L8,M8,O8,P8,R8,S8,U8,V8)',
   )
 
+  const previousFormulaState = buildState(new Map(), {
+    previousEmptyTeamFormulas: true,
+  })
+  const previousFormulaUpgrade = emptySlotFormulaRequests(
+    previousFormulaState,
+    client.config,
+  )
+  assert.equal(previousFormulaUpgrade.length, 100)
+  assert.equal(
+    previousFormulaUpgrade[0]
+      .updateCells.rows[0].values[0].userEnteredValue.formulaValue,
+    '=IF(K8="X","X",VLOOKUP(K8,$B$8:$C$32,2,0))',
+  )
+
   const changedState = buildState(new Map(), {
     changedFormula: { row: 7, column: 11 },
   })
   assert.throws(
     () => emptySlotFormulaRequests(changedState, client.config),
     /Protected formula 8:12 is missing or changed/,
+  )
+
+  const missingSummaryState = buildState()
+  missingSummaryState.sheets[0].data[1].rowData[2].values[23 - 7] = {}
+  assert.throws(
+    () => emptySlotFormulaRequests(missingSummaryState, client.config),
+    /Protected formula 8:24 is missing or changed/,
   )
 })

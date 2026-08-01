@@ -20,6 +20,7 @@ import {
   legacyPlacementFormula,
   legacyRankFormula,
   legacyTotalFormula,
+  previousEmptyTeamPlacementFormula,
 } from './game-results-sheet-formulas.js'
 
 const ROUND_COLUMNS = Object.freeze({
@@ -182,9 +183,9 @@ function expectedRankFormula(rowIndex) {
   return legacyRankFormula(rowIndex)
 }
 
-function checkExpectedFormula(cells, rowIndex, columnIndex, expected, legacy) {
+function checkExpectedFormula(cells, rowIndex, columnIndex, expected, alternatives) {
   const actual = formula(cells.get(cellKey(rowIndex, columnIndex)))
-  if (actual !== expected && actual !== legacy) {
+  if (actual !== expected && !alternatives.includes(actual)) {
     throw new Error(
       `Protected formula ${a1(rowIndex, columnIndex)} is missing or changed; refusing to write.`,
     )
@@ -473,33 +474,36 @@ export function buildSafeSheetWritePlan({ submission, state, sheetConfig }) {
       requests.push(numericCellRequest(sheetConfig.sheetId, team.rowIndex, column, value))
     }
 
-    for (const [role, column, expected, legacy] of [
+    for (const [role, column, expected, alternatives] of [
       [
         'placement_points',
         columns.placementPoints,
         expectedPlacementFormula(team.rowIndex, columns),
-        legacyPlacementFormula(team.rowIndex, columns.place),
+        [
+          legacyPlacementFormula(team.rowIndex, columns.place),
+          previousEmptyTeamPlacementFormula(team.rowIndex, columns.place),
+        ],
       ],
       [
         'total_points',
         TOTAL_COLUMN,
         expectedTotalFormula(team.rowIndex),
-        emptySlotTotalFormula(team.rowIndex),
+        [emptySlotTotalFormula(team.rowIndex)],
       ],
       [
         'final_score',
         FINAL_SCORE_COLUMN,
         expectedFinalFormula(team.rowIndex),
-        emptySlotFinalFormula(team.rowIndex),
+        [emptySlotFinalFormula(team.rowIndex)],
       ],
       [
         'rank',
         RANK_COLUMN,
         expectedRankFormula(team.rowIndex),
-        emptySlotRankFormula(team.rowIndex),
+        [emptySlotRankFormula(team.rowIndex)],
       ],
     ]) {
-      checkExpectedFormula(cells, team.rowIndex, column, expected, legacy)
+      checkExpectedFormula(cells, team.rowIndex, column, expected, alternatives)
       formulas.push({
         ...cellSnapshot(cells, team.rowIndex, column),
         role,
