@@ -1027,3 +1027,53 @@ test('the HTTP client reads first and accepts only precise single-cell value upd
     /only precise TEAM\/PLACE\/KILLS/,
   )
 })
+
+test('the live client accepts the writer plan containing exact X markers and rejects other score text', async () => {
+  const plan = buildSafeSheetWritePlan({
+    submission: rankOneSubmission(),
+    state: buildState(),
+    sheetConfig: sheetConfig(),
+  })
+  const calls = []
+  const client = createGameResultsSheetClient({
+    spreadsheetId: SPREADSHEET_ID,
+    worksheetName: TEST_WORKSHEET,
+    sheetId: GAME_RESULTS_TEST_SHEET_ID,
+    tokenProvider: async () => 'token',
+    fetchImpl: async (url, init) => {
+      calls.push({ url: String(url), init })
+      return new Response(JSON.stringify({}), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    },
+  })
+
+  await client.updateCells(plan.requests)
+
+  assert.equal(calls.length, 1)
+  const body = JSON.parse(calls[0].init.body)
+  assert.equal(body.requests.length, 51)
+  assert.equal(
+    body.requests.filter((request) =>
+      request.updateCells.rows[0].values[0].userEnteredValue?.stringValue === 'X').length,
+    48,
+  )
+  await assert.rejects(
+    () => client.updateCells([{
+      updateCells: {
+        range: {
+          sheetId: GAME_RESULTS_TEST_SHEET_ID,
+          startRowIndex: 7,
+          endRowIndex: 8,
+          startColumnIndex: 10,
+          endColumnIndex: 11,
+        },
+        rows: [{ values: [{ userEnteredValue: { stringValue: 'DNS' } }] }],
+        fields: 'userEnteredValue',
+      },
+    }]),
+    /only non-negative integers, X, or blanks/,
+  )
+  assert.equal(calls.length, 1)
+})

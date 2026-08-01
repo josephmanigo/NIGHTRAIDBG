@@ -275,9 +275,18 @@ function validateUpdateRequests(requests, sheetId) {
         validateSafeSheetText(entered.stringValue, 'Official team name')
         continue
       }
+      if (
+        Object.keys(entered).length === 1
+        && entered.stringValue === 'X'
+      ) continue
       const value = entered.numberValue
-      if (!Number.isInteger(value) || value < 0) {
-        throw new Error('PLACE/KILLS writes accept only non-negative integers or blanks.')
+      if (
+        Object.keys(entered).length !== 1
+        || !Object.hasOwn(entered, 'numberValue')
+        || !Number.isInteger(value)
+        || value < 0
+      ) {
+        throw new Error('PLACE/KILLS writes accept only non-negative integers, X, or blanks.')
       }
       if ([10, 13, 16, 19].includes(range.startColumnIndex) && (value < 1 || value > 25)) {
         throw new Error('PLACE writes must be integers from 1 to 25.')
