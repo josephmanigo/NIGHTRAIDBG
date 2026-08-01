@@ -552,14 +552,18 @@ test('starts processing and persists the review payload and Discord message ID',
 test('automatically writes a valid labeled round without confirmation controls', async () => {
   const store = memoryStore()
   const writes = []
+  const readOptions = []
   const automaticInteraction = interaction()
   const workflow = createGameResultsReviewWorkflow({
     store,
     roundReader: {
-      readSubmission: async () => roundResult([
-        team({ rank: 1, code: 'A', name: 'Official A' }),
-        team({ rank: 2, code: 'Z', name: 'Unknown Team' }),
-      ]),
+      readSubmission: async (_submission, options) => {
+        readOptions.push(options)
+        return roundResult([
+          team({ rank: 1, code: 'A', name: 'Official A' }),
+          team({ rank: 2, code: 'Z', name: 'Unknown Team' }),
+        ])
+      },
     },
     teamMappingService: mappingService({
       unknownCodes: new Set(['Z']),
@@ -587,6 +591,7 @@ test('automatically writes a valid labeled round without confirmation controls',
   )
 
   assert.equal(result.status, 'confirmed')
+  assert.deepEqual(readOptions, [{ scoreOnly: true }])
   assert.equal(writes.length, 1)
   assert.equal(writes[0].approved.status, 'approved_for_writing')
   assert.equal(writes[0].approved.reviewPayload.round_result.teams.length, 1)
@@ -822,6 +827,8 @@ test('processing log records the required timestamp, OCR values, and final score
 
   assert.equal(log.processed_at, '2026-07-30T12:00:00.000Z')
   assert.deepEqual(log.screenshot_filenames, ['round-1-score.png'])
+  assert.deepEqual(log.screenshot_diagnostics, [])
+  assert.deepEqual(log.blocking_issues, [])
   assert.deepEqual(log.extracted_values, [
     { placement: 1, slot: 'O', kills: 65 },
   ])
@@ -835,7 +842,7 @@ test('processing log records the required timestamp, OCR values, and final score
   }])
 })
 
-test('automatic tally stops without persistent review when required score data stays unsafe', async () => {
+test('automatic tally opens persistent field review when required score data stays unsafe', async () => {
   const retryTimestamp = '2026-07-30T15:55:00.000Z'
   const store = memoryStore(storedSubmission({
     reviewPayload: {
@@ -869,11 +876,12 @@ test('automatic tally stops without persistent review when required score data s
     automaticInteraction.value,
   )
 
-  assert.equal(result.status, 'automatic_tally_failed')
+  assert.equal(result.status, 'automatic_tally_needs_review')
   assert.equal(result.attemptsUsed, 2)
   assert.equal(reads, 2)
   assert.equal(writes, 0)
-  assert.equal(store.current().status, 'failed')
+  assert.equal(store.current().status, 'needs_review')
+  assert.equal(store.current().reviewMessageId, 'review-message-1')
   assert.equal(store.current().reviewPayload.startup_local_ocr_retry_count, 1)
   assert.equal(
     store.current().reviewPayload.startup_local_ocr_retry_at,
@@ -885,8 +893,44 @@ test('automatic tally stops without persistent review when required score data s
   )
   assert.ok(result.blockingIssueCount > 0)
   assert.equal(automaticInteraction.followUps.length, 1)
-  assert.match(automaticInteraction.followUps[0].content, /automatic tally stopped/)
-  assert.doesNotMatch(automaticInteraction.followUps[0].content, /GAME-RESULT REVIEW/)
+  assert.match(automaticInteraction.followUps[0].content, /GAME-RESULT REVIEW/)
+  assert.match(automaticInteraction.followUps[0].content, /Team total kills are unreadable/)
+  assert.ok(automaticInteraction.followUps[0].components.length > 0)
+  assert.equal(automaticInteraction.publicEdits.length, 1)
+})
+
+test('automatic tally reports exact diagnostics when no registered row can be reviewed', async () => {
+  const store = memoryStore()
+  const automaticInteraction = interaction()
+  const workflow = createGameResultsReviewWorkflow({
+    store,
+    automaticReadAttempts: 1,
+    roundReader: {
+      readSubmission: async () => roundResult([
+        team({ rank: 4, code: 'Z', totalKills: 7 }),
+      ]),
+    },
+    teamMappingService: mappingService({
+      unknownCodes: new Set(['Z']),
+      registeredSlotlist: true,
+    }),
+    writeApprovedSubmission: async () => {
+      throw new Error('must not write')
+    },
+  })
+
+  const result = await workflow.startAutomaticTally(
+    store.current(),
+    automaticInteraction.value,
+  )
+
+  assert.equal(result.status, 'automatic_tally_failed')
+  assert.equal(store.current().status, 'failed')
+  assert.equal(automaticInteraction.followUps.length, 1)
+  assert.match(automaticInteraction.followUps[0].content, /needs a new leaderboard image/)
+  assert.match(automaticInteraction.followUps[0].content, /No screenshot teams are present/)
+  assert.match(automaticInteraction.followUps[0].content, /Excluded visible row 4/)
+  assert.match(automaticInteraction.followUps[0].content, /\/refreshteams/)
   assert.deepEqual(automaticInteraction.followUps[0].components, [])
 })
 

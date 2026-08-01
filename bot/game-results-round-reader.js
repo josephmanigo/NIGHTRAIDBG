@@ -526,7 +526,7 @@ export function createRoundSubmissionReader(options = {}) {
     options.attachmentLoader
     ?? ((record) => downloadSubmissionScreenshot(record, options.download))
 
-  async function readSubmission(submission) {
+  async function readSubmission(submission, readOptions = {}) {
     validateSubmission(submission)
     const screenshotReads = []
     const readErrors = []
@@ -540,6 +540,7 @@ export function createRoundSubmissionReader(options = {}) {
           buffer: loaded.buffer,
           mimeType: loaded.mimeType,
           filename: record.attachmentFilename,
+          scoreOnly: readOptions.scoreOnly === true,
         }))
         const filtered = filterRankOutliers(parsed.teams)
         const result = { ...parsed, teams: filtered.teams }
@@ -613,6 +614,21 @@ export function createRoundSubmissionReader(options = {}) {
             ?? record.sha256
             ?? null,
           observed_team_count: read?.result.teams.length ?? 0,
+          reader: read?.result.readers?.primary ?? null,
+          layout: read?.result.layout ?? null,
+          targeted_recovery:
+            read?.result.readers?.targeted_recovery
+            ?? {
+              supported: false,
+              candidate_team_count: 0,
+              attempted_team_count: 0,
+              recovered_field_count: 0,
+              skipped_team_count: 0,
+            },
+          targeted_recovery_attempts:
+            read?.result.targeted_recovery?.attempts
+            ?? [],
+          unresolved_fields: read?.result.review_fields ?? [],
         }
       }),
       teams,

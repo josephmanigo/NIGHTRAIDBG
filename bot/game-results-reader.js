@@ -1,7 +1,10 @@
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
-import { preprocessGameResultScreenshot } from './game-results-image.js'
+import {
+  createGameResultTeamCropSet,
+  preprocessGameResultScreenshot,
+} from './game-results-image.js'
 import { createTesseractGameResultOcrReader } from './game-results-ocr.js'
 import { createGeminiGameResultVisionReader } from './game-results-vision.js'
 
@@ -53,6 +56,48 @@ export const gameResultVisionOutputSchema = z
     ).max(30),
   })
   .strict()
+
+export const gameResultScoreVisionOutputSchema = z
+  .object({
+    teams: z.array(
+      z.object({
+        rank: importantIntegerField,
+        team_code: importantStringField,
+        team_total_kills: importantIntegerField,
+        bbox: bboxSchema,
+      }).strict(),
+    ).max(30),
+  })
+  .strict()
+
+const targetedIntegerField = (minimum, maximum) => z
+  .object({
+    value: z.number().int().min(minimum).max(maximum).nullable(),
+    confidence: z.number().min(0).max(1),
+  })
+  .strict()
+
+const targetedTeamCodeField = z
+  .object({
+    value: z.string().trim().toUpperCase().regex(/^[A-Y]$/).nullable(),
+    confidence: z.number().min(0).max(1),
+  })
+  .strict()
+
+export const gameResultTargetedTeamOutputSchema = z
+  .object({
+    rank: targetedIntegerField(1, 25),
+    team_code: targetedTeamCodeField,
+    team_total_kills: targetedIntegerField(0, 999),
+  })
+  .strict()
+
+const REQUIRED_SCORE_FIELDS = Object.freeze([
+  { output: 'rank', vision: 'rank', type: 'integer' },
+  { output: 'team_code', vision: 'team_code', type: 'string' },
+  { output: 'team_total_kills', vision: 'team_total_kills', type: 'integer' },
+])
+const DEFAULT_TARGETED_RECOVERY_MAX_TEAMS = 8
 
 function positiveInteger(value, label) {
   const number = Number(value)
@@ -145,6 +190,149 @@ function sameValue(left, right, type) {
   return String(left).normalize('NFKC') === String(right).normalize('NFKC')
 }
 
+function configuredTargetedRecoveryLimit(value) {
+  const limit = value === undefined || value === null || value === ''
+    ? DEFAULT_TARGETED_RECOVERY_MAX_TEAMS
+    : Number(value)
+  if (!Number.isInteger(limit) || limit < 0 || limit > 25) {
+    throw new Error('GAME_RESULTS_TARGETED_RECOVERY_MAX_TEAMS must be from 0 to 25.')
+  }
+  return limit
+}
+
+function compactRecoveryError(reason) {
+  return (reason instanceof Error ? reason.message : String(reason))
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 400)
+}
+
+function normalizedScoreValue(field, value) {
+  if (value === null || value === undefined) return null
+  if (field.output === 'team_code') {
+    const code = typeof value === 'string'
+      ? value.normalize('NFKC').trim().toUpperCase()
+      : ''
+    return /^[A-Y]$/.test(code) ? code : null
+  }
+  if (!Number.isInteger(value)) return null
+  if (field.output === 'rank') return value >= 1 && value <= 25 ? value : null
+  return value >= 0 && value <= 999 ? value : null
+}
+
+function sanitizeRequiredScoreFields(teams, reviewFields) {
+  teams.forEach((team, teamIndex) => {
+    for (const field of REQUIRED_SCORE_FIELDS) {
+      const path = `teams[${teamIndex}].${field.output}`
+      const normalized = normalizedScoreValue(field, team[field.output])
+      if (normalized === null) {
+        team[field.output] = null
+        reviewFields.add(path)
+      } else {
+        team[field.output] = normalized
+      }
+    }
+  })
+}
+
+function reconcileTargetedField({
+  field,
+  primary,
+  ocrEvidence,
+  recovered,
+  minimumConfidence,
+}) {
+  const recoveredValue = normalizedScoreValue(field, recovered?.value)
+  const recoveredConfidence = Number(recovered?.confidence ?? 0)
+  if (recoveredValue === null) {
+    return { status: 'unreadable', value: null, confidence: recoveredConfidence }
+  }
+  if (!Number.isFinite(recoveredConfidence) || recoveredConfidence < minimumConfidence) {
+    return { status: 'low_confidence', value: null, confidence: recoveredConfidence }
+  }
+
+  const primaryValue = normalizedScoreValue(field, primary?.value)
+  const ocrCandidate = normalizedScoreValue(field, ocrEvidence?.candidate)
+  if (ocrEvidence?.status === 'conflict') {
+    if (ocrCandidate !== null && sameValue(recoveredValue, ocrCandidate, field.type)) {
+      return {
+        status: 'accepted_crop_and_ocr_agreement',
+        value: recoveredValue,
+        confidence: recoveredConfidence,
+      }
+    }
+    return {
+      status: 'conflict_with_secondary_ocr',
+      value: null,
+      confidence: recoveredConfidence,
+    }
+  }
+  if (primaryValue !== null) {
+    if (sameValue(recoveredValue, primaryValue, field.type)) {
+      return {
+        status: 'accepted_full_and_crop_agreement',
+        value: recoveredValue,
+        confidence: recoveredConfidence,
+      }
+    }
+    return {
+      status: 'conflict_with_full_image',
+      value: null,
+      confidence: recoveredConfidence,
+    }
+  }
+  return {
+    status: 'accepted_targeted_visual_read',
+    value: recoveredValue,
+    confidence: recoveredConfidence,
+  }
+}
+
+function targetedFieldConsensus(field, observations, minimumConfidence) {
+  const candidates = observations.flatMap((observation, index) => {
+    const recovered = observation.output?.[field.vision]
+    const value = normalizedScoreValue(field, recovered?.value)
+    const confidence = Number(recovered?.confidence ?? 0)
+    return value !== null
+      && Number.isFinite(confidence)
+      && confidence >= minimumConfidence
+      ? [{
+          variant: observation.variant ?? `observation_${index + 1}`,
+          value,
+          confidence,
+        }]
+      : []
+  })
+  const variants = new Set(candidates.map((candidate) => candidate.variant))
+  if (candidates.length < 2 || variants.size < 2) {
+    return {
+      status: 'insufficient_independent_reads',
+      value: null,
+      confidence: candidates.length > 0
+        ? Math.max(...candidates.map((candidate) => candidate.confidence))
+        : 0,
+    }
+  }
+  const agreedValue = candidates[0].value
+  if (!candidates.every((candidate) => sameValue(candidate.value, agreedValue, field.type))) {
+    return {
+      status: 'targeted_crop_conflict',
+      value: null,
+      confidence: Math.max(...candidates.map((candidate) => candidate.confidence)),
+      choices: candidates.map((candidate) => ({
+        variant: candidate.variant,
+        value: candidate.value,
+        confidence: candidate.confidence,
+      })),
+    }
+  }
+  return {
+    status: 'targeted_crop_agreement',
+    value: agreedValue,
+    confidence: Math.min(...candidates.map((candidate) => candidate.confidence)),
+  }
+}
+
 function finalizeField(candidate, ocrField, type, path, verification, reviewFields, ocrEnabled = true) {
   const aiConfidence = Number(candidate.confidence.toFixed(3))
   const ocrConfidence = Number(ocrField?.confidence ?? 0)
@@ -220,12 +408,14 @@ export function clampGameResultVisionGeometry(output) {
     teams: output.teams.map((team) => ({
       ...team,
       bbox: clampVisionBox(team.bbox),
-      players: Array.isArray(team.players)
-        ? team.players.map((player) => ({
-            ...player,
-            bbox: clampVisionBox(player.bbox),
-          }))
-        : team.players,
+      ...(Array.isArray(team.players)
+        ? {
+            players: team.players.map((player) => ({
+              ...player,
+              bbox: clampVisionBox(player.bbox),
+            })),
+          }
+        : {}),
     })),
   }
 }
@@ -357,8 +547,13 @@ export function createSingleScreenshotReader(options = {}) {
     ?? (ocrEnabled ? createTesseractGameResultOcrReader(options.ocr) : null)
   const preprocess = options.preprocess ?? preprocessGameResultScreenshot
   const layoutLoader = options.layoutLoader ?? loadGameResultsLayout
+  const teamCropper = options.teamCropper ?? createGameResultTeamCropSet
+  const targetedRecoveryLimit = configuredTargetedRecoveryLimit(
+    options.targetedRecoveryMaxTeams
+    ?? process.env.GAME_RESULTS_TARGETED_RECOVERY_MAX_TEAMS,
+  )
 
-  async function read({ buffer, mimeType, filename = null }) {
+  async function read({ buffer, mimeType, filename = null, scoreOnly = false }) {
     if (!Buffer.isBuffer(buffer) || buffer.length === 0) {
       throw new Error('Single-screenshot reader requires one non-empty image buffer.')
     }
@@ -376,10 +571,21 @@ export function createSingleScreenshotReader(options = {}) {
       enhancedBuffer: processed.enhancedBuffer,
       layout,
       detectedRows: processed.rows,
+      scoreOnly,
     }))
-    const vision = gameResultVisionOutputSchema.parse(
-      clampGameResultVisionGeometry(primary.output),
-    )
+    const parsedVision = scoreOnly
+      ? gameResultScoreVisionOutputSchema.parse(
+          clampGameResultVisionGeometry(primary.output),
+        )
+      : gameResultVisionOutputSchema.parse(
+          clampGameResultVisionGeometry(primary.output),
+        )
+    const vision = scoreOnly
+      ? {
+          ...parsedVision,
+          teams: parsedVision.teams.map((team) => ({ ...team, players: [] })),
+        }
+      : parsedVision
     const ocr = ocrService
       ? await ocrService.read({
           enhancedBuffer: processed.enhancedBuffer,
@@ -387,9 +593,124 @@ export function createSingleScreenshotReader(options = {}) {
           layout,
         })
       : NO_OCR_RESULT
-    const reviewFields = []
+    const initialReviewFields = []
     const teams = vision.teams.map((team, index) =>
-      serializeTeam(team, index, ocr, layout, reviewFields, ocrEnabled))
+      serializeTeam(team, index, ocr, layout, initialReviewFields, ocrEnabled))
+    const reviewFields = new Set(initialReviewFields)
+    sanitizeRequiredScoreFields(teams, reviewFields)
+
+    const recoveryCandidates = teams.flatMap((team, teamIndex) => {
+      const unresolvedFields = REQUIRED_SCORE_FIELDS
+        .filter((field) => team[field.output] === null)
+        .map((field) => field.output)
+      return unresolvedFields.length > 0 ? [{ teamIndex, unresolvedFields }] : []
+    })
+    const recoveryAttempts = []
+    if (typeof visionReader.recoverTeam === 'function' && targetedRecoveryLimit > 0) {
+      for (const candidate of recoveryCandidates.slice(0, targetedRecoveryLimit)) {
+        const { teamIndex, unresolvedFields } = candidate
+        const team = teams[teamIndex]
+        const attempt = {
+          team_index: teamIndex,
+          bbox: team.bbox,
+          attempted_fields: unresolvedFields,
+          status: 'failed',
+          provider: null,
+          model: null,
+          observations: [],
+          decisions: {},
+          error: null,
+        }
+        try {
+          const crops = await teamCropper({
+            originalBuffer: buffer,
+            enhancedBuffer: processed.enhancedBuffer,
+            bbox: team.bbox,
+          }, options.recoveryCrop)
+          const targetedResult = await visionReader.recoverTeam({
+            originalCrop: crops.originalCrop,
+            enhancedCrop: crops.enhancedCrop,
+            teamIndex,
+            unresolvedFields,
+          })
+          const rawObservations = Array.isArray(targetedResult?.observations)
+            ? targetedResult.observations
+            : [{ variant: 'single_legacy_crop', ...visionResult(targetedResult) }]
+          const observations = []
+          for (const [observationIndex, rawObservation] of rawObservations.entries()) {
+            const variant = rawObservation?.variant ?? `observation_${observationIndex + 1}`
+            if (rawObservation?.error) {
+              attempt.observations.push({ variant, error: compactRecoveryError(rawObservation.error) })
+              continue
+            }
+            try {
+              const normalized = visionResult(rawObservation)
+              const output = gameResultTargetedTeamOutputSchema.parse(normalized.output)
+              observations.push({
+                variant,
+                provider: normalized.provider,
+                model: normalized.model,
+                promptVersion: rawObservation.promptVersion ?? null,
+                output,
+              })
+              attempt.observations.push({
+                variant,
+                provider: normalized.provider,
+                model: normalized.model,
+                prompt_version: rawObservation.promptVersion ?? null,
+                output,
+              })
+            } catch (reason) {
+              attempt.observations.push({ variant, error: compactRecoveryError(reason) })
+            }
+          }
+          attempt.provider = [...new Set(observations.map((item) => item.provider))]
+            .filter(Boolean)
+            .join(', ') || null
+          attempt.model = [...new Set(observations.map((item) => item.model))]
+            .filter(Boolean)
+            .join(', ') || null
+          for (const field of REQUIRED_SCORE_FIELDS) {
+            if (!unresolvedFields.includes(field.output)) continue
+            const consensus = targetedFieldConsensus(
+              field,
+              observations,
+              layout.verification.minimum_unverified_ai_confidence,
+            )
+            if (consensus.status !== 'targeted_crop_agreement') {
+              attempt.decisions[field.output] = consensus
+              continue
+            }
+            const decision = reconcileTargetedField({
+              field,
+              primary: vision.teams[teamIndex][field.vision],
+              ocrEvidence: team.ocr_verification?.[field.output],
+              recovered: consensus,
+              minimumConfidence: layout.verification.minimum_unverified_ai_confidence,
+            })
+            attempt.decisions[field.output] = decision
+            if (!decision.status.startsWith('accepted_')) continue
+            team[field.output] = decision.value
+            team.confidence[field.output] = Number(decision.confidence.toFixed(3))
+            reviewFields.delete(`teams[${teamIndex}].${field.output}`)
+          }
+          attempt.status = Object.values(attempt.decisions)
+            .every((decision) => decision.status.startsWith('accepted_'))
+            ? 'recovered'
+            : 'unresolved'
+        } catch (reason) {
+          attempt.error = compactRecoveryError(reason)
+        }
+        team.ai_recovery = attempt
+        recoveryAttempts.push(attempt)
+      }
+    }
+
+    const recoveredFieldCount = recoveryAttempts.reduce(
+      (count, attempt) => count + Object.values(attempt.decisions)
+        .filter((decision) => decision.status.startsWith('accepted_')).length,
+      0,
+    )
 
     return {
       schema_version: 'nightraid.single-screenshot.v1',
@@ -413,6 +734,8 @@ export function createSingleScreenshotReader(options = {}) {
           provider: primary.provider,
           model: primary.model,
           included_original_image: primary.includedOriginalImage,
+          contract: scoreOnly ? 'score_only' : 'full_roster',
+          prompt_version: primary.promptVersion ?? null,
         },
         secondary: ocrEnabled
           ? {
@@ -421,11 +744,19 @@ export function createSingleScreenshotReader(options = {}) {
               token_count: ocr.tokenCount,
             }
           : { engine: null, version: null, token_count: 0, status: 'disabled' },
+        targeted_recovery: {
+          supported: typeof visionReader.recoverTeam === 'function',
+          candidate_team_count: recoveryCandidates.length,
+          attempted_team_count: recoveryAttempts.length,
+          recovered_field_count: recoveredFieldCount,
+          skipped_team_count: Math.max(0, recoveryCandidates.length - recoveryAttempts.length),
+        },
       },
       detected_rows: processed.rows,
+      targeted_recovery: { attempts: recoveryAttempts },
       teams,
-      review_required: reviewFields.length > 0,
-      review_fields: [...new Set(reviewFields)],
+      review_required: reviewFields.size > 0,
+      review_fields: [...reviewFields],
     }
   }
 

@@ -2,7 +2,10 @@ import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import test from 'node:test'
 import ffmpegPath from 'ffmpeg-static'
-import { preprocessGameResultScreenshot } from './game-results-image.js'
+import {
+  cropGameResultImage,
+  preprocessGameResultScreenshot,
+} from './game-results-image.js'
 import { createTesseractGameResultOcrReader } from './game-results-ocr.js'
 import {
   createSingleScreenshotReader,
@@ -169,6 +172,19 @@ test('preprocessing preserves the original, enhances it, and detects horizontal 
   assert.match(processed.enhancedSha256, /^[0-9a-f]{64}$/)
 })
 
+test('targeted team crops preserve a bounded row and return an enlarged PNG', async () => {
+  const original = await generatedLeaderboardPng()
+  const crop = await cropGameResultImage(original, [50, 100, 900, 180], {
+    padding: 20,
+    targetWidth: 1200,
+    targetHeight: 360,
+  })
+
+  assert.ok(crop.length > 100)
+  assert.equal(crop.subarray(1, 4).toString('ascii'), 'PNG')
+  assert.notDeepEqual(crop, original)
+})
+
 test('single-screenshot reader returns the known Rank 1 result with per-field confidence', async () => {
   const image = await generatedLeaderboardPng()
   const reader = createSingleScreenshotReader({
@@ -202,6 +218,44 @@ test('single-screenshot reader returns the known Rank 1 result with per-field co
   }
 })
 
+test('score-only mode asks for team summary fields and does not require player extraction', async () => {
+  const image = await generatedLeaderboardPng()
+  const calls = []
+  const reader = createSingleScreenshotReader({
+    visionReader: async (input) => {
+      calls.push(input)
+      return {
+        provider: 'test-vision',
+        model: 'score-only-fixture',
+        includedOriginalImage: true,
+        output: {
+          teams: [{
+            rank: field(1),
+            team_code: field('O'),
+            team_total_kills: field(65),
+            bbox: [50, 100, 900, 180],
+          }],
+        },
+      }
+    },
+    verifyWithOcr: 'off',
+  })
+
+  const result = await reader.read({
+    buffer: image,
+    mimeType: 'image/png',
+    scoreOnly: true,
+  })
+
+  assert.equal(calls[0].scoreOnly, true)
+  assert.equal(result.readers.primary.contract, 'score_only')
+  assert.equal(result.teams[0].rank, 1)
+  assert.equal(result.teams[0].team_code, 'O')
+  assert.equal(result.teams[0].team_total_kills, 65)
+  assert.deepEqual(result.teams[0].players, [])
+  assert.equal(result.review_required, false)
+})
+
 test('unreadable or conflicting values become null and are marked for review', async () => {
   const image = await generatedLeaderboardPng()
   const output = knownVisionOutput()
@@ -216,6 +270,130 @@ test('unreadable or conflicting values become null and are marked for review', a
   assert.equal(result.teams[0].players[2].name, null)
   assert.equal(result.review_required, true)
   assert.ok(result.review_fields.includes('teams[0].players[2].name'))
+})
+
+test('targeted row recovery fills a null required score field from an independent crop read', async () => {
+  const image = await generatedLeaderboardPng()
+  const output = knownVisionOutput()
+  output.teams[0].rank = field(null, 0.1)
+  const recoveryCalls = []
+  const visionReader = async () => output
+  visionReader.recoverTeam = async (input) => {
+    recoveryCalls.push(input)
+    return {
+      observations: ['original_crop', 'enhanced_crop'].map((variant) => ({
+        variant,
+        provider: 'test-targeted-vision',
+        model: 'targeted-fixture',
+        output: {
+          rank: field(1, 0.96),
+          team_code: field('O', 0.96),
+          team_total_kills: field(65, 0.96),
+        },
+      })),
+    }
+  }
+  const reader = createSingleScreenshotReader({
+    visionReader,
+    verifyWithOcr: 'off',
+    teamCropper: async ({ bbox }) => ({
+      originalCrop: Buffer.from('original-row-crop'),
+      enhancedCrop: Buffer.from('enhanced-row-crop'),
+      bbox,
+    }),
+  })
+
+  const result = await reader.read({ buffer: image, mimeType: 'image/png' })
+
+  assert.equal(result.teams[0].rank, 1)
+  assert.equal(result.review_fields.includes('teams[0].rank'), false)
+  assert.equal(result.readers.targeted_recovery.attempted_team_count, 1)
+  assert.equal(result.readers.targeted_recovery.recovered_field_count, 1)
+  assert.equal(result.teams[0].ai_recovery.status, 'recovered')
+  assert.equal(
+    result.teams[0].ai_recovery.decisions.rank.status,
+    'accepted_targeted_visual_read',
+  )
+  assert.equal(recoveryCalls.length, 1)
+  assert.deepEqual(recoveryCalls[0].unresolvedFields, ['rank'])
+})
+
+test('targeted recovery never replaces a conflicting full-image candidate', async () => {
+  const image = await generatedLeaderboardPng()
+  const output = knownVisionOutput()
+  output.teams[0].rank = field(2, 0.3)
+  const visionReader = async () => output
+  visionReader.recoverTeam = async () => ({
+    observations: ['original_crop', 'enhanced_crop'].map((variant) => ({
+      variant,
+      output: {
+        rank: field(1, 0.99),
+        team_code: field('O', 0.99),
+        team_total_kills: field(65, 0.99),
+      },
+    })),
+  })
+  const reader = createSingleScreenshotReader({
+    visionReader,
+    verifyWithOcr: 'off',
+    teamCropper: async () => ({
+      originalCrop: Buffer.from('original-row-crop'),
+      enhancedCrop: Buffer.from('enhanced-row-crop'),
+    }),
+  })
+
+  const result = await reader.read({ buffer: image, mimeType: 'image/png' })
+
+  assert.equal(result.teams[0].rank, null)
+  assert.ok(result.review_fields.includes('teams[0].rank'))
+  assert.equal(
+    result.teams[0].ai_recovery.decisions.rank.status,
+    'conflict_with_full_image',
+  )
+})
+
+test('disagreeing targeted crop reads remain unresolved instead of selecting a winner', async () => {
+  const image = await generatedLeaderboardPng()
+  const output = knownVisionOutput()
+  output.teams[0].team_total_kills = field(null, 0.1)
+  const visionReader = async () => output
+  visionReader.recoverTeam = async () => ({
+    observations: [
+      {
+        variant: 'original_crop',
+        output: {
+          rank: field(1, 0.99),
+          team_code: field('O', 0.99),
+          team_total_kills: field(65, 0.99),
+        },
+      },
+      {
+        variant: 'enhanced_crop',
+        output: {
+          rank: field(1, 0.99),
+          team_code: field('O', 0.99),
+          team_total_kills: field(55, 0.99),
+        },
+      },
+    ],
+  })
+  const reader = createSingleScreenshotReader({
+    visionReader,
+    verifyWithOcr: 'off',
+    teamCropper: async () => ({
+      originalCrop: Buffer.from('original-row-crop'),
+      enhancedCrop: Buffer.from('enhanced-row-crop'),
+    }),
+  })
+
+  const result = await reader.read({ buffer: image, mimeType: 'image/png' })
+
+  assert.equal(result.teams[0].team_total_kills, null)
+  assert.ok(result.review_fields.includes('teams[0].team_total_kills'))
+  assert.equal(
+    result.teams[0].ai_recovery.decisions.team_total_kills.status,
+    'targeted_crop_conflict',
+  )
 })
 
 test('a missing skull marker prevents an adjacent kill value from being invented', async () => {
@@ -281,6 +459,7 @@ test('Gemini is the primary reader and receives structured original/enhanced ima
   assert.equal(imageParts.every((part) => Boolean(part.data && part.mime_type)), true)
   assert.equal(requests[0].body.store, false)
   assert.equal(requests[0].body.generation_config.thinking_level, 'low')
+  assert.match(requests[0].body.input[0].text, /Deterministic horizontal-row candidates/)
   assert.match(requests[0].body.system_instruction, /A means registered slot 1/)
   assert.match(requests[0].body.system_instruction, /Discord registered-team slot list/)
   assert.match(requests[0].body.system_instruction, /Pair them by the same horizontal row/)
@@ -291,6 +470,114 @@ test('Gemini is the primary reader and receives structured original/enhanced ima
     requests[0].body.response_format.schema.properties.teams.maxItems,
     undefined,
   )
+})
+
+test('Gemini targeted recovery uses the strict score-only crop contract', async () => {
+  const requests = []
+  const fetchImpl = async (_url, options) => {
+    const body = JSON.parse(options.body)
+    requests.push(body)
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      json: async () => ({
+        status: 'completed',
+        steps: [{
+          type: 'model_output',
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              rank: field(1),
+              team_code: field('O'),
+              team_total_kills: field(65),
+            }),
+          }],
+        }],
+      }),
+    }
+  }
+  const visionReader = createGeminiGameResultVisionReader({
+    apiKey: 'test-key',
+    model: 'test-targeted-model',
+    fetchImpl,
+  })
+
+  const result = await visionReader.recoverTeam({
+    originalCrop: Buffer.from('original-row'),
+    enhancedCrop: Buffer.from('enhanced-row'),
+    teamIndex: 2,
+    unresolvedFields: ['team_code'],
+  })
+
+  assert.equal(result.observations.length, 2)
+  assert.equal(result.observations.every((item) => item.model === 'test-targeted-model'), true)
+  assert.equal(
+    result.observations.every((item) => item.output.team_code.value === 'O'),
+    true,
+  )
+  assert.equal(requests.length, 2)
+  assert.deepEqual(
+    Object.keys(requests[0].response_format.schema.properties),
+    ['rank', 'team_code', 'team_total_kills'],
+  )
+  assert.match(requests[0].system_instruction, /Do not use a player-card kill value/)
+  assert.match(requests[0].system_instruction, /Do not infer a missing value/)
+  assert.equal(requests[0].generation_config.max_output_tokens, 1_024)
+  assert.notEqual(requests[0].input[1].data, requests[1].input[1].data)
+})
+
+test('Gemini score-only mode omits the player schema and forbids score calculation', async () => {
+  const requests = []
+  const fetchImpl = async (_url, options) => {
+    const body = JSON.parse(options.body)
+    requests.push(body)
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      json: async () => ({
+        status: 'completed',
+        steps: [{
+          type: 'model_output',
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              teams: [{
+                rank: field(1),
+                team_code: field('O'),
+                team_total_kills: field(65),
+                bbox: [50, 100, 900, 180],
+              }],
+            }),
+          }],
+        }],
+      }),
+    }
+  }
+  const visionReader = createGeminiGameResultVisionReader({
+    apiKey: 'test-key',
+    model: 'test-score-model',
+    fetchImpl,
+  })
+  const layout = await loadGameResultsLayout()
+
+  await visionReader({
+    originalBuffer: Buffer.from('original'),
+    originalMimeType: 'image/png',
+    enhancedBuffer: Buffer.from('enhanced'),
+    layout,
+    scoreOnly: true,
+  })
+
+  const teamSchema = requests[0].response_format.schema.properties.teams.items
+  assert.deepEqual(
+    Object.keys(teamSchema.properties),
+    ['rank', 'team_code', 'team_total_kills', 'bbox'],
+  )
+  assert.equal(Object.hasOwn(teamSchema.properties, 'players'), false)
+  assert.match(requests[0].system_instruction, /Do not extract player names/)
+  assert.match(requests[0].system_instruction, /Never guess and never calculate/)
 })
 
 test('Gemini quota exhaustion uses a fallback and temporarily skips the blocked model', async () => {

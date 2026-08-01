@@ -258,3 +258,76 @@ export async function preprocessGameResultScreenshot(originalBuffer, layout, opt
     enhancedSha256: createHash('sha256').update(enhancedBuffer).digest('hex'),
   }
 }
+
+function normalizedCropBox(value, padding = 0) {
+  if (
+    !Array.isArray(value)
+    || value.length !== 4
+    || value.some((item) => !Number.isFinite(Number(item)))
+  ) {
+    throw new Error('A normalized screenshot crop requires [x, y, width, height].')
+  }
+  const [rawX, rawY, rawWidth, rawHeight] = value.map(Number)
+  if (
+    rawX < 0
+    || rawY < 0
+    || rawWidth <= 0
+    || rawHeight <= 0
+    || rawX + rawWidth > 1000
+    || rawY + rawHeight > 1000
+  ) {
+    throw new Error('The normalized screenshot crop is outside the 0-1000 coordinate space.')
+  }
+  const margin = Math.max(0, Math.min(150, finiteNumber(padding, 'crop padding')))
+  const x = Math.max(0, rawX - margin)
+  const y = Math.max(0, rawY - margin)
+  const right = Math.min(1000, rawX + rawWidth + margin)
+  const bottom = Math.min(1000, rawY + rawHeight + margin)
+  return [x, y, right - x, bottom - y]
+}
+
+export async function cropGameResultImage(imageBuffer, normalizedBox, options = {}) {
+  if (!Buffer.isBuffer(imageBuffer) || imageBuffer.length === 0) {
+    throw new Error('A non-empty screenshot buffer is required for a targeted crop.')
+  }
+  const [x, y, width, height] = normalizedCropBox(
+    normalizedBox,
+    options.padding ?? 30,
+  )
+  const targetWidth = integer(options.targetWidth ?? 1600, 'crop target width')
+  const targetHeight = integer(options.targetHeight ?? 480, 'crop target height')
+  const filter = [
+    `crop=iw*${width / 1000}:ih*${height / 1000}:iw*${x / 1000}:ih*${y / 1000}`,
+    `scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=decrease:flags=lanczos`,
+    `pad=${targetWidth}:${targetHeight}:(ow-iw)/2:(oh-ih)/2:color=black`,
+    'unsharp=5:5:0.7:3:3:0.25',
+  ].join(',')
+  const cropped = await runFfmpeg(
+    imageBuffer,
+    [
+      '-i', 'pipe:0',
+      '-frames:v', '1',
+      '-vf', filter,
+      '-f', 'image2pipe',
+      '-vcodec', 'png',
+      'pipe:1',
+    ],
+    options,
+  )
+  if (!cropped.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE)) {
+    throw new Error('Targeted screenshot cropping did not return a PNG image.')
+  }
+  return cropped
+}
+
+export async function createGameResultTeamCropSet({
+  originalBuffer,
+  enhancedBuffer,
+  bbox,
+}, options = {}) {
+  const [originalCrop, enhancedCrop] = await Promise.all([
+    cropGameResultImage(originalBuffer, bbox, options),
+    cropGameResultImage(enhancedBuffer, bbox, options),
+  ])
+  return { originalCrop, enhancedCrop, bbox: normalizedCropBox(bbox, options.padding ?? 30) }
+}

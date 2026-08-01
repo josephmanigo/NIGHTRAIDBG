@@ -15,7 +15,7 @@ import { createTeamMappingService } from './game-results-team-mapper.js'
 const CUSTOM_ID_PREFIX = 'nr-gr-review'
 const DISCORD_MESSAGE_LIMIT = 2_000
 const DEFAULT_LOW_CONFIDENCE_THRESHOLD = 0.75
-const DEFAULT_AUTOMATIC_READ_ATTEMPTS = 2
+const DEFAULT_AUTOMATIC_READ_ATTEMPTS = 1
 const AUTOMATIC_WARNING_TYPES = new Set([
   'incomplete_player_roster',
   'unreadable_player_slot',
@@ -536,6 +536,17 @@ export function buildAutomaticProcessingLog(
     screenshot_filenames: (submission?.records ?? [])
       .map((record) => safeText(record.attachmentFilename, ''))
       .filter(Boolean),
+    screenshot_diagnostics: (payload?.round_result?.screenshots ?? []).map((screenshot) => ({
+      screenshot_index: screenshot.screenshot_index,
+      filename: safeText(screenshot.filename, '') || null,
+      status: screenshot.status,
+      observed_team_count: screenshot.observed_team_count ?? 0,
+      reader: screenshot.reader ?? null,
+      layout: screenshot.layout ?? null,
+      targeted_recovery: screenshot.targeted_recovery ?? null,
+      targeted_recovery_attempts: screenshot.targeted_recovery_attempts ?? [],
+      unresolved_fields: screenshot.unresolved_fields ?? [],
+    })),
     extracted_values: teams.map((team) => ({
       placement: team.rank ?? null,
       slot: safeText(team.team_code, '') || null,
@@ -554,6 +565,13 @@ export function buildAutomaticProcessingLog(
         total_score: mapped?.score_preview?.total_points ?? null,
       }
     }),
+    blocking_issues: (payload?.issues ?? [])
+      .filter((item) => item.severity === 'blocking')
+      .map((item) => ({
+        type: item.type,
+        path: item.path,
+        message: item.message,
+      })),
   }
 }
 
@@ -562,6 +580,8 @@ const ISSUE_LABELS = {
   duplicate_rank: 'Duplicate ranks',
   duplicate_team: 'Duplicate teams',
   unknown_team: 'Unknown teams',
+  unreadable_team_kills: 'Unreadable team kills',
+  no_registered_teams: 'No registered teams',
   unreadable_player_name: 'Unreadable player names',
   unreadable_kills: 'Unreadable kills',
   player_kill_sum_mismatch: 'Player-kill sum mismatches',
@@ -578,6 +598,24 @@ function issueSummary(issues) {
     item.severity === 'blocking' && !ISSUE_LABELS[item.type]).length
   if (otherBlocking > 0) required.push(`⚠️ Other blocking issues: ${otherBlocking}`)
   return required
+}
+
+function automaticBlockingDetailLines(payload, limit = 10) {
+  const blocking = (payload?.issues ?? []).filter((item) => item.severity === 'blocking')
+  const lines = blocking.slice(0, limit).map((item) => {
+    const location = safeText(item.path, 'unknown field')
+    return `- **${location}** — ${safeText(item.message, item.type)}`
+  })
+  if (blocking.length > limit) {
+    lines.push(`- ${blocking.length - limit} additional blocking issue(s) are shown in the review.`)
+  }
+  const excluded = payload?.excluded_teams ?? []
+  for (const team of excluded.slice(0, Math.max(0, limit - lines.length))) {
+    lines.push(
+      `- **Excluded visible row ${team.rank ?? 'unknown'}** — slot ${safeText(team.team_code)} (${safeText(team.reason)})`,
+    )
+  }
+  return lines.length > 0 ? lines : ['- No field-level diagnostic was produced.']
 }
 
 function teamIssues(payload, teamIndex) {
@@ -1219,7 +1257,7 @@ export function createGameResultsReviewWorkflow(options = {}) {
       let attemptsUsed = 0
       for (let attempt = 1; attempt <= automaticReadAttempts; attempt += 1) {
         attemptsUsed = attempt
-        const roundResult = await roundReader.readSubmission(submission)
+        const roundResult = await roundReader.readSubmission(submission, { scoreOnly: true })
         payload = prepareAutomaticTallyPayload(await buildPayload(roundResult))
         if (payload.blocking_issue_count === 0) break
       }
@@ -1241,27 +1279,41 @@ export function createGameResultsReviewWorkflow(options = {}) {
       }
 
       if (payload.blocking_issue_count > 0) {
-        const failed = await store.saveReviewState({
+        const hasReviewableTeams = (payload.round_result?.teams?.length ?? 0) > 0
+        const stored = await store.saveReviewState({
           submissionId: submission.submissionId,
           payload,
           page: 0,
-          status: 'failed',
+          status: hasReviewableTeams ? 'needs_review' : 'failed',
           updatedBy: submission.discordUserId,
           expectedVersion: submission.reviewVersion ?? 0,
         })
+        if (hasReviewableTeams) {
+          const posted = await postPersistentReview(stored, interaction)
+          return {
+            status: 'automatic_tally_needs_review',
+            submission: posted,
+            blockingIssueCount: payload.blocking_issue_count,
+            attemptsUsed,
+          }
+        }
         await interaction.followUp({
           content: [
-            `# Round ${submission.round} automatic tally stopped`,
-            `The screenshots were read ${attemptsUsed} time${attemptsUsed === 1 ? '' : 's'}, but required PLACE, KILLS, or registered slot letters are still unreadable.`,
+            `# Round ${submission.round} needs a new leaderboard image`,
+            `The AI completed ${attemptsUsed} full-image read${attemptsUsed === 1 ? '' : 's'} plus any available targeted row recovery, but no registered team row is editable safely.`,
             `**${payload.blocking_issue_count}** required check${payload.blocking_issue_count === 1 ? '' : 's'} failed. No spreadsheet cells were changed.`,
-            `Send clearer full leaderboard screenshots again with \`ROUND ${submission.round}\`.`,
+            '',
+            ...automaticBlockingDetailLines(payload),
+            '',
+            'Run `/refreshteams` if the registered slots changed. Otherwise send the original full-resolution leaderboard again with '
+              + `\`ROUND ${submission.round}\`.`,
           ].join('\n'),
           components: [],
           allowedMentions: { parse: [] },
         })
         return {
           status: 'automatic_tally_failed',
-          submission: failed,
+          submission: stored,
           blockingIssueCount: payload.blocking_issue_count,
           attemptsUsed,
         }

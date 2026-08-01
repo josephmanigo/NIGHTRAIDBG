@@ -340,3 +340,26 @@ test('the round reader defaults to the Gemini single-screenshot reader', async (
   assert.equal(result.screenshots[0].status, 'read')
   await reader.close()
 })
+
+test('score-only round reads forward the reduced extraction contract to every screenshot', async () => {
+  const input = submission()
+  input.records = [input.records[0]]
+  const calls = []
+  const reader = createRoundSubmissionReader({
+    singleScreenshotReader: {
+      async read(request) {
+        calls.push(request)
+        return screenshotResult(request.filename, [
+          team(1, 'O', 65, []),
+        ])
+      },
+    },
+    attachmentLoader: async () => ({ buffer: Buffer.from('image'), mimeType: 'image/png' }),
+  })
+
+  const result = await reader.readSubmission(input, { scoreOnly: true })
+
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].scoreOnly, true)
+  assert.equal(result.teams[0].team_code, 'O')
+})
