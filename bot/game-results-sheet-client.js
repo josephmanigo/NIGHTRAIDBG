@@ -128,14 +128,24 @@ export function emptySlotFormulaRequests(state, sheetConfig) {
   const cells = stateGridCells(configuredScoreSheet(state, sheetConfig))
   const requests = []
   for (const contract of scoreSheetFormulaContracts()) {
-    const current = cells.get(`${contract.rowIndex}:${contract.columnIndex}`)
-      ?.userEnteredValue?.formulaValue
+    const entered = cells.get(`${contract.rowIndex}:${contract.columnIndex}`)
+      ?.userEnteredValue ?? {}
+    const current = entered.formulaValue
     if (current === contract.formula) continue
     const acceptedPrevious = [
       contract.legacyFormula,
       contract.transitionalFormula,
     ].filter(Boolean)
-    if (!acceptedPrevious.includes(current)) {
+    const placeEntered = cells.get(
+      `${contract.rowIndex}:${contract.placeColumnIndex}`,
+    )?.userEnteredValue ?? {}
+    const repairableHardcodedMarker =
+      contract.role === 'placement_points'
+      && Object.keys(entered).length === 1
+      && entered.stringValue === 'X'
+      && Object.keys(placeEntered).length === 1
+      && placeEntered.stringValue === 'X'
+    if (!acceptedPrevious.includes(current) && !repairableHardcodedMarker) {
       throw new Error(
         `Protected formula ${contract.rowIndex + 1}:${contract.columnIndex + 1} is missing or changed.`,
       )

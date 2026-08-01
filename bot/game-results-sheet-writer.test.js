@@ -525,6 +525,29 @@ test('preserves existing nonblank score inputs while marking only blank cells', 
   assert.equal(plan.writePayload.some((target) => target.a1 === 'M9' && target.value === 'X'), true)
 })
 
+test('accepts a repairable hard-coded placement-points X only when PLACE is X', () => {
+  const values = new Map([[key(21, 10), 'X']])
+  const state = buildState(values)
+  state.sheets[0].data[1].rowData[16].values[11 - 7] = textCell('X')
+
+  const plan = buildSafeSheetWritePlan({
+    submission: rankOneSubmission(),
+    state,
+    sheetConfig: sheetConfig(),
+  })
+
+  assert.equal(plan.teams[0].worksheetRow, 22)
+  state.sheets[0].data[1].rowData[16].values[10 - 7] = numberCell(1)
+  assert.throws(
+    () => buildSafeSheetWritePlan({
+      submission: rankOneSubmission(),
+      state,
+      sheetConfig: sheetConfig(),
+    }),
+    /Protected formula L22 is missing or changed/,
+  )
+})
+
 test('refuses to tally a team that is not in the live registered slot list', () => {
   const submission = rankOneSubmission()
   submission.reviewPayload.mapping_result.source = {
@@ -1191,6 +1214,25 @@ test('the live client upgrades only placement-point N/A formulas while summaries
     previousFormulaUpgrade[0]
       .updateCells.rows[0].values[0].userEnteredValue.formulaValue,
     '=IF(K8="X","X",VLOOKUP(K8,$B$8:$C$32,2,0))',
+  )
+
+  const hardcodedMarkerState = buildState(new Map([[key(22, 10), 'X']]))
+  hardcodedMarkerState.sheets[0].data[1].rowData[17].values[11 - 7] = textCell('X')
+  const hardcodedMarkerRepair = emptySlotFormulaRequests(
+    hardcodedMarkerState,
+    client.config,
+  )
+  assert.equal(
+    hardcodedMarkerRepair.find((request) =>
+      request.updateCells.range.startRowIndex === 22
+      && request.updateCells.range.startColumnIndex === 11)
+      .updateCells.rows[0].values[0].userEnteredValue.formulaValue,
+    '=IF(K23="X","X",VLOOKUP(K23,$B$8:$C$32,2,0))',
+  )
+  hardcodedMarkerState.sheets[0].data[1].rowData[17].values[10 - 7] = numberCell(20)
+  assert.throws(
+    () => emptySlotFormulaRequests(hardcodedMarkerState, client.config),
+    /Protected formula 23:12 is missing or changed/,
   )
 
   const changedState = buildState(new Map(), {

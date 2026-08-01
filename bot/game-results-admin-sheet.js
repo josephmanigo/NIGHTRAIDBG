@@ -179,6 +179,11 @@ function valueFromTarget(target) {
     : null
 }
 
+function exactScoreMarker(cell) {
+  const entered = cell?.userEnteredValue ?? {}
+  return Object.keys(entered).length === 1 && entered.stringValue === SCORE_MARKER
+}
+
 function inspectAdministrativeTeamState({ state, sheetConfig }) {
   const sheet = sheetForConfig(state, sheetConfig)
   const cells = gridCells(sheet)
@@ -236,7 +241,7 @@ export function inspectAdministrativeRoundState({ round, state, sheetConfig }) {
       }
       targets.push({ ...snapshot(cells, row, column), role })
     }
-    for (const [role, column, expected, alternatives] of [
+    for (const [role, column, expected, alternatives, placeColumn] of [
       [
         'placement_points',
         columns.placementPoints,
@@ -245,6 +250,7 @@ export function inspectAdministrativeRoundState({ round, state, sheetConfig }) {
           legacyPlacementFormula(row, columns.place),
           previousEmptyTeamPlacementFormula(row, columns.place),
         ],
+        columns.place,
       ],
       ['total_points', TOTAL_COLUMN, expectedTotalFormula(row), [emptySlotTotalFormula(row)]],
       ['final_score', FINAL_SCORE_COLUMN, expectedFinalFormula(row), [emptySlotFinalFormula(row)]],
@@ -252,7 +258,15 @@ export function inspectAdministrativeRoundState({ round, state, sheetConfig }) {
     ]) {
       const item = snapshot(cells, row, column)
       const current = item.user_entered_value?.formulaValue
-      if (current !== expected && !alternatives.includes(current)) {
+      const repairableHardcodedMarker =
+        Number.isInteger(placeColumn)
+        && exactScoreMarker(cells.get(cellKey(row, column)))
+        && exactScoreMarker(cells.get(cellKey(row, placeColumn)))
+      if (
+        current !== expected
+        && !alternatives.includes(current)
+        && !repairableHardcodedMarker
+      ) {
         throw new Error(`Protected formula ${item.a1} is missing or changed.`)
       }
       formulas.push({ ...item, role })

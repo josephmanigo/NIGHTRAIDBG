@@ -80,6 +80,7 @@ export function scoreSheetFormulaContracts() {
       contracts.push({
         rowIndex,
         columnIndex: columns.placementPoints,
+        placeColumnIndex: columns.place,
         role: 'placement_points',
         legacyFormula: legacyPlacementFormula(rowIndex, columns.place),
         transitionalFormula: previousEmptyTeamPlacementFormula(

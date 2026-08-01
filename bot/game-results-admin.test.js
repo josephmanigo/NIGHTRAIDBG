@@ -471,7 +471,10 @@ test('clears all four rounds and team names while preserving deductions and form
 test('/clear upgrades empty-slot formulas to X without touching deductions', async () => {
   const client = fakeSheetClient({ configureEmptySlotDisplay: true })
   const firstRow = client.state.sheets[0].data[0].rowData[1].values
+  const damagedRow = client.state.sheets[0].data[0].rowData[16].values
   firstRow[24 - 7] = numberCell(7)
+  damagedRow[10 - 7] = textCell('X')
+  damagedRow[11 - 7] = textCell('X')
   const service = createGameResultsAdministrativeSheetService({ sheetClient: client })
   const before = await service.inspectAllRounds()
 
@@ -501,6 +504,11 @@ test('/clear upgrades empty-slot formulas to X without touching deductions', asy
     after.formulas.find((formula) => formula.a1 === 'AA8')
       .user_entered_value.formulaValue,
     '=RANK(Z8,$Z$8:$Z$32,0)',
+  )
+  assert.equal(
+    after.formulas.find((formula) => formula.a1 === 'L23')
+      .user_entered_value.formulaValue,
+    '=IF(K23="X","X",VLOOKUP(K23,$B$8:$C$32,2,0))',
   )
   assert.equal(firstRow[24 - 7].userEnteredValue.numberValue, 7)
 })

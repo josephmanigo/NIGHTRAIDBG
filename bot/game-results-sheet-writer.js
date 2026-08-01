@@ -183,9 +183,30 @@ function expectedRankFormula(rowIndex) {
   return legacyRankFormula(rowIndex)
 }
 
-function checkExpectedFormula(cells, rowIndex, columnIndex, expected, alternatives) {
-  const actual = formula(cells.get(cellKey(rowIndex, columnIndex)))
-  if (actual !== expected && !alternatives.includes(actual)) {
+function exactScoreMarker(cell) {
+  const entered = cell?.userEnteredValue ?? {}
+  return Object.keys(entered).length === 1 && entered.stringValue === EMPTY_SCORE_MARKER
+}
+
+function checkExpectedFormula(
+  cells,
+  rowIndex,
+  columnIndex,
+  expected,
+  alternatives,
+  placeColumnIndex = null,
+) {
+  const cell = cells.get(cellKey(rowIndex, columnIndex))
+  const actual = formula(cell)
+  const repairableHardcodedMarker =
+    Number.isInteger(placeColumnIndex)
+    && exactScoreMarker(cell)
+    && exactScoreMarker(cells.get(cellKey(rowIndex, placeColumnIndex)))
+  if (
+    actual !== expected
+    && !alternatives.includes(actual)
+    && !repairableHardcodedMarker
+  ) {
     throw new Error(
       `Protected formula ${a1(rowIndex, columnIndex)} is missing or changed; refusing to write.`,
     )
@@ -474,7 +495,7 @@ export function buildSafeSheetWritePlan({ submission, state, sheetConfig }) {
       requests.push(numericCellRequest(sheetConfig.sheetId, team.rowIndex, column, value))
     }
 
-    for (const [role, column, expected, alternatives] of [
+    for (const [role, column, expected, alternatives, placeColumnIndex] of [
       [
         'placement_points',
         columns.placementPoints,
@@ -483,6 +504,7 @@ export function buildSafeSheetWritePlan({ submission, state, sheetConfig }) {
           legacyPlacementFormula(team.rowIndex, columns.place),
           previousEmptyTeamPlacementFormula(team.rowIndex, columns.place),
         ],
+        columns.place,
       ],
       [
         'total_points',
@@ -503,7 +525,14 @@ export function buildSafeSheetWritePlan({ submission, state, sheetConfig }) {
         [emptySlotRankFormula(team.rowIndex)],
       ],
     ]) {
-      checkExpectedFormula(cells, team.rowIndex, column, expected, alternatives)
+      checkExpectedFormula(
+        cells,
+        team.rowIndex,
+        column,
+        expected,
+        alternatives,
+        placeColumnIndex,
+      )
       formulas.push({
         ...cellSnapshot(cells, team.rowIndex, column),
         role,
