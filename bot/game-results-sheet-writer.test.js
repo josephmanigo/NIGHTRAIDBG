@@ -54,6 +54,10 @@ function textCell(value, format = FORMATS.input) {
   }
 }
 
+function scoreInputCell(value) {
+  return typeof value === 'string' ? textCell(value) : numberCell(value)
+}
+
 function formulaCell(value, effectiveValue) {
   return {
     userEnteredValue: { formulaValue: value },
@@ -120,8 +124,8 @@ function buildState(values = new Map(), options = {}) {
     ]) {
       const place = values.get(key(row, columns.place)) ?? null
       const kills = values.get(key(row, columns.kills)) ?? null
-      cells[columns.place - 7] = numberCell(place)
-      cells[columns.kills - 7] = numberCell(kills)
+      cells[columns.place - 7] = scoreInputCell(place)
+      cells[columns.kills - 7] = scoreInputCell(kills)
       cells[columns.points - 7] = formulaCell(
         `=VLOOKUP(${String.fromCharCode(65 + columns.place)}${sheetRow},$B$8:$C$32,2,0)`,
         Number.isInteger(place)
@@ -408,7 +412,7 @@ function memorySheetClient(options = {}) {
   }
 }
 
-test('builds a Round 1 plan for J22 TEAM, K22 PLACE, and M22 KILLS', () => {
+test('builds a Round 1 plan and marks every other blank PLACE and KILLS input with X', () => {
   const plan = buildSafeSheetWritePlan({
     submission: rankOneSubmission(),
     state: buildState(),
@@ -416,14 +420,20 @@ test('builds a Round 1 plan for J22 TEAM, K22 PLACE, and M22 KILLS', () => {
   })
 
   assert.equal(plan.round, 1)
-  assert.deepEqual(plan.writePayload, [
+  assert.deepEqual(plan.writePayload.slice(0, 3), [
     { a1: 'J22', role: 'team_name', team_code: 'O', value: 'Official O' },
     { a1: 'K22', role: 'place', team_code: 'O', value: 1 },
     { a1: 'M22', role: 'kills', team_code: 'O', value: 65 },
   ])
-  assert.equal(plan.requests.length, 3)
+  const markers = plan.writePayload.filter((target) => target.value === 'X')
+  assert.equal(markers.length, 48)
+  assert.deepEqual(markers.slice(0, 2), [
+    { a1: 'K8', role: 'place', team_code: 'A', value: 'X' },
+    { a1: 'M8', role: 'kills', team_code: 'A', value: 'X' },
+  ])
+  assert.equal(plan.requests.length, 51)
   assert.deepEqual(
-    plan.requests.map((request) => [
+    plan.requests.slice(0, 3).map((request) => [
       request.updateCells.range.startRowIndex,
       request.updateCells.range.startColumnIndex,
       request.updateCells.fields,
@@ -439,6 +449,23 @@ test('builds a Round 1 plan for J22 TEAM, K22 PLACE, and M22 KILLS', () => {
     plan.beforeSnapshot.formula_cells.map((cell) => cell.a1),
     ['L22', 'X22', 'Z22', 'AA22'],
   )
+})
+
+test('preserves existing nonblank score inputs while marking only blank cells', () => {
+  const existing = new Map([
+    [key(7, 10), 9],
+    [key(7, 12), 'DNS'],
+  ])
+  const plan = buildSafeSheetWritePlan({
+    submission: rankOneSubmission(),
+    state: buildState(existing),
+    sheetConfig: sheetConfig(),
+  })
+
+  assert.equal(plan.writePayload.some((target) => target.a1 === 'K8'), false)
+  assert.equal(plan.writePayload.some((target) => target.a1 === 'M8'), false)
+  assert.equal(plan.writePayload.some((target) => target.a1 === 'K9' && target.value === 'X'), true)
+  assert.equal(plan.writePayload.some((target) => target.a1 === 'M9' && target.value === 'X'), true)
 })
 
 test('refuses to tally a team that is not in the live registered slot list', () => {
@@ -595,6 +622,8 @@ test('creates the backup before writing and verifies Round 1 recalculation', asy
   assert.equal(result.verification.penalties_preserved, true)
   assert.equal(result.verification.sheet_structure_preserved, true)
   assert.equal(result.verification.placement_formulas_recalculated, true)
+  assert.equal(sheetClient.values.get(key(7, 10)), 'X')
+  assert.equal(sheetClient.values.get(key(7, 12)), 'X')
   assert.equal(
     result.verification.afterSnapshot.formula_cells
       .find((cell) => cell.a1 === 'L22')
@@ -653,11 +682,12 @@ test('production mode uses the same safe input map and verifies New', async () =
   assert.equal(writer.config.mode, 'production')
   assert.equal(result.audit.scoreSheetMode, 'production')
   assert.equal(result.audit.worksheetName, PRODUCTION_WORKSHEET)
-  assert.deepEqual(result.audit.writePayload, [
+  assert.deepEqual(result.audit.writePayload.slice(0, 3), [
     { a1: 'J22', role: 'team_name', team_code: 'O', value: 'Official O' },
     { a1: 'K22', role: 'place', team_code: 'O', value: 1 },
     { a1: 'M22', role: 'kills', team_code: 'O', value: 65 },
   ])
+  assert.equal(result.audit.writePayload.filter((target) => target.value === 'X').length, 48)
   assert.equal(result.submission.reviewPayload.score_sheet_write.mode, 'production')
   assert.equal(result.submission.reviewPayload.production_sheet_write.audit_id, result.audit.auditId)
   assert.equal(result.verification.formulas_preserved, true)

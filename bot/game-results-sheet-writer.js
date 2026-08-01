@@ -26,6 +26,7 @@ const SLOT_CODE_COLUMN = 7
 const TEAM_NAME_COLUMN = 9
 const TEAM_FIRST_ROW = 7
 const TEAM_LAST_ROW_EXCLUSIVE = 32
+const EMPTY_SCORE_MARKER = 'X'
 
 function clone(value) {
   return value === undefined ? undefined : structuredClone(value)
@@ -128,10 +129,22 @@ function enteredText(cell) {
   return typeof value === 'string' ? value : null
 }
 
+function enteredValueForIntended(cell, intendedValue) {
+  const entered = cell?.user_entered_value ?? cell?.userEnteredValue
+  return typeof intendedValue === 'string'
+    ? entered?.stringValue ?? null
+    : entered?.numberValue ?? null
+}
+
+function effectiveValueForIntended(cell, intendedValue) {
+  const effective = cell?.effective_value ?? cell?.effectiveValue
+  return typeof intendedValue === 'string'
+    ? effective?.stringValue ?? null
+    : effective?.numberValue ?? null
+}
+
 function enteredTargetValue(target) {
-  return target.role === 'team_name'
-    ? target.user_entered_value?.stringValue ?? null
-    : target.user_entered_value?.numberValue ?? null
+  return enteredValueForIntended(target, target.intended_value)
 }
 
 function effectiveNumber(cell) {
@@ -229,6 +242,46 @@ function textCellRequest(sheetId, rowIndex, columnIndex, value) {
       fields: 'userEnteredValue',
     },
   }
+}
+
+function scoreMarkerCellRequest(sheetId, rowIndex, columnIndex) {
+  return {
+    updateCells: {
+      range: {
+        sheetId,
+        startRowIndex: rowIndex,
+        endRowIndex: rowIndex + 1,
+        startColumnIndex: columnIndex,
+        endColumnIndex: columnIndex + 1,
+      },
+      rows: [{
+        values: [{ userEnteredValue: { stringValue: EMPTY_SCORE_MARKER } }],
+      }],
+      fields: 'userEnteredValue',
+    },
+  }
+}
+
+function inputCellIsBlank(cell) {
+  const entered = cell?.userEnteredValue
+  return (
+    !entered
+    || Object.keys(entered).length === 0
+    || entered.stringValue === ''
+  )
+}
+
+function validateWritableInputCell(sheet, cells, rowIndex, columnIndex) {
+  const address = a1(rowIndex, columnIndex)
+  const cell = cells.get(cellKey(rowIndex, columnIndex)) ?? {}
+  if (formula(cell)) throw new Error(`Target ${address} contains a protected formula.`)
+  if (cellIsProtected(sheet, rowIndex, columnIndex)) {
+    throw new Error(`Target ${address} is inside a protected range.`)
+  }
+  if (cellIsMerged(sheet, rowIndex, columnIndex)) {
+    throw new Error(`Target ${address} is part of a merged range.`)
+  }
+  return { address, cell }
 }
 
 function restoreCellRequest(sheetId, snapshot) {
@@ -397,15 +450,12 @@ export function buildSafeSheetWritePlan({ submission, state, sheetConfig }) {
       ['place', columns.place, team.place],
       ['kills', columns.kills, team.kills],
     ]) {
-      const address = a1(team.rowIndex, column)
-      const cell = cells.get(cellKey(team.rowIndex, column)) ?? {}
-      if (formula(cell)) throw new Error(`Target ${address} contains a protected formula.`)
-      if (cellIsProtected(sheet, team.rowIndex, column)) {
-        throw new Error(`Target ${address} is inside a protected range.`)
-      }
-      if (cellIsMerged(sheet, team.rowIndex, column)) {
-        throw new Error(`Target ${address} is part of a merged range.`)
-      }
+      const { address, cell } = validateWritableInputCell(
+        sheet,
+        cells,
+        team.rowIndex,
+        column,
+      )
       validateDataValidation(cell, value, address)
       targets.push({
         ...cellSnapshot(cells, team.rowIndex, column),
@@ -433,6 +483,37 @@ export function buildSafeSheetWritePlan({ submission, state, sheetConfig }) {
       ...cellSnapshot(cells, team.rowIndex, PENALTY_COLUMN),
       role: 'penalty',
     })
+  }
+
+  const talliedRows = new Set(teams.map((team) => team.rowIndex))
+  for (let rowIndex = TEAM_FIRST_ROW; rowIndex < TEAM_LAST_ROW_EXCLUSIVE; rowIndex += 1) {
+    if (talliedRows.has(rowIndex)) continue
+    const slot = rowIndex - TEAM_FIRST_ROW + 1
+    const teamCode = String.fromCharCode(64 + slot)
+    const slotCode = `${slot}-${teamCode}`
+    const actualSlot = cells.get(cellKey(rowIndex, SLOT_CODE_COLUMN))?.formattedValue
+    if (actualSlot !== slotCode) {
+      throw new Error(
+        `Score row ${rowIndex + 1} should contain slot ${slotCode}, not ${actualSlot ?? 'blank'}.`,
+      )
+    }
+    for (const [role, column] of [
+      ['place', columns.place],
+      ['kills', columns.kills],
+    ]) {
+      const cell = cells.get(cellKey(rowIndex, column)) ?? {}
+      if (!inputCellIsBlank(cell)) continue
+      const { address } = validateWritableInputCell(sheet, cells, rowIndex, column)
+      targets.push({
+        ...cellSnapshot(cells, rowIndex, column),
+        role,
+        intended_value: EMPTY_SCORE_MARKER,
+        team_code: teamCode,
+        official_team_name: null,
+        empty_score_marker: true,
+      })
+      requests.push(scoreMarkerCellRequest(sheetConfig.sheetId, rowIndex, column))
+    }
   }
   return {
     mode: sheetConfig.mode,
@@ -502,16 +583,10 @@ export function verifySafeSheetWrite(plan, state) {
     ...cellSnapshot(cells, item.row - 1, item.column - 1),
     role: item.role,
   }))
-  const targetValuesMatch = targets.every((target) =>
-    target.role === 'team_name'
-      ? (
-          target.user_entered_value?.stringValue === target.intended_value
-          && target.effective_value?.stringValue === target.intended_value
-        )
-      : (
-          target.user_entered_value?.numberValue === target.intended_value
-          && target.effective_value?.numberValue === target.intended_value
-        ))
+  const targetValuesMatch = targets.every((target) => (
+    enteredValueForIntended(target, target.intended_value) === target.intended_value
+    && effectiveValueForIntended(target, target.intended_value) === target.intended_value
+  ))
   const formulasPreserved = formulas.every((item, index) =>
     item.user_entered_value?.formulaValue
       === plan.formulas[index].user_entered_value?.formulaValue)
@@ -781,18 +856,13 @@ export function createSafeGameResultsSheetWriter(options = {}) {
       if (cellIsMerged(sheet, rowIndex, columnIndex)) {
         throw new Error(`Rollback target ${target.a1} is now merged.`)
       }
-      const current = target.role === 'team_name'
+      const intended = intendedByCell.get(target.a1)
+      const current = typeof intended === 'string'
         ? enteredText(cells.get(cellKey(rowIndex, columnIndex)))
         : enteredNumber(cells.get(cellKey(rowIndex, columnIndex)))
       const afterTarget = audit.afterSnapshot?.target_cells
         ?.find((item) => item.a1 === target.a1)
-      const expectedAfter =
-        (
-          target.role === 'team_name'
-            ? afterTarget?.user_entered_value?.stringValue
-            : afterTarget?.user_entered_value?.numberValue
-        )
-        ?? intendedByCell.get(target.a1)
+      const expectedAfter = enteredValueForIntended(afterTarget, intended) ?? intended
       if (current !== expectedAfter) {
         throw new Error(
           `Rollback refused because ${target.a1} changed after the audited write.`,
