@@ -453,13 +453,16 @@ test('Gemini is the primary reader and receives structured original/enhanced ima
     'https://generativelanguage.googleapis.com/v1/interactions',
   )
   assert.equal(requests[0].options.headers['x-goog-api-key'], 'test-key')
-  const imageParts = requests[0].body.input.filter((part) =>
+  assert.equal(requests[0].body.input.length, 1)
+  assert.equal(requests[0].body.input[0].type, 'user_input')
+  const inputContent = requests[0].body.input[0].content
+  const imageParts = inputContent.filter((part) =>
     part.type === 'image')
   assert.equal(imageParts.length, 2)
   assert.equal(imageParts.every((part) => Boolean(part.data && part.mime_type)), true)
   assert.equal(requests[0].body.store, false)
   assert.equal(requests[0].body.generation_config.thinking_level, 'low')
-  assert.match(requests[0].body.input[0].text, /Deterministic horizontal-row candidates/)
+  assert.match(inputContent[0].text, /Deterministic horizontal-row candidates/)
   assert.match(requests[0].body.system_instruction, /A means registered slot 1/)
   assert.match(requests[0].body.system_instruction, /Discord registered-team slot list/)
   assert.match(requests[0].body.system_instruction, /Pair them by the same horizontal row/)
@@ -524,7 +527,11 @@ test('Gemini targeted recovery uses the strict score-only crop contract', async 
   assert.match(requests[0].system_instruction, /Do not use a player-card kill value/)
   assert.match(requests[0].system_instruction, /Do not infer a missing value/)
   assert.equal(requests[0].generation_config.max_output_tokens, 1_024)
-  assert.notEqual(requests[0].input[1].data, requests[1].input[1].data)
+  assert.equal(requests.every((request) => request.input[0].type === 'user_input'), true)
+  assert.notEqual(
+    requests[0].input[0].content[1].data,
+    requests[1].input[0].content[1].data,
+  )
 })
 
 test('Gemini score-only mode omits the player schema and forbids score calculation', async () => {

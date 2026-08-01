@@ -241,7 +241,14 @@ export function createGeminiGameResultVisionReader(options = {}) {
             model: activeModel,
             store: false,
             system_instruction: instructions,
-            input: content,
+            // Use an explicit interaction step instead of relying on the API's
+            // ambiguous Content[] | Step[] union. Without this wrapper, a
+            // multi-part screenshot request can be parsed as Step[] and reject
+            // a valid text content block as an unsupported step type.
+            input: [{
+              type: 'user_input',
+              content,
+            }],
             response_format: {
               type: 'text',
               mime_type: 'application/json',
