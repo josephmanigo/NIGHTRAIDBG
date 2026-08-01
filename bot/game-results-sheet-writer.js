@@ -701,6 +701,9 @@ export function createSafeGameResultsSheetWriter(options = {}) {
     await options.backupService?.backupNow(
       `before_${plan.mode}_round_${plan.round}_${correctionRequested ? 'correction' : 'write'}`,
     )
+    const rankHighlight = typeof sheetClient.ensureTopRankHighlight === 'function'
+      ? await sheetClient.ensureTopRankHighlight(state)
+      : { status: 'not_supported' }
     const writeKind = correctionRequested ? 'correction' : 'initial'
     let audit = await store.createSheetWriteAudit({
       submissionId: submission.submissionId,
@@ -731,6 +734,7 @@ export function createSafeGameResultsSheetWriter(options = {}) {
       if (!verification.success) {
         throw new Error(`The ${plan.worksheetName} update could not be verified safely.`)
       }
+      verification.top_rank_highlight = rankHighlight
       audit = await store.updateSheetWriteAudit({
         auditId: audit.auditId,
         status: 'verified',
@@ -789,6 +793,7 @@ export function createSafeGameResultsSheetWriter(options = {}) {
             sheet_structure_preserved: verification.sheet_structure_preserved,
             placement_formulas_recalculated:
               verification.placement_formulas_recalculated,
+            top_rank_highlight: verification.top_rank_highlight,
           },
         },
       }

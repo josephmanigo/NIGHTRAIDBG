@@ -211,6 +211,7 @@ export function renderAdminOperation(operation) {
           'Deduction writes: **0**',
           'Team-name writes: **0**',
           'Only PLACE and KILLS inputs will be cleared.',
+          'Rank 1–3 yellow highlights will be removed automatically.',
           operation.preview?.active_history_rounds?.length > 0
             ? `Active result/player histories logically archived (not erased): **Rounds ${operation.preview.active_history_rounds.join(', ')}**.`
             : 'No active player-history snapshots are attached to this clear.',

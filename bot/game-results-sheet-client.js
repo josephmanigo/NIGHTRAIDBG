@@ -29,12 +29,75 @@ const ALLOWED_INPUT_COLUMNS = new Set([10, 12, 13, 15, 16, 18, 19, 21])
 const TEAM_NAME_COLUMN = 9
 const FIRST_TEAM_ROW = 7
 const LAST_TEAM_ROW_EXCLUSIVE = 32
+const LAST_SCORE_COLUMN_EXCLUSIVE = 27
 const MVP_FIRST_PLAYER_ROW = 9
 const MVP_LAST_PLAYER_ROW_EXCLUSIVE = 27
 const MVP_FIRST_INPUT_COLUMN = 3
 const MVP_LAST_INPUT_COLUMN_EXCLUSIVE = 10
 
 let cachedAccessToken
+
+export const TOP_RANK_HIGHLIGHT_FORMULA =
+  '=AND(ISNUMBER($AA8),$AA8>=1,$AA8<=3,COUNTA($K8,$M8,$N8,$P8,$Q8,$S8,$T8,$V8)>0)'
+
+export function topRankHighlightRule(sheetId) {
+  return {
+    ranges: [{
+      sheetId,
+      startRowIndex: FIRST_TEAM_ROW,
+      endRowIndex: LAST_TEAM_ROW_EXCLUSIVE,
+      startColumnIndex: TEAM_NAME_COLUMN,
+      endColumnIndex: LAST_SCORE_COLUMN_EXCLUSIVE,
+    }],
+    booleanRule: {
+      condition: {
+        type: 'CUSTOM_FORMULA',
+        values: [{ userEnteredValue: TOP_RANK_HIGHLIGHT_FORMULA }],
+      },
+      format: {
+        backgroundColor: {
+          red: 1,
+          green: 1,
+          blue: 0.25,
+        },
+        textFormat: {
+          bold: true,
+          foregroundColor: { red: 0, green: 0, blue: 0 },
+        },
+      },
+    },
+  }
+}
+
+function sameTopRankRange(range, sheetId) {
+  return range?.sheetId === sheetId
+    && range.startRowIndex === FIRST_TEAM_ROW
+    && range.endRowIndex === LAST_TEAM_ROW_EXCLUSIVE
+    && range.startColumnIndex === TEAM_NAME_COLUMN
+    && range.endColumnIndex === LAST_SCORE_COLUMN_EXCLUSIVE
+}
+
+function yellowTopRankFormat(format) {
+  const color = format?.backgroundColorStyle?.rgbColor ?? format?.backgroundColor
+  const closeTo = (value, expected) =>
+    Math.abs(Number(value) - expected) < 0.002
+  return closeTo(color?.red, 1)
+    && closeTo(color?.green, 1)
+    && closeTo(color?.blue, 0.25)
+    && format?.textFormat?.bold === true
+}
+
+export function hasTopRankHighlightRule(state, sheetConfig) {
+  const sheet = state?.sheets?.find((item) =>
+    item.properties?.sheetId === sheetConfig.sheetId
+    && item.properties?.title === sheetConfig.worksheetName)
+  return sheet?.conditionalFormats?.some((rule) =>
+    rule.booleanRule?.condition?.type === 'CUSTOM_FORMULA'
+    && rule.booleanRule.condition.values?.[0]?.userEnteredValue
+      === TOP_RANK_HIGHLIGHT_FORMULA
+    && rule.ranges?.some((range) => sameTopRankRange(range, sheetConfig.sheetId))
+    && yellowTopRankFormat(rule.booleanRule.format)) === true
+}
 
 function scoreSheetMode(value) {
   const mode = String(value ?? DEFAULT_SCORE_SHEET_MODE)
@@ -295,6 +358,7 @@ function validateMvpUpdateRequests(requests) {
 
 export function createGameResultsSheetClient(options = {}) {
   const configValue = config(options)
+  let topRankHighlightPromise = null
   const runtime = {
     fetchImpl: options.fetchImpl ?? fetch,
     tokenProvider: options.tokenProvider,
@@ -358,9 +422,62 @@ export function createGameResultsSheetClient(options = {}) {
     return response.json()
   }
 
+  async function ensureTopRankHighlight(state) {
+    if (!topRankHighlightPromise) {
+      topRankHighlightPromise = (async () => {
+        const currentState = state ?? await readState()
+        if (hasTopRankHighlightRule(currentState, configValue)) {
+          return {
+            status: 'already_configured',
+            formula: TOP_RANK_HIGHLIGHT_FORMULA,
+          }
+        }
+        const response = await fetchWithRetry(
+          `${GOOGLE_SHEETS_API}/${encodeURIComponent(configValue.spreadsheetId)}:batchUpdate`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${await token()}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              requests: [{
+                addConditionalFormatRule: {
+                  rule: topRankHighlightRule(configValue.sheetId),
+                  index: 0,
+                },
+              }],
+              includeSpreadsheetInResponse: false,
+            }),
+          },
+          {
+            fetchImpl: runtime.fetchImpl,
+            timeoutMs: runtime.timeoutMs,
+            maxRetries: runtime.maxRetries,
+          },
+        )
+        if (!response.ok) {
+          throw new Error(`Google Sheets rank highlight update failed: ${await responseError(response)}`)
+        }
+        await response.json()
+        return {
+          status: 'configured',
+          formula: TOP_RANK_HIGHLIGHT_FORMULA,
+        }
+      })()
+    }
+    try {
+      return await topRankHighlightPromise
+    } catch (reason) {
+      topRankHighlightPromise = null
+      throw reason
+    }
+  }
+
   return {
     readState,
     updateCells,
+    ensureTopRankHighlight,
     config: {
       mode: configValue.mode,
       spreadsheetId: configValue.spreadsheetId,

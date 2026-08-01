@@ -4,6 +4,9 @@ import {
   createGameResultsSheetClient,
   GAME_RESULTS_PRODUCTION_SHEET_ID,
   GAME_RESULTS_TEST_SHEET_ID,
+  hasTopRankHighlightRule,
+  TOP_RANK_HIGHLIGHT_FORMULA,
+  topRankHighlightRule,
 } from './game-results-sheet-client.js'
 import {
   buildSafeSheetWritePlan,
@@ -187,6 +190,7 @@ function buildState(values = new Map(), options = {}) {
       },
       merges: options.merges ?? [],
       protectedRanges: options.protectedRanges ?? [],
+      conditionalFormats: options.conditionalFormats ?? [],
       data: [
         {
           startRow: 7,
@@ -408,9 +412,33 @@ function memorySheetClient(options = {}) {
       }
       return {}
     },
+    async ensureTopRankHighlight() {
+      events.push('rank-highlight-ensured')
+      options.timeline?.push('rank-highlight-ensured')
+      if (options.highlightError) throw options.highlightError
+      return { status: 'configured', formula: TOP_RANK_HIGHLIGHT_FORMULA }
+    },
     values,
   }
 }
+
+test('defines an automatic yellow row highlight for ranks 1, 2, and 3 only when scores exist', () => {
+  const config = sheetConfig()
+  const rule = topRankHighlightRule(config.sheetId)
+  const state = buildState(new Map(), { conditionalFormats: [rule] })
+
+  assert.equal(hasTopRankHighlightRule(state, config), true)
+  assert.equal(rule.ranges[0].startColumnIndex, 9)
+  assert.equal(rule.ranges[0].endColumnIndex, 27)
+  assert.equal(rule.booleanRule.condition.values[0].userEnteredValue, TOP_RANK_HIGHLIGHT_FORMULA)
+  assert.match(TOP_RANK_HIGHLIGHT_FORMULA, /\$AA8>=1,\$AA8<=3/)
+  assert.match(TOP_RANK_HIGHLIGHT_FORMULA, /COUNTA\(\$K8,\$M8,\$N8,\$P8,\$Q8,\$S8,\$T8,\$V8\)>0/)
+  assert.deepEqual(rule.booleanRule.format.backgroundColor, {
+    red: 1,
+    green: 1,
+    blue: 0.25,
+  })
+})
 
 test('builds a Round 1 plan and marks every other blank PLACE and KILLS input with X', () => {
   const plan = buildSafeSheetWritePlan({
@@ -602,13 +630,15 @@ test('creates the backup before writing and verifies Round 1 recalculation', asy
   const result = await writer.writeConfirmedSubmission(store.current(), 'reviewer-1')
 
   assert.equal(result.status, 'verified')
-  assert.deepEqual(timeline.slice(0, 3), [
+  assert.deepEqual(timeline.slice(0, 4), [
     'sheet-read',
+    'rank-highlight-ensured',
     'backup-created',
     'sheet-write',
   ])
   assert.equal(sheetClient.events[0], 'sheet-read')
-  assert.equal(sheetClient.events[1], 'sheet-write')
+  assert.equal(sheetClient.events[1], 'rank-highlight-ensured')
+  assert.equal(sheetClient.events[2], 'sheet-write')
   assert.equal(store.latestAudit().status, 'verified')
   assert.equal(store.latestAudit().beforeSnapshot.target_cells[0].a1, 'J22')
   assert.equal(
@@ -622,6 +652,13 @@ test('creates the backup before writing and verifies Round 1 recalculation', asy
   assert.equal(result.verification.penalties_preserved, true)
   assert.equal(result.verification.sheet_structure_preserved, true)
   assert.equal(result.verification.placement_formulas_recalculated, true)
+  assert.equal(result.verification.top_rank_highlight.status, 'configured')
+  assert.equal(
+    store.current().reviewPayload.score_sheet_write.verification
+      .top_rank_highlight.status,
+    'configured',
+  )
+  assert.equal(sheetClient.events.includes('rank-highlight-ensured'), true)
   assert.equal(sheetClient.values.get(key(7, 10)), 'X')
   assert.equal(sheetClient.values.get(key(7, 12)), 'X')
   assert.equal(
@@ -670,6 +707,22 @@ test('automatic score-only tally records missing player history without undoing 
   assert.equal(sheetClient.values.get(key(21, 9)), 'Official O')
   assert.equal(sheetClient.values.get(key(21, 10)), 1)
   assert.equal(sheetClient.values.get(key(21, 12)), 65)
+})
+
+test('a rank-highlight setup failure occurs before any score cell is written', async () => {
+  const store = memoryStore()
+  const sheetClient = memorySheetClient({
+    highlightError: new Error('conditional format unavailable'),
+  })
+  const writer = createSafeGameResultsSheetWriter({ store, sheetClient })
+
+  await assert.rejects(
+    () => writer.writeConfirmedSubmission(store.current(), 'reviewer-1'),
+    /conditional format unavailable/,
+  )
+  assert.equal(sheetClient.events.includes('sheet-write'), false)
+  assert.equal(sheetClient.values.size, 0)
+  assert.equal(store.latestAudit(), null)
 })
 
 test('production mode uses the same safe input map and verifies New', async () => {
@@ -894,6 +947,8 @@ test('the HTTP client reads first and accepts only precise single-cell value upd
       fields: 'userEnteredValue',
     },
   }])
+  await client.ensureTopRankHighlight(buildState())
+  await client.ensureTopRankHighlight(buildState())
 
   assert.equal(calls[0].init.method, 'GET')
   assert.match(decodeURIComponent(calls[0].url).replaceAll('+', ' '), /'Copy of New'!H6:AA32/)
@@ -908,6 +963,17 @@ test('the HTTP client reads first and accepts only precise single-cell value upd
       .userEnteredValue.stringValue,
     'LGT - AKATSOKE',
   )
+  const highlightBody = JSON.parse(calls[3].init.body)
+  assert.equal(
+    highlightBody.requests[0].addConditionalFormatRule
+      .rule.booleanRule.condition.values[0].userEnteredValue,
+    TOP_RANK_HIGHLIGHT_FORMULA,
+  )
+  assert.equal(
+    highlightBody.requests[0].addConditionalFormatRule.index,
+    0,
+  )
+  assert.equal(calls.length, 4)
   await assert.rejects(
     () => client.updateCells([{
       updateCells: {

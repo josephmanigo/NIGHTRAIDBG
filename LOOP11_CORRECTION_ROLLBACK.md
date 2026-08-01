@@ -39,6 +39,9 @@ after, but never included in a write request. `/clear` also preserves team
 names and every TOTAL POINTS DEDUCTED cell. Active result/player-history
 snapshots for the cleared rounds are logically marked deleted rather than
 physically erased, preventing stale results from contaminating the next tally.
+The Rank 1–3 yellow highlight is conditional on at least one PLACE/KILLS input,
+so clearing all four rounds removes every highlight immediately while leaving
+the rule installed for the next tally.
 
 Edits and synchronization reuse the verified correction writer, creating a new
 append-only player-history revision. Rollback reuses the verified audit backup

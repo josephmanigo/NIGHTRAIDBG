@@ -86,7 +86,9 @@ function scoreState() {
   for (let row = 7; row < 32; row += 1) {
     const sheetRow = row + 1
     const slot = row - 6
-    const code = row === 7 ? 'O' : row === 8 ? 'B' : `X${slot}`
+    const code = row === 7
+      ? 'O'
+      : String.fromCharCode(64 + slot)
     const cells = Array.from({ length: 20 }, () => ({}))
     cells[0] = textCell(`${slot}-${code}`)
     cells[1] = numberCell(slot)
@@ -520,7 +522,11 @@ test('runs a complete four-round mock tournament in test mode without damaging f
     const result = await writer.writeConfirmedSubmission(round, 'scorekeeper-1')
     assert.equal(result.status, 'verified')
     assert.equal(result.audit.worksheetName, 'Copy of New')
-    assert.equal(result.audit.beforeSnapshot.target_cells.length, 6)
+    assert.equal(result.audit.beforeSnapshot.target_cells.length, 52)
+    assert.equal(
+      result.audit.writePayload.filter((target) => target.value === 'X').length,
+      46,
+    )
     assert.equal(result.verification.formulas_preserved, true)
     assert.equal(result.verification.formatting_preserved, true)
   }

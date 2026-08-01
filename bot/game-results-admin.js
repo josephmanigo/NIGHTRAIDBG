@@ -504,6 +504,7 @@ export function createGameResultsAdminService(options = {}) {
           deductions_preserved: true,
           team_names_preserved: true,
           formulas_preserved: true,
+          rank_highlight_removed: true,
         }
       } else if (['edit_round', 'sync_score_sheet'].includes(claimed.operationKind)) {
         const submission = {

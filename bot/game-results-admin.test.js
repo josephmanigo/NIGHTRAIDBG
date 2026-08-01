@@ -461,6 +461,7 @@ test('/clear prepares one confirmed audit and clears every round input', async (
 
   assert.equal(completed.status, 'completed')
   assert.equal(completed.result.score_sheet_cleared, true)
+  assert.equal(completed.result.rank_highlight_removed, true)
   assert.deepEqual(completed.result.cleared_rounds, [1, 2, 3, 4])
   assert.deepEqual(backups, ['before_production_all_rounds_clear'])
   const current = await sheetService.inspectAllRounds()
@@ -846,5 +847,6 @@ test('/clear preview explicitly preserves deductions, team names, and formulas',
   assert.match(content, /Deduction writes: \*\*0\*\*/)
   assert.match(content, /Team-name writes: \*\*0\*\*/)
   assert.match(content, /Only PLACE and KILLS inputs will be cleared/)
+  assert.match(content, /Rank 1–3 yellow highlights will be removed automatically/)
   assert.match(content, /histories logically archived \(not erased\).*Rounds 1, 2, 3, 4/i)
 })

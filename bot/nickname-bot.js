@@ -474,6 +474,13 @@ client.once(Events.ClientReady, () => {
     })
 })
 
+client.once(Events.ClientReady, () => {
+  gameResultsSheetClient.ensureTopRankHighlight()
+    .catch((reason) => {
+      gameResultsErrorReporter.report('game_results_rank_highlight_startup', reason)
+    })
+})
+
 client.once(Events.ClientReady, async (readyClient) => {
   console.log(`Nickname bot connected as ${readyClient.user.tag}. Watching channel ${NICKNAME_CHANNEL_ID}.`)
 

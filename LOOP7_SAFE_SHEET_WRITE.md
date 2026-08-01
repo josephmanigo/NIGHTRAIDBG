@@ -57,6 +57,11 @@ After the atomic write, the service re-reads the sheet and verifies:
 - formulas remain unchanged;
 - placement formulas recalculate to the sheet's placement table.
 
+The bot also installs one idempotent conditional-format rule over `J8:AA32`.
+Rows whose RANK in column `AA` is 1, 2, or 3 are highlighted yellow only
+while at least one PLACE/KILLS input exists. The rule follows recalculated
+ranks automatically and does not overwrite the worksheet's base formatting.
+
 During a Round 1-only write, total/final/rank formulas remain preserved but can
 show `#N/A` until later-round PLACE values exist. This is recorded as
 `pending_other_rounds`, while Round 1 placement recalculation is verified.
