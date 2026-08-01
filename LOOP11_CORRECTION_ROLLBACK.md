@@ -3,6 +3,7 @@
 Loop 11 adds persistent, production-only administrative controls for confirmed
 game-result rounds:
 
+- `/clear` (all four rounds in one confirmed action)
 - `/edit-round`
 - `/delete-round`
 - `/restore-round`
@@ -29,11 +30,15 @@ Administrative writes require all of these production guards:
 - spreadsheet `1SMXnqe-xQgaHXBFCm-hpbQDCMKE5m9VpoY_oRtyf_YI`
 - fixed worksheet ID `417351865`
 
-The round sheet service can target only the 50 designated PLACE/KILLS cells for
-one round. It rejects a changed header, worksheet identity, formula, protected
-target, merged target, or stale preview. Placement-point, total, final-score,
-and rank formulas are checked before and after, but never included in a write
-request.
+The round sheet service can target only the designated PLACE/KILLS cells. A
+round command is limited to its 50 inputs; `/clear` targets those inputs across
+all four rounds in one verified batch. It rejects a changed header, worksheet
+identity, formula, protected target, merged target, or stale preview.
+Placement-point, total, final-score, and rank formulas are checked before and
+after, but never included in a write request. `/clear` also preserves team
+names and every TOTAL POINTS DEDUCTED cell. Active result/player-history
+snapshots for the cleared rounds are logically marked deleted rather than
+physically erased, preventing stale results from contaminating the next tally.
 
 Edits and synchronization reuse the verified correction writer, creating a new
 append-only player-history revision. Rollback reuses the verified audit backup
@@ -49,7 +54,7 @@ generated MVP preview is required before any later MVP confirmation.
 ## Deployment
 
 Apply `database/phase15.sql` after `database/phase14.sql`, then restart the bot
-so Discord registers the six commands. Do not test these operations against
+so Discord registers the seven commands. Do not test these operations against
 the live service account. Automated tests use an in-memory worksheet and mocked
 database operations.
 

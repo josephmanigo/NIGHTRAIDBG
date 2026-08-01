@@ -186,12 +186,22 @@ function operationStore() {
         submission: structuredClone(submission),
       }
     },
+    async findLatestConfirmedSubmission() {
+      return structuredClone(submission)
+    },
     async findLatestSheetWriteAudit() {
       return { auditId: 'audit-1' }
     },
     async findLatestCompletedAdminOperation({ operationKind }) {
       return [...operations.values()].reverse().find(
         (item) => item.operationKind === operationKind && item.status === 'completed',
+      ) ?? null
+    },
+    async findLatestCompletedClearOperation() {
+      return [...operations.values()].reverse().find(
+        (item) =>
+          item.status === 'completed'
+          && item.requestedChanges?.clear_all_rounds === true,
       ) ?? null
     },
     async createAdminOperation(input) {
@@ -251,10 +261,11 @@ function operationStore() {
   }
 }
 
-test('registers all six authorized administrative commands and persistent IDs', () => {
+test('registers all seven authorized administrative commands and persistent IDs', () => {
   assert.deepEqual(
     GAME_RESULTS_ADMIN_COMMANDS.map((command) => command.name),
     [
+      'clear',
       'edit-round',
       'delete-round',
       'restore-round',
@@ -291,6 +302,62 @@ test('rejects an unauthorized slash command before preparing a change', async ()
   assert.match(replies[0].content, /administrator, Tournament Admin, or Scorekeeper/i)
 })
 
+test('/clear requires no round option and prepares the all-four-round confirmation', async () => {
+  const prepared = []
+  const service = {
+    async prepareOperation(input) {
+      prepared.push(input)
+      return {
+        ...input,
+        operationId: 'operation-clear',
+        operationKind: 'delete_round',
+        submissionId: 'submission-1',
+        sourceSnapshotId: 'snapshot-1',
+        status: 'pending',
+        reviewVersion: 0,
+        requestedChanges: { clear_all_rounds: true },
+        preview: {
+          clear_all_rounds: true,
+          existing_sheet_values: { K8: 1 },
+          formula_cells_checked: 400,
+        },
+      }
+    },
+    async attachMessage(operation, messageId) {
+      return { ...operation, reviewMessageId: messageId, reviewVersion: 1 }
+    },
+  }
+  const workflow = createGameResultsAdminWorkflow({
+    service,
+    administratorIds: new Set(['admin-1']),
+  })
+  const replies = []
+  const result = await workflow.handleInteraction({
+    commandName: 'clear',
+    guildId: 'guild-1',
+    channelId: 'channel-1',
+    user: { id: 'admin-1' },
+    member: { roles: [] },
+    options: {
+      getInteger() { throw new Error('/clear must not request a round option') },
+    },
+    isChatInputCommand: () => true,
+    isButton: () => false,
+    deferReply: async () => undefined,
+    editReply: async (payload) => {
+      replies.push(payload)
+      return { id: 'message-clear' }
+    },
+  })
+
+  assert.equal(result.status, 'preview_ready')
+  assert.equal(prepared.length, 1)
+  assert.equal(prepared[0].operationKind, 'delete_round')
+  assert.equal(prepared[0].round, 1)
+  assert.deepEqual(prepared[0].changes, { clearAllRounds: true })
+  assert.match(replies.at(-1).content, /ALL-ROUND CLEAR REVIEW/)
+})
+
 test('clears and restores only designated round inputs while preserving formulas', async () => {
   const client = fakeSheetClient()
   const service = createGameResultsAdministrativeSheetService({ sheetClient: client })
@@ -314,6 +381,180 @@ test('clears and restores only designated round inputs while preserving formulas
   })
   assert.equal(afterRestore.targets.find((target) => target.a1 === 'K8').user_entered_value.numberValue, 1)
   assert.equal(afterRestore.targets.find((target) => target.a1 === 'M8').user_entered_value.numberValue, 65)
+})
+
+test('clears all four rounds at once while preserving deductions, team names, and formulas', async () => {
+  const client = fakeSheetClient()
+  const firstRow = client.state.sheets[0].data[0].rowData[1].values
+  firstRow[9 - 7] = textCell('Official A')
+  firstRow[24 - 7] = numberCell(7)
+  firstRow[13 - 7] = {
+    ...numberCell(null),
+    userEnteredValue: { stringValue: 'X' },
+    effectiveValue: { stringValue: 'X' },
+    formattedValue: 'X',
+  }
+  firstRow[15 - 7] = numberCell(10)
+  firstRow[16 - 7] = numberCell(2)
+  firstRow[18 - 7] = numberCell(20)
+  firstRow[19 - 7] = numberCell(3)
+  firstRow[21 - 7] = numberCell(30)
+  const service = createGameResultsAdministrativeSheetService({ sheetClient: client })
+  const before = await service.inspectAllRounds()
+
+  const cleared = await service.clearAllRounds({ inspection: before })
+  assert.equal(cleared.verification.success, true)
+  const afterClear = await service.inspectAllRounds()
+  assert.equal(afterClear.targets.every((target) => target.user_entered_value === null), true)
+  assert.equal(firstRow[9 - 7].userEnteredValue.stringValue, 'Official A')
+  assert.equal(firstRow[24 - 7].userEnteredValue.numberValue, 7)
+  assert.equal(
+    firstRow[20 - 7].userEnteredValue.formulaValue,
+    '=VLOOKUP(T8,$B$8:$C$32,2,0)',
+  )
+
+  const restored = await service.restoreAllRounds({
+    inspection: afterClear,
+    restoreSnapshot: before.beforeSnapshot,
+  })
+  assert.equal(restored.verification.success, true)
+  const afterRestore = await service.inspectAllRounds()
+  assert.equal(
+    afterRestore.targets.find((target) => target.a1 === 'N8')
+      .user_entered_value.stringValue,
+    'X',
+  )
+  assert.equal(
+    afterRestore.targets.find((target) => target.a1 === 'V8')
+      .user_entered_value.numberValue,
+    30,
+  )
+  assert.equal(firstRow[24 - 7].userEnteredValue.numberValue, 7)
+})
+
+test('/clear prepares one confirmed audit and clears every round input', async () => {
+  const store = operationStore()
+  const sheetService = createGameResultsAdministrativeSheetService({
+    sheetClient: fakeSheetClient(),
+  })
+  const backups = []
+  const service = createGameResultsAdminService({
+    store,
+    sheetService,
+    sheetWriter: { config: CONFIG },
+    backupService: { backupNow: async (reason) => backups.push(reason) },
+    mvpService: { previewCurrent: async () => ({ preview: {} }) },
+  })
+  let operation = await service.prepareOperation({
+    operationKind: 'delete_round',
+    round: 1,
+    changes: { clearAllRounds: true },
+    guildId: 'guild-1',
+    channelId: 'channel-1',
+    createdBy: 'admin-1',
+  })
+  assert.equal(operation.preview.clear_all_rounds, true)
+  assert.equal(operation.preview.deductions_will_be_written, false)
+  assert.equal(operation.preview.team_names_will_be_written, false)
+  operation = await service.attachMessage(operation, 'message-clear')
+  const completed = await service.executeOperation(operation, 'admin-1')
+
+  assert.equal(completed.status, 'completed')
+  assert.equal(completed.result.score_sheet_cleared, true)
+  assert.deepEqual(completed.result.cleared_rounds, [1, 2, 3, 4])
+  assert.deepEqual(backups, ['before_production_all_rounds_clear'])
+  const current = await sheetService.inspectAllRounds()
+  assert.equal(current.targets.every((target) => target.user_entered_value === null), true)
+  await assert.rejects(
+    service.prepareOperation({
+      operationKind: 'restore_round',
+      round: 1,
+      guildId: 'guild-1',
+      channelId: 'channel-1',
+      createdBy: 'admin-1',
+    }),
+    /reset by \/clear.*tally it again/i,
+  )
+})
+
+test('/clear restores every score input when a history reset fails', async () => {
+  const store = operationStore()
+  const originalDelete = store.deleteRoundHistory
+  let deletionCalls = 0
+  store.deleteRoundHistory = async (input) => {
+    deletionCalls += 1
+    if (deletionCalls === 2) throw new Error('round history reset failed')
+    return originalDelete(input)
+  }
+  const sheetService = createGameResultsAdministrativeSheetService({
+    sheetClient: fakeSheetClient(),
+  })
+  const service = createGameResultsAdminService({
+    store,
+    sheetService,
+    sheetWriter: { config: CONFIG },
+    backupService: { backupNow: async () => undefined },
+    mvpService: { previewCurrent: async () => ({ preview: {} }) },
+  })
+  let operation = await service.prepareOperation({
+    operationKind: 'delete_round',
+    round: 1,
+    changes: { clearAllRounds: true },
+    guildId: 'guild-1',
+    channelId: 'channel-1',
+    createdBy: 'admin-1',
+  })
+  operation = await service.attachMessage(operation, 'message-clear-failure')
+
+  await assert.rejects(
+    service.executeOperation(operation, 'admin-1'),
+    /round history reset failed/,
+  )
+  const current = await sheetService.inspectAllRounds()
+  assert.equal(
+    current.targets.find((target) => target.a1 === 'K8')
+      .user_entered_value.numberValue,
+    1,
+  )
+  assert.equal(
+    current.targets.find((target) => target.a1 === 'M8')
+      .user_entered_value.numberValue,
+    65,
+  )
+  assert.equal(store.historyStatus, 'active')
+  assert.equal(store.operations.get(operation.operationId).status, 'failed')
+})
+
+test('/clear still clears score-only rounds that have no player-history snapshot', async () => {
+  const store = operationStore()
+  store.findRoundHistory = async () => null
+  const sheetService = createGameResultsAdministrativeSheetService({
+    sheetClient: fakeSheetClient(),
+  })
+  const service = createGameResultsAdminService({
+    store,
+    sheetService,
+    sheetWriter: { config: CONFIG },
+    backupService: { backupNow: async () => undefined },
+    mvpService: { previewCurrent: async () => ({ preview: {} }) },
+  })
+  let operation = await service.prepareOperation({
+    operationKind: 'delete_round',
+    round: 1,
+    changes: { clearAllRounds: true },
+    guildId: 'guild-1',
+    channelId: 'channel-1',
+    createdBy: 'admin-1',
+  })
+  assert.equal(operation.sourceSnapshotId, null)
+  assert.deepEqual(operation.requestedChanges.source_rounds, [])
+  operation = await service.attachMessage(operation, 'message-clear-score-only')
+  const completed = await service.executeOperation(operation, 'admin-1')
+
+  assert.equal(completed.status, 'completed')
+  assert.equal(completed.historyStateChanged, false)
+  const current = await sheetService.inspectAllRounds()
+  assert.equal(current.targets.every((target) => target.user_entered_value === null), true)
 })
 
 test('delete and restore use confirmation audits, logical history states, and MVP regeneration', async () => {
@@ -583,4 +824,27 @@ test('administrative previews show current values and never imply formula writes
   assert.match(content, /M8=65/)
   assert.match(content, /Formula writes: \*\*0\*\*/)
   assert.match(content, /Confirm/)
+})
+
+test('/clear preview explicitly preserves deductions, team names, and formulas', () => {
+  const content = renderAdminOperation({
+    operationKind: 'delete_round',
+    status: 'pending',
+    round: 1,
+    submissionId: 'submission-1',
+    sourceSnapshotId: 'snapshot-1',
+    requestedChanges: { clear_all_rounds: true },
+    preview: {
+      clear_all_rounds: true,
+      existing_sheet_values: { K8: 1, M8: 65, N8: 'X' },
+      active_history_rounds: [1, 2, 3, 4],
+      formula_cells_checked: 400,
+    },
+  })
+  assert.match(content, /Action: \*\*\/clear\*\*/)
+  assert.match(content, /ALL FOUR ROUNDS/)
+  assert.match(content, /Deduction writes: \*\*0\*\*/)
+  assert.match(content, /Team-name writes: \*\*0\*\*/)
+  assert.match(content, /Only PLACE and KILLS inputs will be cleared/)
+  assert.match(content, /histories logically archived \(not erased\).*Rounds 1, 2, 3, 4/i)
 })

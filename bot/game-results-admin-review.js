@@ -27,6 +27,10 @@ function roundOption() {
 
 export const GAME_RESULTS_ADMIN_COMMANDS = Object.freeze([
   {
+    name: 'clear',
+    description: 'Preview clearing PLACE and KILLS for all four rounds.',
+  },
+  {
     name: 'edit-round',
     description: 'Preview a validated correction to one team in a confirmed round.',
     options: [
@@ -103,6 +107,7 @@ export const GAME_RESULTS_ADMIN_COMMANDS = Object.freeze([
 ])
 
 const COMMAND_KINDS = new Map([
+  ['clear', 'delete_round'],
   ['edit-round', 'edit_round'],
   ['delete-round', 'delete_round'],
   ['restore-round', 'restore_round'],
@@ -158,16 +163,30 @@ export function renderAdminOperation(operation) {
     .filter(([, value]) => value !== null)
     .map(([cell, value]) => `${cell}=${value}`)
   const changed = changedTeam(operation)
+  const clearsAllRounds = operation.preview?.clear_all_rounds === true
+  const existingValueSummary = clearsAllRounds
+    ? (
+        values.length > 0
+          ? `Nonblank PLACE/KILLS inputs to clear: **${values.length}**. The complete cell snapshot is stored in the audit.`
+          : 'All designated inputs are blank.'
+      )
+    : values.length > 0
+      ? values.join(' • ')
+      : 'All designated inputs are blank.'
   const lines = [
-    '# NIGHTRAID ROUND ADMIN REVIEW',
-    `Action: **/${operation.operationKind.replaceAll('_', '-')}**`,
+    clearsAllRounds
+      ? '# NIGHTRAID ALL-ROUND CLEAR REVIEW'
+      : '# NIGHTRAID ROUND ADMIN REVIEW',
+    `Action: **/${clearsAllRounds ? 'clear' : operation.operationKind.replaceAll('_', '-')}**`,
     `Status: **${safeText(operation.status).replaceAll('_', ' ').toUpperCase()}**`,
-    `Round: **${operation.round}**`,
+    `Round: **${clearsAllRounds ? 'ALL FOUR ROUNDS' : operation.round}**`,
     `Submission: \`${operation.submissionId}\``,
     `History snapshot: \`${operation.sourceSnapshotId}\``,
     '',
-    '**Existing production PLACE/KILLS inputs**',
-    values.length > 0 ? values.join(' • ') : 'All designated inputs are blank.',
+    clearsAllRounds
+      ? '**Existing production PLACE/KILLS inputs across Rounds 1-4**'
+      : '**Existing production PLACE/KILLS inputs**',
+    existingValueSummary,
   ]
   if (changed) {
     lines.push(
@@ -187,6 +206,16 @@ export function renderAdminOperation(operation) {
     '',
     `Formula cells checked: **${operation.preview?.formula_cells_checked ?? 0}**`,
     'Formula writes: **0**',
+    ...(clearsAllRounds
+      ? [
+          'Deduction writes: **0**',
+          'Team-name writes: **0**',
+          'Only PLACE and KILLS inputs will be cleared.',
+          operation.preview?.active_history_rounds?.length > 0
+            ? `Active result/player histories logically archived (not erased): **Rounds ${operation.preview.active_history_rounds.join(', ')}**.`
+            : 'No active player-history snapshots are attached to this clear.',
+        ]
+      : []),
     operation.status === 'pending'
       ? 'Confirm to execute this exact audited preview, or Cancel to leave everything unchanged.'
       : `Audit result: **${safeText(operation.error ?? operation.result?.writer_status ?? operation.status)}**`,
@@ -234,6 +263,7 @@ async function ephemeral(interaction, content) {
 }
 
 function commandChanges(interaction) {
+  if (interaction.commandName === 'clear') return { clearAllRounds: true }
   if (interaction.commandName !== 'edit-round') return {}
   const getInteger = (name) => interaction.options.getInteger(name)
   const getString = (name) => interaction.options.getString(name)
@@ -310,7 +340,10 @@ export function createGameResultsAdminWorkflow(options = {}) {
     try {
       let operation = await service.prepareOperation({
         operationKind: COMMAND_KINDS.get(interaction.commandName),
-        round: interaction.options.getInteger('round', true),
+        round:
+          interaction.commandName === 'clear'
+            ? 1
+            : interaction.options.getInteger('round', true),
         changes: commandChanges(interaction),
         guildId: interaction.guildId,
         channelId: interaction.channelId,

@@ -25,14 +25,15 @@ function compactError(reason) {
     .slice(0, 500)
 }
 
-function numberFromTarget(target) {
-  const value = target?.user_entered_value?.numberValue
-  return Number.isInteger(value) ? value : null
+function scoreFromTarget(target) {
+  const number = target?.user_entered_value?.numberValue
+  if (Number.isInteger(number)) return number
+  return target?.user_entered_value?.stringValue === 'X' ? 'X' : null
 }
 
 function sheetValues(inspection) {
   return Object.fromEntries(
-    (inspection.targets ?? []).map((target) => [target.a1, numberFromTarget(target)]),
+    (inspection.targets ?? []).map((target) => [target.a1, scoreFromTarget(target)]),
   )
 }
 
@@ -190,6 +191,79 @@ export function createGameResultsAdminService(options = {}) {
     if (!Number.isInteger(round) || round < 1 || round > 4) {
       throw new Error('Round must be 1, 2, 3, or 4.')
     }
+    const clearAllRounds =
+      operationKind === 'delete_round'
+      && changes.clearAllRounds === true
+    if (clearAllRounds) {
+      const histories = (await Promise.all(
+        [1, 2, 3, 4].map(async (historyRound) => ({
+          round: historyRound,
+          history: await store.findRoundHistory({
+            round: historyRound,
+            recordStatus: 'active',
+            scoreSheetMode: 'production',
+          }),
+        })),
+      )).filter((item) => item.history?.submission?.reviewPayload)
+      const inspection = await sheetService.inspectAllRounds()
+      const currentSheetValues = sheetValues(inspection)
+      const proposedSheetValues = Object.fromEntries(
+        Object.keys(currentSheetValues).map((cell) => [cell, null]),
+      )
+      const sheetDifferences = Object.entries(currentSheetValues)
+        .filter(([, value]) => value !== null)
+        .map(([cell, value]) => ({ cell, existing: value, proposed: null }))
+      if (sheetDifferences.length === 0) {
+        throw new Error('All four production round input areas are already blank.')
+      }
+      const primaryHistory = histories[0]?.history ?? null
+      const primarySubmission =
+        primaryHistory?.submission
+        ?? await store.findLatestConfirmedSubmission?.()
+      if (!primarySubmission) {
+        throw new Error(
+          'No confirmed submission is available for the persistent /clear audit.',
+        )
+      }
+      const sourceRounds = histories.map(({ round: historyRound, history: item }) => ({
+        round: historyRound,
+        submission_id: item.submission.submissionId,
+        snapshot_id: item.snapshot.snapshotId,
+      }))
+      return store.createAdminOperation({
+        operationKind,
+        guildId,
+        channelId,
+        scoreSheetMode: 'production',
+        spreadsheetId: sheetService.config.spreadsheetId,
+        worksheetName: sheetService.config.worksheetName,
+        sheetId: sheetService.config.sheetId,
+        round: 1,
+        submissionId: primarySubmission.submissionId,
+        sourceSnapshotId: primaryHistory?.snapshot.snapshotId ?? null,
+        relatedSheetAuditId: null,
+        relatedOperationId: null,
+        requestedChanges: {
+          clear_all_rounds: true,
+          source_rounds: sourceRounds,
+        },
+        preview: {
+          operation_kind: 'clear_sheet',
+          clear_all_rounds: true,
+          rounds: [1, 2, 3, 4],
+          existing_sheet_values: currentSheetValues,
+          proposed_sheet_values: proposedSheetValues,
+          sheet_differences: sheetDifferences,
+          active_history_rounds: sourceRounds.map((item) => item.round),
+          formula_cells_checked: inspection.formulas.length,
+          formulas_will_be_written: false,
+          deductions_will_be_written: false,
+          team_names_will_be_written: false,
+        },
+        beforeSnapshot: inspection.beforeSnapshot,
+        createdBy,
+      })
+    }
     const restore = operationKind === 'restore_round'
     const history = await store.findRoundHistory({
       round,
@@ -248,6 +322,15 @@ export function createGameResultsAdminService(options = {}) {
       throw new Error(`Production Round ${round} is already synchronized.`)
     }
     if (restore) {
+      const allRoundClear = await store.findLatestCompletedClearOperation?.()
+      const clearedByAllRoundReset = allRoundClear?.requestedChanges?.source_rounds?.some(
+        (source) => source.snapshot_id === history.snapshot.snapshotId,
+      )
+      if (clearedByAllRoundReset) {
+        throw new Error(
+          `Production Round ${round} was reset by /clear and cannot be restored individually; tally it again instead.`,
+        )
+      }
       relatedOperation = await store.findLatestCompletedAdminOperation({
         round,
         operationKind: 'delete_round',
@@ -338,21 +421,91 @@ export function createGameResultsAdminService(options = {}) {
     let afterSnapshot = null
     let verification = null
     try {
-      const history = await store.findRoundHistory({
-        round: claimed.round,
-        recordStatus: claimed.operationKind === 'restore_round' ? 'deleted' : 'active',
-        scoreSheetMode: 'production',
-      })
-      if (
-        !history
-        || history.submission.submissionId !== claimed.submissionId
-        || history.snapshot.snapshotId !== claimed.sourceSnapshotId
-      ) {
-        throw new Error('The round history changed after this preview.')
+      const clearAllRounds =
+        claimed.operationKind === 'delete_round'
+        && claimed.requestedChanges?.clear_all_rounds === true
+      let history = null
+      if (!clearAllRounds) {
+        history = await store.findRoundHistory({
+          round: claimed.round,
+          recordStatus: claimed.operationKind === 'restore_round' ? 'deleted' : 'active',
+          scoreSheetMode: 'production',
+        })
+        if (
+          !history
+          || history.submission.submissionId !== claimed.submissionId
+          || history.snapshot.snapshotId !== claimed.sourceSnapshotId
+        ) {
+          throw new Error('The round history changed after this preview.')
+        }
       }
       let operationResult
       let relatedSheetAuditId = claimed.relatedSheetAuditId
-      if (['edit_round', 'sync_score_sheet'].includes(claimed.operationKind)) {
+      if (clearAllRounds) {
+        const sources = claimed.requestedChanges?.source_rounds ?? []
+        if (!Array.isArray(sources)) {
+          throw new Error('The all-round clear audit has invalid source history snapshots.')
+        }
+        for (const source of sources) {
+          const current = await store.findRoundHistory({
+            round: source.round,
+            recordStatus: 'active',
+            scoreSheetMode: 'production',
+          })
+          if (
+            !current
+            || current.submission.submissionId !== source.submission_id
+            || current.snapshot.snapshotId !== source.snapshot_id
+          ) {
+            throw new Error(`Production Round ${source.round} history changed after preview.`)
+          }
+        }
+        await backupService?.backupNow('before_production_all_rounds_clear')
+        const inspection = await sheetService.inspectAllRounds()
+        if (JSON.stringify(inspection.beforeSnapshot) !== JSON.stringify(claimed.beforeSnapshot)) {
+          throw new Error('The score sheet changed after the all-round clear preview.')
+        }
+        const cleared = await sheetService.clearAllRounds({ inspection })
+        sheetWriteApplied = true
+        afterSnapshot = cleared.verification.afterSnapshot
+        verification = cleared.verification
+        const deletedSources = []
+        try {
+          for (const source of sources) {
+            await store.deleteRoundHistory({
+              submissionId: source.submission_id,
+              snapshotId: source.snapshot_id,
+              actorUserId,
+            })
+            deletedSources.push(source)
+          }
+          historyStateChanged = deletedSources.length > 0
+        } catch (reason) {
+          const current = await sheetService.inspectAllRounds()
+          await sheetService.restoreAllRounds({
+            inspection: current,
+            restoreSnapshot: claimed.beforeSnapshot,
+          })
+          for (const source of deletedSources.reverse()) {
+            await store.restoreRoundHistory({
+              submissionId: source.submission_id,
+              snapshotId: source.snapshot_id,
+              actorUserId,
+            })
+          }
+          sheetWriteApplied = false
+          historyStateChanged = false
+          throw reason
+        }
+        operationResult = {
+          score_sheet_cleared: true,
+          cleared_rounds: [1, 2, 3, 4],
+          deleted_history_rounds: sources.map((source) => source.round),
+          deductions_preserved: true,
+          team_names_preserved: true,
+          formulas_preserved: true,
+        }
+      } else if (['edit_round', 'sync_score_sheet'].includes(claimed.operationKind)) {
         const submission = {
           ...history.submission,
           reviewPayload: claimed.requestedChanges.proposed_review_payload,
@@ -453,7 +606,7 @@ export function createGameResultsAdminService(options = {}) {
       const derived = await postMutation(
         actorUserId,
         claimed.operationKind,
-        claimed.round,
+        clearAllRounds ? 'all four rounds' : claimed.round,
       )
       return store.completeAdminOperation({
         operationId: claimed.operationId,

@@ -12,6 +12,7 @@ const TOTAL_COLUMN = 23
 const PENALTY_COLUMN = 24
 const FINAL_SCORE_COLUMN = 25
 const RANK_COLUMN = 26
+const SCORE_MARKER = 'X'
 
 function clone(value) {
   return value === undefined ? undefined : structuredClone(value)
@@ -123,10 +124,16 @@ function sameJson(left, right) {
 function updateRequest(sheetId, target, value) {
   const cell = {}
   if (value !== null && value !== undefined) {
-    if (!Number.isInteger(value) || value < 0) {
-      throw new Error(`Administrative input ${target.a1} must be a non-negative integer or blank.`)
+    if (value === SCORE_MARKER) {
+      cell.userEnteredValue = { stringValue: SCORE_MARKER }
+    } else {
+      if (!Number.isInteger(value) || value < 0) {
+        throw new Error(
+          `Administrative input ${target.a1} must be a non-negative integer, X, or blank.`,
+        )
+      }
+      cell.userEnteredValue = { numberValue: value }
     }
-    cell.userEnteredValue = { numberValue: value }
   }
   return {
     updateCells: {
@@ -144,8 +151,11 @@ function updateRequest(sheetId, target, value) {
 }
 
 function valueFromTarget(target) {
-  const value = target.user_entered_value?.numberValue
-  return Number.isInteger(value) ? value : null
+  const number = target.user_entered_value?.numberValue
+  if (Number.isInteger(number)) return number
+  return target.user_entered_value?.stringValue === SCORE_MARKER
+    ? SCORE_MARKER
+    : null
 }
 
 export function inspectAdministrativeRoundState({ round, state, sheetConfig }) {
@@ -301,6 +311,60 @@ export function verifyAdministrativeRoundMutation({
   }
 }
 
+export function inspectAdministrativeSheetState({ state, sheetConfig }) {
+  const rounds = [1, 2, 3, 4].map((round) =>
+    inspectAdministrativeRoundState({ round, state, sheetConfig }))
+  return {
+    mode: sheetConfig.mode,
+    spreadsheetId: sheetConfig.spreadsheetId,
+    worksheetName: sheetConfig.worksheetName,
+    sheetId: sheetConfig.sheetId,
+    rounds,
+    targets: rounds.flatMap((round) => round.targets),
+    formulas: rounds.flatMap((round) => round.formulas),
+    preservedCells: rounds.flatMap((round) => round.preservedCells),
+    beforeSnapshot: {
+      rounds: rounds.map((round) => ({
+        round: round.round,
+        before_snapshot: round.beforeSnapshot,
+      })),
+    },
+  }
+}
+
+export function verifyAdministrativeSheetMutation({
+  inspection,
+  expectedValues,
+  state,
+}) {
+  const roundVerifications = inspection.rounds.map((roundInspection) =>
+    verifyAdministrativeRoundMutation({
+      inspection: roundInspection,
+      expectedValues,
+      state,
+    }))
+  return {
+    success: roundVerifications.every((item) => item.success),
+    target_values_match: roundVerifications.every((item) => item.target_values_match),
+    formulas_preserved: roundVerifications.every((item) => item.formulas_preserved),
+    formatting_preserved: roundVerifications.every((item) => item.formatting_preserved),
+    data_validation_preserved: roundVerifications.every(
+      (item) => item.data_validation_preserved,
+    ),
+    penalties_preserved: roundVerifications.every((item) => item.penalties_preserved),
+    sheet_structure_preserved: roundVerifications.every(
+      (item) => item.sheet_structure_preserved,
+    ),
+    rounds: roundVerifications,
+    afterSnapshot: {
+      rounds: roundVerifications.map((item, index) => ({
+        round: inspection.rounds[index].round,
+        after_snapshot: item.afterSnapshot,
+      })),
+    },
+  }
+}
+
 export function createGameResultsAdministrativeSheetService(options = {}) {
   const sheetClient =
     options.sheetClient
@@ -309,6 +373,13 @@ export function createGameResultsAdministrativeSheetService(options = {}) {
   async function inspectRound(round) {
     return inspectAdministrativeRoundState({
       round,
+      state: await sheetClient.readState(),
+      sheetConfig: sheetClient.config,
+    })
+  }
+
+  async function inspectAllRounds() {
+    return inspectAdministrativeSheetState({
       state: await sheetClient.readState(),
       sheetConfig: sheetClient.config,
     })
@@ -346,6 +417,54 @@ export function createGameResultsAdministrativeSheetService(options = {}) {
     })
   }
 
+  async function applyAllRoundValues({ inspection, expectedBefore, targetValues }) {
+    const fresh = await inspectAllRounds()
+    if (!sameJson(fresh.beforeSnapshot, expectedBefore)) {
+      throw new Error(
+        'The score inputs or protected formulas changed after the all-round preview.',
+      )
+    }
+    const requests = fresh.rounds.flatMap((roundInspection) =>
+      buildAdministrativeRoundRequests({
+        inspection: roundInspection,
+        targetValues,
+      }))
+    await sheetClient.updateCells(requests)
+    const afterState = await sheetClient.readState()
+    const verification = verifyAdministrativeSheetMutation({
+      inspection: fresh,
+      expectedValues: targetValues,
+      state: afterState,
+    })
+    if (!verification.success) {
+      throw new Error('The all-round score-sheet clear could not be verified safely.')
+    }
+    return { inspection: fresh, verification }
+  }
+
+  async function clearAllRounds({ inspection }) {
+    return applyAllRoundValues({
+      inspection,
+      expectedBefore: inspection.beforeSnapshot,
+      targetValues: new Map(),
+    })
+  }
+
+  async function restoreAllRounds({ inspection, restoreSnapshot }) {
+    const values = new Map(
+      (restoreSnapshot?.rounds ?? []).flatMap((round) =>
+        (round.before_snapshot?.target_cells ?? []).map((target) => [
+          target.a1,
+          valueFromTarget(target),
+        ])),
+    )
+    return applyAllRoundValues({
+      inspection,
+      expectedBefore: inspection.beforeSnapshot,
+      targetValues: values,
+    })
+  }
+
   async function restoreRound({ inspection, restoreSnapshot }) {
     const values = new Map(
       (restoreSnapshot?.target_cells ?? []).map((target) => [
@@ -362,8 +481,11 @@ export function createGameResultsAdministrativeSheetService(options = {}) {
 
   return {
     inspectRound,
+    inspectAllRounds,
     clearRound,
+    clearAllRounds,
     restoreRound,
+    restoreAllRounds,
     config: sheetClient.config,
   }
 }

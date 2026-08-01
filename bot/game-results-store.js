@@ -299,6 +299,21 @@ export function createSupabaseGameResultsStore(options = {}) {
     return submissionFromRow(row, await screenshotsForSubmission(row.id))
   }
 
+  async function findLatestConfirmedSubmission() {
+    const { data: row, error } = await client
+      .from(SUBMISSIONS_TABLE)
+      .select('*')
+      .eq('status', 'confirmed')
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (error) {
+      throw new Error(safeDatabaseError(error, 'Could not load the latest confirmed submission.'))
+    }
+    if (!row) return null
+    return submissionFromRow(row, await screenshotsForSubmission(row.id))
+  }
+
   async function insertSubmission(metadata) {
     const values = {
       guild_id: metadata.guildId,
@@ -964,6 +979,23 @@ export function createSupabaseGameResultsStore(options = {}) {
     return adminOperationFromRow(row)
   }
 
+  async function findLatestCompletedClearOperation() {
+    const { data: row, error } = await client
+      .from(ADMIN_OPERATIONS_TABLE)
+      .select('*')
+      .eq('score_sheet_mode', 'production')
+      .eq('operation_kind', 'delete_round')
+      .eq('status', 'completed')
+      .contains('requested_changes', { clear_all_rounds: true })
+      .order('completed_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (error) {
+      throw new Error(safeDatabaseError(error, 'Could not load the latest all-round clear audit.'))
+    }
+    return adminOperationFromRow(row)
+  }
+
   async function claimAdminOperation({ operationId, actorUserId, expectedVersion }) {
     const { data: row, error } = await client
       .from(ADMIN_OPERATIONS_TABLE)
@@ -1155,6 +1187,7 @@ export function createSupabaseGameResultsStore(options = {}) {
     findSubmissionByMessage,
     findSubmissionById,
     findLatestSubmission,
+    findLatestConfirmedSubmission,
     tombstoneDeletedMessage,
     createPendingSubmission,
     selectRound,
@@ -1180,6 +1213,7 @@ export function createSupabaseGameResultsStore(options = {}) {
     saveAdminOperationMessage,
     findAdminOperationById,
     findLatestCompletedAdminOperation,
+    findLatestCompletedClearOperation,
     claimAdminOperation,
     completeAdminOperation,
     failAdminOperation,
