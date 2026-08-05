@@ -142,13 +142,16 @@ For predictable results, pin only the official rule messages and arrange the rul
 | --- | --- | --- |
 | `channel` | Yes | The channel that receives the announcement. Picked from the channel list. |
 | `message` | Yes | The announcement text you paste. |
+| `photo` | No | A photo posted with the announcement: PNG, JPG, GIF, or WEBP, up to 10 MiB. |
 | `mention` | No | `No ping` (default), `@here`, or `@everyone`. |
 
 ```
-/announce channel:#welcome message:Scrim night starts at 8 PM. mention:@everyone
+/announce channel:#welcome message:Scrim night starts at 8 PM. photo:bracket.png mention:@everyone
 ```
 
 The bot posts the message in the chosen channel and replies to you privately with a jump link. The mention, when chosen, becomes the first line above the text.
+
+The photo is uploaded from your device through the `photo` option, and the bot re-uploads the bytes rather than linking your original file, so the announcement keeps its image. A non-image attachment or one over 10 MiB is refused privately and nothing is posted. The bot needs **Attach Files** in the target channel.
 
 Discord's command box cannot hold a real line break, so type `\n` where you want one — `Round 1 at 8 PM.\n\nBring your slot code.` posts as two paragraphs. Markdown and emoji are posted exactly as typed.
 

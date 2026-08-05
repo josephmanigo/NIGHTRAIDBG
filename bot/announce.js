@@ -3,6 +3,9 @@
  *
  *   /announce channel:#welcome message:Scrims start at 8 PM. mention:@everyone
  *
+ * An optional photo is re-uploaded by the bot rather than linked, so the
+ * announcement keeps its image after the uploader's own message is gone.
+ *
  * Only administrators (and the configured admin / Tournament Admin /
  * announcer roles) may run it. @everyone and @here are only ever mentioned
  * when the `mention` option asks for it, so pasted text can never mass-ping
@@ -21,6 +24,8 @@ import {
 } from 'discord.js'
 
 const DISCORD_MESSAGE_LIMIT = 2_000
+const IMAGE_LIMIT_BYTES = 10 * 1_024 * 1_024
+const IMAGE_EXTENSION = /\.(png|jpe?g|gif|webp)$/i
 
 const MENTIONS = Object.freeze({
   none: null,
@@ -50,6 +55,12 @@ export const ANNOUNCE_COMMAND = Object.freeze({
       description: 'The announcement. Type \\n where you want a new line.',
       required: true,
       maxLength: 1_900,
+    },
+    {
+      type: ApplicationCommandOptionType.Attachment,
+      name: 'photo',
+      description: 'Photo posted with the announcement (PNG, JPG, GIF, or WEBP).',
+      required: false,
     },
     {
       type: ApplicationCommandOptionType.String,
@@ -125,6 +136,34 @@ export function buildAnnouncementContent({ message, mention = 'none' }) {
   return content
 }
 
+/* Discord reports the type it detected on upload; the file name is the
+ * fallback for clients that send no content type. */
+export function assertAnnouncementPhoto(attachment) {
+  const contentType = String(attachment?.contentType ?? '')
+  const name = String(attachment?.name ?? '')
+  if (!contentType.startsWith('image/') && !IMAGE_EXTENSION.test(name)) {
+    throw new Error('The attachment must be a photo (PNG, JPG, GIF, or WEBP).')
+  }
+  if (Number(attachment?.size ?? 0) > IMAGE_LIMIT_BYTES) {
+    throw new Error('The photo is larger than 10 MiB.')
+  }
+  return attachment
+}
+
+/* The bot re-uploads the bytes instead of forwarding the uploader's CDN
+ * link, so the announcement keeps its photo permanently. */
+export async function downloadAnnouncementPhoto(attachment, fetchImpl = fetch) {
+  const response = await fetchImpl(attachment.url)
+  if (!response.ok) {
+    throw new Error(`The photo could not be downloaded (status ${response.status}).`)
+  }
+  const data = Buffer.from(await response.arrayBuffer())
+  if (data.length > IMAGE_LIMIT_BYTES) {
+    throw new Error('The photo is larger than 10 MiB.')
+  }
+  return { attachment: data, name: attachment.name || 'announcement.png' }
+}
+
 /* @everyone and @here are only parsed when the command asked for them, so a
  * pasted announcement can never mass-ping on its own. */
 export function announcementMentions(mention) {
@@ -155,6 +194,7 @@ export function createAnnounceWorkflow(options = {}) {
   const announcerRoleIds = configuredIds(
     options.announcerRoleIds ?? process.env.ANNOUNCE_ROLE_IDS,
   )
+  const fetchImpl = options.fetchImpl ?? fetch
 
   async function resolveTargetChannel(interaction, channelId) {
     const channel = await interaction.client.channels.fetch(channelId)
@@ -199,31 +239,40 @@ export function createAnnounceWorkflow(options = {}) {
       return { status: 'rejected', reason: 'invalid_mention' }
     }
 
+    const photo = interaction.options.getAttachment?.('photo') ?? null
     let content
     try {
       content = buildAnnouncementContent({
         message: interaction.options.getString('message'),
         mention,
       })
+      if (photo) assertAnnouncementPhoto(photo)
     } catch (reason) {
       await ephemeralMessage(
         interaction,
-        `${reason instanceof Error ? reason.message : reason} Shorten it and run /announce again.`,
+        `${reason instanceof Error ? reason.message : reason} Fix it and run /announce again.`,
       )
       return { status: 'rejected', reason: 'invalid_content' }
     }
 
     await interaction.deferReply({ flags: MessageFlags.Ephemeral })
+    const files = photo ? [await downloadAnnouncementPhoto(photo, fetchImpl)] : []
     const target = await resolveTargetChannel(interaction, channel.id)
     const posted = await target.send({
       content,
       allowedMentions: announcementMentions(mention),
+      ...(files.length > 0 ? { files } : {}),
     })
     await interaction.editReply({
       content: `Announcement posted in <#${channel.id}>.${posted?.url ? `\n${posted.url}` : ''}`,
       allowedMentions: { parse: [] },
     })
-    return { status: 'posted', channelId: channel.id, messageId: posted?.id ?? null }
+    return {
+      status: 'posted',
+      channelId: channel.id,
+      messageId: posted?.id ?? null,
+      photo: files.length > 0,
+    }
   }
 
   async function handleInteraction(interaction) {

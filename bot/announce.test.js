@@ -4,9 +4,11 @@ import {
   ANNOUNCE_COMMAND,
   announcementBody,
   announcementMentions,
+  assertAnnouncementPhoto,
   buildAnnouncementContent,
   canAnnounce,
   createAnnounceWorkflow,
+  downloadAnnouncementPhoto,
 } from './announce.js'
 
 const CHANNEL_ID = '1208605026868535387'
@@ -18,6 +20,7 @@ function announceInteraction({
   channel = { id: CHANNEL_ID },
   message = 'Scrims start at 8 PM.',
   mention = null,
+  photo = null,
   target = null,
   sendResult = { id: 'msg-1', url: 'https://discord.com/channels/guild-1/1/msg-1' },
 } = {}) {
@@ -44,6 +47,7 @@ function announceInteraction({
     options: {
       getChannel: () => channel,
       getString: (name) => (name === 'message' ? message : mention),
+      getAttachment: () => photo,
     },
     client: { channels: { fetch: async () => destination } },
     deferReply: async () => {
@@ -58,14 +62,14 @@ function announceInteraction({
   }
 }
 
-test('the command takes a channel, a message, and an optional mention', () => {
+test('the command takes a channel, a message, an optional photo, and an optional mention', () => {
   assert.equal(ANNOUNCE_COMMAND.name, 'announce')
   assert.deepEqual(
     ANNOUNCE_COMMAND.options.map((option) => [option.name, option.required === true]),
-    [['channel', true], ['message', true], ['mention', false]],
+    [['channel', true], ['message', true], ['photo', false], ['mention', false]],
   )
   assert.deepEqual(
-    ANNOUNCE_COMMAND.options[2].choices.map((choice) => choice.value),
+    ANNOUNCE_COMMAND.options[3].choices.map((choice) => choice.value),
     ['none', 'here', 'everyone'],
   )
 })
@@ -171,6 +175,85 @@ test('a channel outside this server is refused', async () => {
     },
   })
   await assert.rejects(workflow.handleInteraction(interaction), /not part of this server/)
+})
+
+test('only photos are accepted as the attachment', () => {
+  assert.equal(
+    assertAnnouncementPhoto({ contentType: 'image/png', name: 'poster.png', size: 1_000 }).name,
+    'poster.png',
+  )
+  /* Some clients send no content type, so the extension decides. */
+  assert.doesNotThrow(() => assertAnnouncementPhoto({ name: 'bracket.JPG', size: 1_000 }))
+  assert.throws(
+    () => assertAnnouncementPhoto({ contentType: 'application/pdf', name: 'rules.pdf', size: 10 }),
+    /must be a photo/,
+  )
+  assert.throws(
+    () => assertAnnouncementPhoto({ contentType: 'image/png', name: 'huge.png', size: 11 * 1_024 * 1_024 }),
+    /larger than 10 MiB/,
+  )
+})
+
+test('the photo is re-uploaded from its bytes, not linked', async () => {
+  const file = await downloadAnnouncementPhoto(
+    { url: 'https://cdn.discordapp.com/a.png', name: 'poster.png' },
+    async () => ({ ok: true, arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer }),
+  )
+  assert.equal(file.name, 'poster.png')
+  assert.deepEqual([...file.attachment], [1, 2, 3])
+  await assert.rejects(
+    downloadAnnouncementPhoto(
+      { url: 'https://cdn.discordapp.com/a.png', name: 'poster.png' },
+      async () => ({ ok: false, status: 404 }),
+    ),
+    /status 404/,
+  )
+})
+
+test('an attached photo is posted with the announcement', async () => {
+  const workflow = createAnnounceWorkflow({
+    administratorIds: new Set(['admin-1']),
+    fetchImpl: async () => ({ ok: true, arrayBuffer: async () => new Uint8Array([7, 7]).buffer }),
+  })
+  const interaction = announceInteraction({
+    message: 'Bracket is out.',
+    photo: {
+      url: 'https://cdn.discordapp.com/bracket.png',
+      name: 'bracket.png',
+      contentType: 'image/png',
+      size: 2,
+    },
+  })
+  const result = await workflow.handleInteraction(interaction)
+  assert.equal(result.status, 'posted')
+  assert.equal(result.photo, true)
+  const [payload] = interaction.state.sent
+  assert.equal(payload.content, 'Bracket is out.')
+  assert.equal(payload.files.length, 1)
+  assert.equal(payload.files[0].name, 'bracket.png')
+  assert.deepEqual([...payload.files[0].attachment], [7, 7])
+})
+
+test('a message without a photo carries no files field', async () => {
+  const workflow = createAnnounceWorkflow({ administratorIds: new Set(['admin-1']) })
+  const interaction = announceInteraction({ message: 'Text only.' })
+  await workflow.handleInteraction(interaction)
+  assert.equal('files' in interaction.state.sent[0], false)
+})
+
+test('a non-photo attachment is refused before anything is posted', async () => {
+  const workflow = createAnnounceWorkflow({
+    administratorIds: new Set(['admin-1']),
+    fetchImpl: async () => assert.fail('A rejected attachment must never be downloaded.'),
+  })
+  const interaction = announceInteraction({
+    photo: { url: 'https://cdn.discordapp.com/rules.pdf', name: 'rules.pdf', contentType: 'application/pdf', size: 10 },
+  })
+  const result = await workflow.handleInteraction(interaction)
+  assert.equal(result.status, 'rejected')
+  assert.deepEqual(interaction.state.sent, [])
+  assert.equal(interaction.state.deferred, false)
+  assert.match(interaction.state.replies[0].content, /must be a photo/)
 })
 
 test('other commands are ignored', async () => {
