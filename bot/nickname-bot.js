@@ -30,6 +30,7 @@ import {
   MessageFlags,
   Partials,
 } from 'discord.js'
+import { ANNOUNCE_COMMAND, installAnnounceWorkflow } from './announce.js'
 import { installApplicationReview } from './application-review.js'
 import { createGameResultsBackupService } from './game-results-backup.js'
 import { resolveGameResultsConfig } from './game-results-config.js'
@@ -93,6 +94,7 @@ const COMMAND_DEFINITIONS = [
   { name: RULES_COMMAND_NAME, description: 'Show the official NIGHTRAID rules.' },
   { name: NIGHTRAID_RULES_COMMAND_NAME, description: 'Show the NIGHTRAID clan rules.' },
   { name: SCRIM_RULES_COMMAND_NAME, description: 'Show the official NIGHTRAID scrim mechanics.' },
+  ANNOUNCE_COMMAND,
   GAME_RESULTS_MVP_COMMAND,
   GAME_RESULTS_HEALTH_COMMAND,
   ...GAME_RESULTS_SCOREBOARD_COMMANDS,
@@ -457,6 +459,9 @@ installGameResultsIntake(client, {
   errorReporter: gameResultsErrorReporter,
   onOfficialSubmission: (submission, interaction) =>
     gameResultsReview.startAutomaticTally(submission, interaction),
+})
+installAnnounceWorkflow(client, {
+  errorReporter: gameResultsErrorReporter,
 })
 installGameResultsHealthWorkflow(client, {
   store: gameResultsStore,

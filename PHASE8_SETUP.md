@@ -91,6 +91,7 @@ The bot reads:
 | `DISCORD_APPLICATIONS_CHANNEL_ID` | Yes in Vercel; optional on bot host | The private channel where new application cards and decision buttons are posted. |
 | `APP_URL` | No | Production website URL; defaults to `https://nightraidbg.com` on the bot host. |
 | `ADMIN_DISCORD_IDS` | Yes in Vercel; optional on bot host | The two authorized administrator Discord IDs, separated by commas. Vercel always enforces this list. |
+| `ANNOUNCE_ROLE_IDS` | No | Extra role IDs allowed to run `/announce`, separated by commas. Server administrators, `ADMIN_ROLE_ID`, `TOURNAMENT_ADMIN_ROLE_ID`, and the role names `Tournament Admin` / `Announcer` are always allowed. |
 
 To copy an ID: Discord **User Settings → Advanced → Developer Mode**, then right-click the server or channel → **Copy ID**.
 
@@ -132,6 +133,34 @@ When the bot starts, it registers the rules commands as instant guild commands i
 Discord requires lowercase slash-command names, so the NIGHTRAID clan command is `/nrules`, not `/Nrules`. Every response uses plain Discord Markdown rather than embeds. Long fetched rules are split into ordered continuation messages. `/rules` and `/nrules` end with Markdown links to their sources; `/scrimrules` preserves the fetched mechanics formatting and uploads the official point-system image as a visible attachment beneath the text.
 
 For predictable results, pin only the official rule messages and arrange the rules in the order they were originally posted. The bot needs **View Channel** and **Read Message History** in the rules channel. Keep **MESSAGE CONTENT INTENT** enabled so it can read the rule text.
+
+## Announcement command
+
+`/announce` posts an announcement as the bot into any channel you pick.
+
+| Option | Required | Meaning |
+| --- | --- | --- |
+| `channel` | Yes | The channel that receives the announcement. Picked from the channel list. |
+| `message` | Yes | The announcement text you paste. |
+| `mention` | No | `No ping` (default), `@here`, or `@everyone`. |
+
+```
+/announce channel:#welcome message:Scrim night starts at 8 PM. mention:@everyone
+```
+
+The bot posts the message in the chosen channel and replies to you privately with a jump link. The mention, when chosen, becomes the first line above the text.
+
+Discord's command box cannot hold a real line break, so type `\n` where you want one — `Round 1 at 8 PM.\n\nBring your slot code.` posts as two paragraphs. Markdown and emoji are posted exactly as typed.
+
+`@everyone` and `@here` are only mentioned when the `mention` option asks for them, so pasted text can never mass-ping the server by accident; user and role mentions written inside the message work normally.
+
+Only server administrators, `ADMIN_DISCORD_IDS`, and members holding `ADMIN_ROLE_ID`, `TOURNAMENT_ADMIN_ROLE_ID`, `ANNOUNCE_ROLE_IDS`, or a role named `Tournament Admin` / `Announcer` can run it. The bot needs **View Channel** and **Send Messages** in the target channel (and **Mention Everyone** to use the mention option). An announcement that would exceed Discord's 2,000-character message limit is reported privately and nothing is posted.
+
+Run the command's tests with:
+
+```bash
+npm run test:announce
+```
 
 ## Game-results screenshot intake
 

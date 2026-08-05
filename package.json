@@ -10,6 +10,7 @@
     "typecheck:api": "tsc -p tsconfig.api.json",
     "preview": "vite preview",
     "bot:nickname": "node --env-file-if-exists=.env.local --env-file-if-exists=.env bot/nickname-bot.js",
+    "test:announce": "node --test bot/announce.test.js",
     "test:game-results-reader": "node --test bot/game-results-reader.test.js",
     "test:game-results-local": "node --test bot/game-results-local-reader.test.js",
     "test:game-results-scoreboard": "node --test bot/game-results-scoreboard-commands.test.js",
