@@ -18,6 +18,7 @@
     "test:watchparty": "node --test bot/watchparty.test.js",
     "test:join-nr": "node --test bot/join-nr.test.js",
     "test:live": "node --test bot/live-notifier.test.js",
+    "test:creator": "node --test bot/creator-tracker.test.js",
     "test:minigame-end": "node --test bot/minigame-end.test.js",
     "test:winner": "node --test bot/winner.test.js",
     "test:leaderboard": "node --test bot/leaderboard.test.js",
