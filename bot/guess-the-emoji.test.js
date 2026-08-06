@@ -142,8 +142,12 @@ test('getReactionForCount maps counts to digit emojis or cross mark', () => {
 test('evaluateEmojiGuess handles guesses, reactions, and victory', () => {
   const active = game({ emojis: '🥰 🫡 🐱 💚' })
   
-  // Host guess locked
+  // Host guess when hostMayGuess is disabled
+  active.hostMayGuess = false
   assert.equal(evaluateEmojiGuess(active, 'host-1', '🥰 🫡 🐱 💚').status, 'host_locked')
+
+  // Host guess allowed when hostMayGuess is true
+  active.hostMayGuess = true
 
   // Chat message (non-emoji)
   assert.equal(evaluateEmojiGuess(active, 'player-1', 'Good game everyone!').status, 'not_a_guess')

@@ -24,7 +24,7 @@ const PRIZE_LIMIT = 100
 const EMOJI_INPUT_LIMIT = 200
 
 /* Matches custom Discord emojis (<:name:id>, <a:name:id>) or Unicode emojis. */
-export const EMOJI_REGEX = /<a?:[a-zA-Z0-9_]+:\d+>|\p{Extended_Pictographic}(?:[\u{FE0F}\u{200D}\u{1F3FB}-\u{1F3FF}]|\p{Extended_Pictographic})*/gu
+export const EMOJI_REGEX = /<a?:[^:\s]+:\d+>|\p{Extended_Pictographic}(?:[\u{FE0F}\u{200D}\u{1F3FB}-\u{1F3FF}]|\p{Extended_Pictographic})*/gu
 
 export const NUMBER_REACTIONS = Object.freeze([
   '0️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣',
@@ -139,7 +139,7 @@ export function createEmojiGame({
     secretEmojis,
     shuffledEmojis,
     prize: cleanPrize(prize),
-    hostMayGuess: false,
+    hostMayGuess: true,
     attempts: new Map(),
     startedAt: Date.now(),
     finished: false,
