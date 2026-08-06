@@ -26,6 +26,19 @@ const EMOJI_INPUT_LIMIT = 200
 /* Matches custom Discord emojis (<:name:id>, <a:name:id>) or Unicode emojis. */
 export const EMOJI_REGEX = /<a?:[^:\s]+:\d+>|\p{Extended_Pictographic}(?:[\u{FE0F}\u{200D}\u{1F3FB}-\u{1F3FF}]|\p{Extended_Pictographic})*/gu
 
+/* Invisible / format / zero-width characters inserted by mobile keyboards & Discord */
+export const INVISIBLE_CHARS_REGEX = /[\s\u200B-\u200D\uFEFF\u200E\u200F\u00A0\u180E\u2028\u2029]+/g
+
+export function normalizeEmoji(emoji) {
+  if (!emoji) return ''
+  const str = String(emoji).replace(/[\u200B-\u200D\uFEFF\u200E\u200F\u00A0]/g, '').trim()
+  const customMatch = str.match(/<a?:([^:\s]+):(\d+)>/)
+  if (customMatch) {
+    return `<:${customMatch[1]}:${customMatch[2]}>`
+  }
+  return str
+}
+
 export const NUMBER_REACTIONS = Object.freeze([
   '0️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣',
   '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟',
@@ -63,7 +76,7 @@ export function parseEmojis(text) {
   if (!input) return []
   const matches = input.match(EMOJI_REGEX) || []
   if (matches.length === 0) return null
-  const stripped = input.replace(EMOJI_REGEX, '').replace(/\s+/g, '')
+  const stripped = input.replace(EMOJI_REGEX, '').replace(INVISIBLE_CHARS_REGEX, '')
   if (stripped.length > 0) return null
   return matches
 }
@@ -99,7 +112,7 @@ export function countCorrectPositions(guessEmojis, secretEmojis) {
   let count = 0
   const limit = Math.min(guessEmojis.length, secretEmojis.length)
   for (let i = 0; i < limit; i++) {
-    if (guessEmojis[i] === secretEmojis[i]) {
+    if (normalizeEmoji(guessEmojis[i]) === normalizeEmoji(secretEmojis[i])) {
       count++
     }
   }
