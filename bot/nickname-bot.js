@@ -64,6 +64,7 @@ import {
 } from './guess-the-emoji.js'
 import { MUSIC_COMMANDS, installMusicWorkflow } from './music-player.js'
 import { WATCHPARTY_COMMAND, installWatchpartyWorkflow } from './watchparty.js'
+import { LIVE_COMMAND, installLiveWorkflow } from './live-notifier.js'
 import { END_GAME_COMMAND, installEndGameWorkflow } from './minigame-end.js'
 import { WINNER_COMMAND, installWinnerWorkflow } from './winner.js'
 import { LEADERBOARD_COMMAND, installLeaderboardWorkflow } from './leaderboard.js'
@@ -122,6 +123,7 @@ const COMMAND_DEFINITIONS = [
   GAME_RESULTS_MVP_COMMAND,
   GAME_RESULTS_HEALTH_COMMAND,
   WATCHPARTY_COMMAND,
+  LIVE_COMMAND,
   ...MUSIC_COMMANDS,
   ...GAME_RESULTS_SCOREBOARD_COMMANDS,
   ...GAME_RESULTS_ADMIN_COMMANDS,
@@ -513,6 +515,9 @@ installMusicWorkflow(client, {
   errorReporter: gameResultsErrorReporter,
 })
 installWatchpartyWorkflow(client, {
+  errorReporter: gameResultsErrorReporter,
+})
+installLiveWorkflow(client, {
   errorReporter: gameResultsErrorReporter,
 })
 installGameResultsHealthWorkflow(client, {
