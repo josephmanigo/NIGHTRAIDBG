@@ -121,10 +121,9 @@ test('a multi-word or empty secret is refused', () => {
   assert.throws(() => assertSecretWord('x'.repeat(33)), /single word/)
 })
 
-test('the board shows the hint and the letter count', () => {
+test('the board shows the hint', () => {
   const board = renderWordGameStart({ secret: 'bloodstrike', hint: 'The game we play', prize: '500 diamonds' })
   assert.match(board, /# Game Started/)
-  assert.match(board, /a word with \*\*11 letters\*\*/)
   assert.match(board, /- Hint: \*\*The game we play\*\*/)
   assert.match(board, /- You have \*\*5\*\* guesses each\./)
   assert.match(board, /- Prize: \*\*500 diamonds\*\*/)

@@ -163,12 +163,10 @@ export function evaluateWordGuess(game, userId, rawValue) {
 }
 
 export function renderWordGameStart({ secret, hint, prize = null }) {
-  const letters = secret.length === 1 ? '1 letter' : `${secret.length} letters`
   const lines = [
     '# Game Started',
     '',
     '**How To Play:**',
-    `- I have thought of a word with **${letters}**.`,
     `- Hint: **${hint}**`,
     '- First person to guess the word wins!',
     `- You have **${WORD_ATTEMPTS}** guesses each.`,
