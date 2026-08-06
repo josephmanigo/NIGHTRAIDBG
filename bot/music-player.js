@@ -214,6 +214,9 @@ export function createMusicWorkflow(options = {}) {
       stream = await playImpl.stream(nextTrack.url)
     } catch (err) {
       console.warn(`YouTube stream failed for "${nextTrack.title}" (${err.message}). Trying SoundCloud fallback...`)
+    }
+
+    if (!stream) {
       try {
         if (playImpl.getFreeClientID) {
           const clientID = await playImpl.getFreeClientID().catch(() => null)
@@ -221,12 +224,18 @@ export function createMusicWorkflow(options = {}) {
             await playImpl.setToken({ soundcloud: { client_id: clientID } }).catch(() => undefined)
           }
         }
-        const scResults = await playImpl.search(nextTrack.title, { source: { soundcloud: 'tracks' }, limit: 1 }).catch(() => [])
+        const cleanTitle = (nextTrack.artist ? `${nextTrack.title} ${nextTrack.artist}` : nextTrack.title)
+          .replace(/[\(\[\{].*?[\)\]\}]/g, '')
+          .replace(/official video|official audio|lyrics|lyric video|hd|4k/gi, '')
+          .trim()
+
+        console.log(`Searching SoundCloud for: "${cleanTitle}"`)
+        const scResults = await playImpl.search(cleanTitle, { source: { soundcloud: 'tracks' }, limit: 1 }).catch(() => [])
         if (scResults && scResults[0]) {
           stream = await playImpl.stream(scResults[0].url)
         }
       } catch (scErr) {
-        console.error(`SoundCloud fallback also failed for "${nextTrack.title}":`, scErr.message)
+        console.error(`SoundCloud fallback failed for "${nextTrack.title}":`, scErr.message)
       }
     }
 
