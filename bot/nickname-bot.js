@@ -58,6 +58,10 @@ import {
   GUESS_THE_WORD_COMMAND,
   installGuessTheWordWorkflow,
 } from './guess-the-word.js'
+import {
+  GUESS_THE_EMOJI_COMMAND,
+  installGuessTheEmojiWorkflow,
+} from './guess-the-emoji.js'
 import { END_GAME_COMMAND, installEndGameWorkflow } from './minigame-end.js'
 import { WINNER_COMMAND, installWinnerWorkflow } from './winner.js'
 import { LEADERBOARD_COMMAND, installLeaderboardWorkflow } from './leaderboard.js'
@@ -108,6 +112,7 @@ const COMMAND_DEFINITIONS = [
   ANNOUNCE_COMMAND,
   GUESS_THE_NUMBER_COMMAND,
   GUESS_THE_WORD_COMMAND,
+  GUESS_THE_EMOJI_COMMAND,
   END_GAME_COMMAND,
   WINNER_COMMAND,
   LEADERBOARD_COMMAND,
@@ -485,8 +490,11 @@ const guessTheNumber = installGuessTheNumberWorkflow(client, {
 const guessTheWord = installGuessTheWordWorkflow(client, {
   errorReporter: gameResultsErrorReporter,
 })
+const guessTheEmoji = installGuessTheEmojiWorkflow(client, {
+  errorReporter: gameResultsErrorReporter,
+})
 installEndGameWorkflow(client, {
-  workflows: [guessTheNumber, guessTheWord],
+  workflows: [guessTheNumber, guessTheWord, guessTheEmoji],
   errorReporter: gameResultsErrorReporter,
 })
 installWinnerWorkflow(client, {

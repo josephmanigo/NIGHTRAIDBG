@@ -13,6 +13,7 @@
     "test:announce": "node --test bot/announce.test.js",
     "test:guess-the-number": "node --test bot/guess-the-number.test.js",
     "test:guess-the-word": "node --test bot/guess-the-word.test.js",
+    "test:guess-the-emoji": "node --test bot/guess-the-emoji.test.js",
     "test:minigame-end": "node --test bot/minigame-end.test.js",
     "test:winner": "node --test bot/winner.test.js",
     "test:leaderboard": "node --test bot/leaderboard.test.js",

@@ -1,0 +1,220 @@
+import assert from 'node:assert/strict'
+import test from 'node:test'
+import {
+  EMOJI_REACTIONS,
+  GUESS_THE_EMOJI_COMMAND,
+  NUMBER_REACTIONS,
+  assertSecretEmojis,
+  attemptsUsed,
+  countCorrectPositions,
+  createEmojiGame,
+  createGuessTheEmojiWorkflow,
+  evaluateEmojiGuess,
+  getReactionForCount,
+  parseEmojis,
+  renderEmojiGameOver,
+  renderEmojiGameStart,
+  renderEmojiWin,
+  shuffleArray,
+  shuffleEmojiSequence,
+} from './guess-the-emoji.js'
+import { createEndGameWorkflow } from './minigame-end.js'
+
+const CHANNEL_ID = '1208605026868535387'
+const GAME_ID = 'e1m0j100'
+
+function game({
+  emojis = '🥰 🫡 🐱 💚 😺 🛡️',
+  hostId = 'host-1',
+  prize = null,
+} = {}) {
+  return createEmojiGame({
+    gameId: GAME_ID,
+    channelId: CHANNEL_ID,
+    guildId: 'guild-1',
+    hostId,
+    emojis,
+    prize,
+  })
+}
+
+function commandInteraction({
+  userId = 'host-1',
+  emojis = '🥰 🫡 🐱 💚 😺 🛡️',
+  prize = null,
+  administrator = false,
+} = {}) {
+  const state = { replies: [] }
+  const values = { emojis, prize }
+  return {
+    state,
+    isChatInputCommand: () => true,
+    commandName: GUESS_THE_EMOJI_COMMAND.name,
+    guildId: 'guild-1',
+    channelId: CHANNEL_ID,
+    user: { id: userId },
+    member: { permissions: { has: () => administrator } },
+    options: { getString: (name) => values[name] ?? null },
+    reply: async (payload) => {
+      state.replies.push(payload)
+    },
+    editReply: async (payload) => {
+      state.replies.push(payload)
+    },
+    fetchReply: async () => ({ id: 'game-msg' }),
+  }
+}
+
+function guessMessage({ userId = 'player-1', content = '🥰 🫡 🐱 💚 😺 🛡️', bot = false } = {}) {
+  const state = { reactions: [], sent: [] }
+  return {
+    state,
+    author: { id: userId, bot },
+    channelId: CHANNEL_ID,
+    content,
+    inGuild: () => true,
+    react: async (emoji) => {
+      state.reactions.push(emoji)
+    },
+    channel: {
+      send: async (payload) => {
+        state.sent.push(payload)
+      },
+    },
+  }
+}
+
+test('GUESS_THE_EMOJI_COMMAND options and properties', () => {
+  assert.equal(GUESS_THE_EMOJI_COMMAND.name, 'guesstheemoji')
+  assert.deepEqual(
+    GUESS_THE_EMOJI_COMMAND.options.map((option) => [option.name, option.required === true]),
+    [['emojis', true], ['prize', false]],
+  )
+})
+
+test('parseEmojis extracts Unicode and custom Discord emojis', () => {
+  const parsed = parseEmojis('🥰 🫡 🐱 💚 😺 🛡️')
+  assert.deepEqual(parsed, ['🥰', '🫡', '🐱', '💚', '😺', '🛡️'])
+
+  const custom = parseEmojis('<:custom_emoji:123456789> <a:anim_emoji:987654321>')
+  assert.deepEqual(custom, ['<:custom_emoji:123456789>', '<a:anim_emoji:987654321>'])
+
+  assert.equal(parseEmojis('Hello world 🥰 🫡'), null)
+  assert.deepEqual(parseEmojis(''), [])
+  assert.deepEqual(parseEmojis(null), [])
+})
+
+test('assertSecretEmojis requires at least 2 emojis', () => {
+  assert.deepEqual(assertSecretEmojis('🥰 🫡'), ['🥰', '🫡'])
+  assert.throws(() => assertSecretEmojis('🥰'), /at least 2 emojis/)
+  assert.throws(() => assertSecretEmojis('hello world'), /at least 2 emojis/)
+})
+
+test('shuffleArray and shuffleEmojiSequence randomize order', () => {
+  const emojis = ['🥰', '🫡', '🐱', '💚', '😺', '🛡️']
+  const shuffled = shuffleArray(emojis, Math.random)
+  assert.equal(shuffled.length, emojis.length)
+  assert.deepEqual(shuffled.sort(), [...emojis].sort())
+
+  // Test deterministic shuffle override when same as original
+  const deterministicSeq = shuffleEmojiSequence(['🥰', '🫡'], () => 0)
+  assert.notDeepEqual(deterministicSeq, ['🥰', '🫡'])
+})
+
+test('countCorrectPositions calculates exact position matches', () => {
+  const secret = ['🥰', '🫡', '🐱', '💚', '😺', '🛡️']
+  
+  // All correct
+  assert.equal(countCorrectPositions(['🥰', '🫡', '🐱', '💚', '😺', '🛡️'], secret), 6)
+  // Partial correct (index 2 and 4 match)
+  assert.equal(countCorrectPositions(['🫡', '🥰', '🐱', '🛡️', '😺', '💚'], secret), 2)
+  // 0 correct
+  assert.equal(countCorrectPositions(['🛡️', '😺', '💚', '🐱', '🫡', '🥰'], secret), 0)
+})
+
+test('getReactionForCount maps counts to digit emojis or cross mark', () => {
+  assert.equal(getReactionForCount(0), '❌')
+  assert.equal(getReactionForCount(1), '1️⃣')
+  assert.equal(getReactionForCount(3), '3️⃣')
+  assert.equal(getReactionForCount(10), '🔟')
+})
+
+test('evaluateEmojiGuess handles guesses, reactions, and victory', () => {
+  const active = game({ emojis: '🥰 🫡 🐱 💚' })
+  
+  // Host guess locked
+  assert.equal(evaluateEmojiGuess(active, 'host-1', '🥰 🫡 🐱 💚').status, 'host_locked')
+
+  // Chat message (non-emoji)
+  assert.equal(evaluateEmojiGuess(active, 'player-1', 'Good game everyone!').status, 'not_a_guess')
+
+  // Wrong guess with 1 position match (index 0 match)
+  const wrongRes = evaluateEmojiGuess(active, 'player-1', '🥰 🐱 🫡 💚') // index 0 & 3 match -> 2
+  assert.equal(wrongRes.status, 'wrong')
+  assert.equal(wrongRes.count, 2)
+  assert.equal(wrongRes.reaction, '2️⃣')
+  assert.equal(attemptsUsed(active, 'player-1'), 1)
+
+  // Correct guess
+  const correctRes = evaluateEmojiGuess(active, 'player-1', '🥰 🫡 🐱 💚')
+  assert.equal(correctRes.status, 'correct')
+  assert.equal(active.finished, true)
+  assert.equal(active.winnerId, 'player-1')
+})
+
+test('workflow starts game and announces shuffled emoji pool', async () => {
+  const games = new Map()
+  const workflow = createGuessTheEmojiWorkflow({ games, gameIdImpl: () => GAME_ID })
+  const interaction = commandInteraction({ emojis: '🥰 🫡 🐱 💚 😺 🛡️', prize: '1,000 Scrim Points' })
+
+  const result = await workflow.handleInteraction(interaction)
+  assert.equal(result.status, 'started')
+  assert.equal(games.has(CHANNEL_ID), true)
+
+  const reply = interaction.state.replies[0]
+  assert.match(reply.content, /# Guess The Emoji/)
+  assert.match(reply.content, /Shuffled Emojis:/)
+  assert.match(reply.content, /Prize: \*\*1,000 Scrim Points\*\*/)
+})
+
+test('player guessing correct sequence receives reaction and victory message', async () => {
+  const games = new Map()
+  const workflow = createGuessTheEmojiWorkflow({ games, gameIdImpl: () => GAME_ID })
+  await workflow.handleInteraction(commandInteraction({ emojis: '🥰 🫡 🐱 💚' }))
+
+  const wrongMsg = guessMessage({ userId: 'player-1', content: '🥰 🐱 🫡 💚' }) // 2 correct
+  const wrongRes = await workflow.handleMessage(wrongMsg)
+  assert.equal(wrongRes.status, 'wrong')
+  assert.equal(wrongMsg.state.reactions.includes('2️⃣'), true)
+
+  const winMsg = guessMessage({ userId: 'player-1', content: '🥰 🫡 🐱 💚' })
+  const winRes = await workflow.handleMessage(winMsg)
+  assert.equal(winRes.status, 'won')
+  assert.equal(winMsg.state.reactions.includes('✅'), true)
+  assert.match(winMsg.state.sent[0].content, /# Guessed It!/)
+})
+
+test('endGame allows host or admin to terminate game', async () => {
+  const games = new Map()
+  const emojiWorkflow = createGuessTheEmojiWorkflow({ games, gameIdImpl: () => GAME_ID })
+  await emojiWorkflow.handleInteraction(commandInteraction({ userId: 'host-1', emojis: '🥰 🫡 🐱 💚' }))
+
+  const endWorkflow = createEndGameWorkflow({ workflows: [emojiWorkflow] })
+
+  // Non-host non-admin attempt
+  const bystanderRes = emojiWorkflow.endGame({ channelId: CHANNEL_ID, userId: 'player-9', isAdministrator: false })
+  assert.equal(bystanderRes.status, 'unauthorized')
+
+  // Host attempt
+  const endResult = await endWorkflow.handleInteraction({
+    isChatInputCommand: () => true,
+    commandName: 'endgame',
+    guildId: 'guild-1',
+    channelId: CHANNEL_ID,
+    user: { id: 'host-1' },
+    member: { permissions: { has: () => false } },
+    reply: async () => undefined,
+  })
+  assert.equal(endResult.status, 'ended')
+  assert.equal(games.get(CHANNEL_ID).finished, true)
+})
