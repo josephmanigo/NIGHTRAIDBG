@@ -92,33 +92,13 @@ export function parseLiveUrl(rawUrl, customTitle = '') {
 }
 
 export function createLiveNotificationEmbed(streamData, user = null) {
-  const { url, platform, streamerName, isLive, title, color, avatarUrl, thumbnailUrl, viewers } = streamData
+  const { url, streamerName, isLive, title } = streamData
 
   const headerText = isLive
-    ? `**${streamerName}** is live!`
-    : `🎥 **${streamerName}** just posted a new video!`
+    ? `**${streamerName}** is live!\n${url}`
+    : `🎥 **${streamerName}** just posted a new video!\n${url}`
 
   const buttonLabel = isLive ? 'Watch Stream ↗' : 'Watch Video ↗'
-
-  const authorIcon = avatarUrl || user?.displayAvatarURL?.() || null
-
-  const embed = new EmbedBuilder()
-    .setAuthor({
-      name: streamerName,
-      iconURL: authorIcon,
-    })
-    .setTitle(title || (isLive ? `${streamerName} is live!` : `${streamerName} posted a new video!`))
-    .setURL(url)
-    .setColor(color)
-
-  if (isLive) {
-    embed.addFields({ name: 'Viewers', value: String(viewers ?? 0), inline: false })
-  }
-
-  const mainImage = thumbnailUrl || avatarUrl
-  if (mainImage) {
-    embed.setImage(mainImage)
-  }
 
   const button = new ButtonBuilder()
     .setLabel(buttonLabel)
@@ -131,7 +111,7 @@ export function createLiveNotificationEmbed(streamData, user = null) {
     headerText,
     payload: {
       content: headerText,
-      embeds: [embed],
+      flags: MessageFlags.SuppressEmbeds,
       components: [row],
     },
   }
