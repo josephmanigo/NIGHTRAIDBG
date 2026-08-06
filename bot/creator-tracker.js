@@ -180,14 +180,36 @@ export async function checkCreatorUpdates(creator, fetchImpl = fetch) {
       if (resProf && resProf.ok) {
         const html = await resProf.text().catch(() => '')
 
-        const isLiveNow =
-          /is\s+live/i.test(html) ||
-          /live\s+stream/i.test(html) ||
-          html.includes('"status":2') ||
-          html.includes('"status": 2') ||
-          html.includes('"live_status":1') ||
-          html.includes('live-room') ||
-          (html.includes('"roomId"') && !html.includes('"roomId":""') && !html.includes('"roomId":"0"') && !html.includes('"roomId":null'))
+        let isLiveNow = false
+
+        // 1. Rehydration JSON object check
+        const rehydrMatch = html.match(/<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>(.*?)<\/script>/s)
+        if (rehydrMatch) {
+          try {
+            const data = JSON.parse(rehydrMatch[1])
+            const scope = data['__DEFAULT_SCOPE__'] || {}
+            const userDetail = scope['webapp.user-detail'] || {}
+            const userInfo = userDetail.userInfo || {}
+            const liveRoom = userInfo.liveRoom || userDetail.liveRoom
+
+            if (liveRoom) {
+              const status = liveRoom.status ?? liveRoom.liveRoomStatus
+              const roomId = liveRoom.roomId ?? userInfo.user?.roomId
+              if (status === 2 && roomId && roomId !== '0' && roomId !== '') {
+                isLiveNow = true
+              }
+            }
+          } catch {}
+        }
+
+        // 2. Strict regex backup requiring active room ID with status 2
+        if (!isLiveNow) {
+          const hasActiveRoomId = /"roomId"\s*:\s*"([1-9]\d{14,20})"/i.test(html) || /"room_id"\s*:\s*([1-9]\d{14,20})/i.test(html)
+          const hasLiveStatus2 = /"liveRoomStatus"\s*:\s*2/i.test(html) || /"status"\s*:\s*2/i.test(html)
+          if (hasActiveRoomId && hasLiveStatus2 && !html.includes('LIVE ended')) {
+            isLiveNow = true
+          }
+        }
 
         if (isLiveNow) {
           if (!isLive) {
