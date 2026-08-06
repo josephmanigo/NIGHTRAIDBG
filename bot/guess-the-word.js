@@ -179,6 +179,17 @@ export function renderWordGameStart({ secret, hint, prize = null }) {
   return lines.join('\n')
 }
 
+/* Shown when the host gives up on a word nobody could find. */
+export function renderWordGameOver({ game, endedBy }) {
+  const lines = [
+    '# Game Over',
+    `Nobody guessed it. The word was **${game.secret}**.`,
+  ]
+  if (game.prize) lines.push(`Nobody won **${game.prize}**.`)
+  lines.push(`-# Ended by <@${endedBy}>.`)
+  return lines.join('\n')
+}
+
 export function renderWordWin({ userId, game, result }) {
   const tries = result.used === 1 ? '1 guess' : `${result.used} guesses`
   const lines = [
@@ -309,7 +320,23 @@ export function createGuessTheWordWorkflow(options = {}) {
     return handleCommand(interaction)
   }
 
-  return { handleInteraction, handleMessage, games }
+  /* Called by /endgame so a word nobody can find does not sit open
+   * forever. Only the host who started it, or an administrator, may. */
+  function endGame({ channelId, userId, isAdministrator = false }) {
+    const game = activeGame(channelId)
+    if (!game) return { status: 'none' }
+    if (String(userId) !== game.hostId && !isAdministrator) {
+      return { status: 'unauthorized', hostId: game.hostId }
+    }
+    game.finished = true
+    return {
+      status: 'ended',
+      game: 'word',
+      content: renderWordGameOver({ game, endedBy: userId }),
+    }
+  }
+
+  return { handleInteraction, handleMessage, endGame, games }
 }
 
 export function installGuessTheWordWorkflow(client, options = {}) {

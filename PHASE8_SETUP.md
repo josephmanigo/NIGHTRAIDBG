@@ -233,6 +233,27 @@ Run the game's tests with:
 npm run test:guess-the-word
 ```
 
+## Ending a game
+
+`/endgame` stops the guessing game running in the current channel and reveals the answer, for when nobody can find it. It takes no options and covers both games: a channel holding a number game and a word game closes both at once, and an unclaimed prize is named.
+
+```
+# Game Over
+Nobody guessed it. The number was 7777.
+Nobody won 500 diamonds.
+Ended by @Ems.
+```
+
+Only the host who started a game, or a server administrator, can end it; anyone else is told privately who to ask. Running it in a channel with no game says so privately and posts nothing. Once ended, later guesses stop counting.
+
+Starting a new game with `/guessthenumber` or `/guesstheword` also replaces a running one, but without revealing the old answer — use `/endgame` when the answer should be shown.
+
+Run its tests with:
+
+```bash
+npm run test:minigame-end
+```
+
 ## Game-results screenshot intake
 
 The bot monitors only `GAME_RESULTS_CHANNEL_ID` for screenshot attachments. PNG, JPG, JPEG, and WEBP files within `GAME_RESULTS_MAX_FILE_SIZE_MB` are accepted, including multiple images in one message. A message containing any unsupported or oversized attachment is rejected as one submission.

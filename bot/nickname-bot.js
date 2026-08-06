@@ -58,6 +58,7 @@ import {
   GUESS_THE_WORD_COMMAND,
   installGuessTheWordWorkflow,
 } from './guess-the-word.js'
+import { END_GAME_COMMAND, installEndGameWorkflow } from './minigame-end.js'
 import { createRoundSubmissionReader } from './game-results-round-reader.js'
 import { createStructuredLogger, createErrorReporter } from './game-results-runtime.js'
 import { createGameResultsSheetClient } from './game-results-sheet-client.js'
@@ -105,6 +106,7 @@ const COMMAND_DEFINITIONS = [
   ANNOUNCE_COMMAND,
   GUESS_THE_NUMBER_COMMAND,
   GUESS_THE_WORD_COMMAND,
+  END_GAME_COMMAND,
   GAME_RESULTS_MVP_COMMAND,
   GAME_RESULTS_HEALTH_COMMAND,
   ...GAME_RESULTS_SCOREBOARD_COMMANDS,
@@ -473,10 +475,14 @@ installGameResultsIntake(client, {
 installAnnounceWorkflow(client, {
   errorReporter: gameResultsErrorReporter,
 })
-installGuessTheNumberWorkflow(client, {
+const guessTheNumber = installGuessTheNumberWorkflow(client, {
   errorReporter: gameResultsErrorReporter,
 })
-installGuessTheWordWorkflow(client, {
+const guessTheWord = installGuessTheWordWorkflow(client, {
+  errorReporter: gameResultsErrorReporter,
+})
+installEndGameWorkflow(client, {
+  workflows: [guessTheNumber, guessTheWord],
   errorReporter: gameResultsErrorReporter,
 })
 installGameResultsHealthWorkflow(client, {
