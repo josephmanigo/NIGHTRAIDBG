@@ -183,51 +183,26 @@ export async function checkCreatorUpdates(creator, fetchImpl = fetch) {
   let newContent = null
 
   if (platform === 'tiktok') {
-    const profileUrl = `https://www.tiktok.com/@${username}`
-    const liveUrl = `https://www.tiktok.com/@${username}/live`
+    const baseProfileUrl = creator.profileUrl ? creator.profileUrl.replace(/\/live\/?$/i, '') : `https://www.tiktok.com/@${username}`
+    const profileUrl = baseProfileUrl
+    const liveUrl = `${baseProfileUrl}/live`
 
     const headers = {
       'User-Agent':
-        'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
       Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       'Accept-Language': 'en-US,en;q=0.9',
     }
 
     try {
-      const resProf = await fetchImpl(profileUrl, { headers, redirect: 'follow' }).catch(() => null)
-      if (resProf && resProf.ok) {
-        const html = await resProf.text().catch(() => '')
-
-        let isLiveNow = false
-
-        // 1. Rehydration JSON object check
-        const rehydrMatch = html.match(/<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>(.*?)<\/script>/s)
-        if (rehydrMatch) {
-          try {
-            const data = JSON.parse(rehydrMatch[1])
-            const scope = data['__DEFAULT_SCOPE__'] || {}
-            const userDetail = scope['webapp.user-detail'] || {}
-            const userInfo = userDetail.userInfo || {}
-            const liveRoom = userInfo.liveRoom || userDetail.liveRoom
-
-            if (liveRoom) {
-              const status = liveRoom.status ?? liveRoom.liveRoomStatus
-              const roomId = liveRoom.roomId ?? userInfo.user?.roomId
-              if (status === 2 && roomId && roomId !== '0' && roomId !== '') {
-                isLiveNow = true
-              }
-            }
-          } catch {}
-        }
-
-        // 2. Strict regex backup requiring active room ID with status 2
-        if (!isLiveNow) {
-          const hasActiveRoomId = /"roomId"\s*:\s*"([1-9]\d{14,20})"/i.test(html) || /"room_id"\s*:\s*([1-9]\d{14,20})/i.test(html)
-          const hasLiveStatus2 = /"liveRoomStatus"\s*:\s*2/i.test(html) || /"status"\s*:\s*2/i.test(html)
-          if (hasActiveRoomId && hasLiveStatus2 && !html.includes('LIVE ended')) {
-            isLiveNow = true
-          }
-        }
+      const resLive = await fetchImpl(liveUrl, { headers, redirect: 'follow' }).catch(() => null)
+      if (resLive && resLive.ok) {
+        const htmlLive = await resLive.text().catch(() => '')
+        const isLiveNow =
+          resLive.url.includes('/live') &&
+          !htmlLive.includes('LIVE ended') &&
+          !htmlLive.includes('page not available') &&
+          (htmlLive.includes('"roomId"') || htmlLive.includes('"room_id"') || htmlLive.includes('live-room') || htmlLive.includes('"status":2'))
 
         if (isLiveNow) {
           if (!isLive) {
@@ -241,11 +216,15 @@ export async function checkCreatorUpdates(creator, fetchImpl = fetch) {
         } else {
           creator.isLive = false
         }
+      }
 
-        if (!newContent) {
+      if (!newContent && !creator.isLive) {
+        const resProf = await fetchImpl(profileUrl, { headers, redirect: 'follow' }).catch(() => null)
+        if (resProf && resProf.ok) {
+          const htmlProf = await resProf.text().catch(() => '')
           const videoMatches = [
-            ...[...html.matchAll(/\/video\/(\d{10,20})/g)].map((m) => m[1]),
-            ...[...html.matchAll(/"id"\s*:\s*"(\d{10,20})"/g)].map((m) => m[1]),
+            ...[...htmlProf.matchAll(/\/video\/(\d{10,20})/g)].map((m) => m[1]),
+            ...[...htmlProf.matchAll(/"id"\s*:\s*"(\d{10,20})"/g)].map((m) => m[1]),
           ]
 
           if (videoMatches.length > 0) {

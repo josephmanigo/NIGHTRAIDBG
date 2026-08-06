@@ -54,7 +54,8 @@ test('addTrackedCreator and removeTrackedCreator manage creator list', () => {
 test('checkCreatorUpdates detects video and live stream content', async () => {
   const mockFetchTikTok = async (url) => ({
     ok: true,
-    text: async () => '<html><body>/video/7391823718931 isLiveBroadcast</body></html>',
+    url,
+    text: async () => '<html><body>/video/7391823718931</body></html>',
   })
 
   const creator = { platform: 'tiktok', username: 'zhara_nr', lastSeenContentId: null, isLive: false }
