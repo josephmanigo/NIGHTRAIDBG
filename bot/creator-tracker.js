@@ -198,11 +198,36 @@ export async function checkCreatorUpdates(creator, fetchImpl = fetch) {
       const resLive = await fetchImpl(liveUrl, { headers, redirect: 'follow' }).catch(() => null)
       if (resLive && resLive.ok) {
         const htmlLive = await resLive.text().catch(() => '')
-        const isLiveNow =
-          resLive.url.includes('/live') &&
-          !htmlLive.includes('LIVE ended') &&
-          !htmlLive.includes('page not available') &&
-          (htmlLive.includes('"roomId"') || htmlLive.includes('"room_id"') || htmlLive.includes('live-room') || htmlLive.includes('"status":2'))
+        let isLiveNow = false
+
+        // Check rehydration JSON first
+        const rehydrMatch = htmlLive.match(/<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>(.*?)<\/script>/s)
+        if (rehydrMatch) {
+          try {
+            const data = JSON.parse(rehydrMatch[1])
+            const scope = data['__DEFAULT_SCOPE__'] || {}
+            const userDetail = scope['webapp.user-detail'] || {}
+            const userInfo = userDetail.userInfo || {}
+            const liveRoom = userInfo.liveRoom || userDetail.liveRoom
+
+            if (liveRoom) {
+              const status = liveRoom.status ?? liveRoom.liveRoomStatus
+              const roomId = liveRoom.roomId ?? userInfo.user?.roomId
+              if (status === 2 && roomId && String(roomId).length > 10 && roomId !== '0') {
+                isLiveNow = true
+              }
+            }
+          } catch {}
+        }
+
+        // Strict fallback: Must have active non-zero numeric roomId AND status 2
+        if (!isLiveNow) {
+          const roomMatch = htmlLive.match(/"roomId"\s*:\s*"([1-9]\d{14,20})"/) || htmlLive.match(/"room_id"\s*:\s*([1-9]\d{14,20})/)
+          const hasLiveStatus2 = htmlLive.includes('"liveRoomStatus":2') || htmlLive.includes('"status":2') || htmlLive.includes('"status": 2')
+          if (roomMatch && hasLiveStatus2 && !htmlLive.includes('LIVE ended')) {
+            isLiveNow = true
+          }
+        }
 
         if (isLiveNow) {
           if (!isLive) {

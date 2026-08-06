@@ -89,10 +89,11 @@ test('parseLiveUrl handles TikTok, Twitch, YouTube, and Facebook URLs', () => {
   assert.equal(youtubeVideo.isLive, false)
 })
 
-test('createLiveNotificationEmbed generates clean non-embedded payload', () => {
+test('createLiveNotificationEmbed generates card matching screenshot', () => {
   const parsed = parseLiveUrl('https://www.tiktok.com/@zhara_nr/live', '1v3 1 Top #tiktoklive')
   const { headerText, payload } = createLiveNotificationEmbed(parsed, { id: 'user-1', displayAvatarURL: () => null })
   assert.match(headerText, /zhara_nr/)
+  assert.ok(payload.embeds)
   assert.ok(payload.components)
 })
 
