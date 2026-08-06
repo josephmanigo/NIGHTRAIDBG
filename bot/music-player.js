@@ -9,16 +9,21 @@
  */
 import {
   AudioPlayerStatus,
+  StreamType,
+  VoiceConnectionStatus,
   createAudioPlayer,
   createAudioResource,
   entersState,
-  getVoiceConnection,
   joinVoiceChannel,
-  VoiceConnectionStatus,
 } from '@discordjs/voice'
 import play from 'play-dl'
 import spotifyUrlInfo from 'spotify-url-info'
 import fetch from 'node-fetch'
+import ffmpegPath from 'ffmpeg-static'
+
+if (ffmpegPath && !process.env.FFMPEG_PATH) {
+  process.env.FFMPEG_PATH = ffmpegPath
+}
 
 const spotifyInfo = spotifyUrlInfo(fetch)
 import {
@@ -224,6 +229,11 @@ export function createMusicWorkflow(options = {}) {
     }
 
     try {
+      if (queueState.connection?.state && queueState.connection.state.status !== VoiceConnectionStatus.Ready) {
+        await entersState(queueState.connection, VoiceConnectionStatus.Ready, 15_000).catch((e) => {
+          console.warn(`Voice connection ready check: ${e.message}`)
+        })
+      }
       const resource = createAudioResource(stream.stream, { inputType: stream.type })
       queueState.player.play(resource)
 
@@ -250,6 +260,8 @@ export function createMusicWorkflow(options = {}) {
       channelId: voiceChannel.id,
       guildId,
       adapterCreator: voiceChannel.guild.voiceAdapterCreator,
+      selfDeaf: false,
+      selfMute: false,
     })
     const player = createPlayerImpl()
     connection.subscribe(player)
