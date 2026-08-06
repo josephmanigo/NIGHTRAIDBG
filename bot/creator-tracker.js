@@ -211,6 +211,8 @@ export async function checkCreatorUpdates(creator, fetchImpl = fetch) {
               id: `live-${Date.now()}`,
               url: liveUrl,
               title: `${username} is live on TikTok!`,
+              avatarUrl: creator.avatarUrl,
+              viewers: 0,
             }
           }
         } else {
@@ -222,6 +224,12 @@ export async function checkCreatorUpdates(creator, fetchImpl = fetch) {
         const resProf = await fetchImpl(profileUrl, { headers, redirect: 'follow' }).catch(() => null)
         if (resProf && resProf.ok) {
           const htmlProf = await resProf.text().catch(() => '')
+
+          const avatarMatch = htmlProf.match(/"avatarLarger"\s*:\s*"([^"]+)"/) || htmlProf.match(/"avatarMedium"\s*:\s*"([^"]+)"/)
+          if (avatarMatch) {
+            creator.avatarUrl = avatarMatch[1].replace(/\\u0026/g, '&')
+          }
+
           const videoMatches = [
             ...[...htmlProf.matchAll(/\/video\/(\d{10,20})/g)].map((m) => m[1]),
             ...[...htmlProf.matchAll(/"id"\s*:\s*"(\d{10,20})"/g)].map((m) => m[1]),
@@ -229,12 +237,15 @@ export async function checkCreatorUpdates(creator, fetchImpl = fetch) {
 
           if (videoMatches.length > 0) {
             const videoId = videoMatches[0]
-            if (videoId !== lastSeenContentId) {
+            if (lastSeenContentId === null) {
+              creator.lastSeenContentId = videoId
+            } else if (videoId !== lastSeenContentId) {
               newContent = {
                 type: 'video',
                 id: videoId,
                 url: `https://www.tiktok.com/@${username}/video/${videoId}`,
                 title: `${username} uploaded a new TikTok!`,
+                avatarUrl: creator.avatarUrl,
               }
             }
           }

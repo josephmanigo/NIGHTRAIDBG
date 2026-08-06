@@ -91,29 +91,34 @@ export function parseLiveUrl(rawUrl, customTitle = '') {
   }
 }
 
-export function createLiveNotificationEmbed(streamData, user) {
-  const { url, platform, streamerName, isLive, title, color } = streamData
+export function createLiveNotificationEmbed(streamData, user = null) {
+  const { url, platform, streamerName, isLive, title, color, avatarUrl, thumbnailUrl, viewers } = streamData
 
   const headerText = isLive
-    ? `🔴 **${streamerName}** is live!`
+    ? `**${streamerName}** is live!`
     : `🎥 **${streamerName}** just posted a new video!`
 
-  const buttonLabel = isLive ? '🔴 Watch Stream ↗' : '🎥 Watch Video ↗'
+  const buttonLabel = isLive ? 'Watch Stream ↗' : 'Watch Video ↗'
+
+  const authorIcon = avatarUrl || user?.displayAvatarURL?.() || null
 
   const embed = new EmbedBuilder()
     .setAuthor({
       name: streamerName,
-      iconURL: user.displayAvatarURL?.() ?? null,
+      iconURL: authorIcon,
     })
-    .setTitle(title)
+    .setTitle(title || (isLive ? `${streamerName} is live!` : `${streamerName} posted a new video!`))
     .setURL(url)
     .setColor(color)
-    .addFields(
-      { name: '📺 Platform', value: platform, inline: true },
-      { name: '👤 Announcer', value: `<@${user.id}>`, inline: true },
-    )
-    .setFooter({ text: `NIGHTRAID Notifications • ${platform}` })
-    .setTimestamp()
+
+  if (isLive) {
+    embed.addFields({ name: 'Viewers', value: String(viewers ?? 0), inline: false })
+  }
+
+  const mainImage = thumbnailUrl || avatarUrl
+  if (mainImage) {
+    embed.setImage(mainImage)
+  }
 
   const button = new ButtonBuilder()
     .setLabel(buttonLabel)

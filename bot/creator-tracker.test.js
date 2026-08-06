@@ -58,7 +58,7 @@ test('checkCreatorUpdates detects video and live stream content', async () => {
     text: async () => '<html><body>/video/7391823718931</body></html>',
   })
 
-  const creator = { platform: 'tiktok', username: 'zhara_nr', lastSeenContentId: null, isLive: false }
+  const creator = { platform: 'tiktok', username: 'zhara_nr', lastSeenContentId: '0', isLive: false }
   const update = await checkCreatorUpdates(creator, mockFetchTikTok)
   assert.ok(update)
   assert.equal(update.type, 'video')
