@@ -54,6 +54,10 @@ import {
   GUESS_THE_NUMBER_COMMAND,
   installGuessTheNumberWorkflow,
 } from './guess-the-number.js'
+import {
+  GUESS_THE_WORD_COMMAND,
+  installGuessTheWordWorkflow,
+} from './guess-the-word.js'
 import { createRoundSubmissionReader } from './game-results-round-reader.js'
 import { createStructuredLogger, createErrorReporter } from './game-results-runtime.js'
 import { createGameResultsSheetClient } from './game-results-sheet-client.js'
@@ -100,6 +104,7 @@ const COMMAND_DEFINITIONS = [
   { name: SCRIM_RULES_COMMAND_NAME, description: 'Show the official NIGHTRAID scrim mechanics.' },
   ANNOUNCE_COMMAND,
   GUESS_THE_NUMBER_COMMAND,
+  GUESS_THE_WORD_COMMAND,
   GAME_RESULTS_MVP_COMMAND,
   GAME_RESULTS_HEALTH_COMMAND,
   ...GAME_RESULTS_SCOREBOARD_COMMANDS,
@@ -469,6 +474,9 @@ installAnnounceWorkflow(client, {
   errorReporter: gameResultsErrorReporter,
 })
 installGuessTheNumberWorkflow(client, {
+  errorReporter: gameResultsErrorReporter,
+})
+installGuessTheWordWorkflow(client, {
   errorReporter: gameResultsErrorReporter,
 })
 installGameResultsHealthWorkflow(client, {

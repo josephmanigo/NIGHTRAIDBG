@@ -205,6 +205,34 @@ Run the game's tests with:
 npm run test:guess-the-number
 ```
 
+## Guess the word
+
+`/guesstheword` is the word version of the number game, and works the same way.
+
+| Option | Required | Meaning |
+| --- | --- | --- |
+| `word` | Yes | The word players will guess. One word, up to 32 letters, no spaces. |
+| `hint` | Yes | The clue shown on the board. |
+| `prize` | No | What the winner gets. Shown on the board and again to the winner. |
+
+```
+/guesstheword word:bloodstrike hint:The game we play prize:500 diamonds
+```
+
+The board shows the hint and how many letters the word has, never the word itself. Players type a single word into the channel and the bot reacts to their message: ✅ correct, ❌ wrong, 🚫 out of guesses. **Every player gets five guesses of their own.**
+
+Only a one-word message counts as a guess, so sentences like `is it bloodstrike` are chat and cost nobody an attempt. Matching ignores case and accents, so `Bloodstrike` and `BLOODSTRIKE` both win.
+
+The host who set the word cannot play: words they type are ignored rather than answered. One game runs per channel; the host or an administrator can run the command again to replace it. Games are held in memory and do not survive a bot restart.
+
+A word game and a number game can run in the same channel at once — numbers answer one and words answer the other.
+
+Run the game's tests with:
+
+```bash
+npm run test:guess-the-word
+```
+
 ## Game-results screenshot intake
 
 The bot monitors only `GAME_RESULTS_CHANNEL_ID` for screenshot attachments. PNG, JPG, JPEG, and WEBP files within `GAME_RESULTS_MAX_FILE_SIZE_MB` are accepted, including multiple images in one message. A message containing any unsupported or oversized attachment is rejected as one submission.
