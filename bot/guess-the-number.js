@@ -1,13 +1,17 @@
 /*
  * /guessthenumber — a channel minigame.
  *
- * The bot holds a secret number from 1000 to 9999. Players press Guess,
- * type a number, and the bot answers HIGHER or LOWER until somebody lands
- * on it. Every player gets five guesses of their own, so one person cannot
+ * The bot holds a secret number from 1000 to 9999. Players type a number
+ * straight into the channel and the bot answers by reacting to their own
+ * message — up to aim higher, down to aim lower — so the game never fills
+ * the channel with bot replies. Everything that is not a bare number in
+ * range is ordinary chat and is left alone.
+ *
+ * Every player gets five guesses of their own, so one person cannot
  * binary-search the answer alone while everyone else watches.
  *
  * The host may set the secret with the `number` option instead of letting
- * the bot roll one. Discord never shows option values to other members, so
+ * the bot pick one. Discord never shows option values to other members, so
  * the number stays hidden — but a host who chose it is locked out of
  * guessing.
  *
@@ -15,27 +19,26 @@
  */
 import { randomInt } from 'node:crypto'
 import {
-  ActionRowBuilder,
   ApplicationCommandOptionType,
-  ButtonBuilder,
-  ButtonStyle,
   Events,
   MessageFlags,
-  ModalBuilder,
   PermissionFlagsBits,
-  TextInputBuilder,
-  TextInputStyle,
 } from 'discord.js'
-
-const CUSTOM_ID_PREFIX = 'nr-gtn'
-const BUTTON_PATTERN = new RegExp(`^${CUSTOM_ID_PREFIX}:guess:([a-f0-9]{8})$`)
-const MODAL_PATTERN = new RegExp(`^${CUSTOM_ID_PREFIX}:submit:([a-f0-9]{8})$`)
 
 const PRIZE_LIMIT = 100
 
 export const GUESS_MINIMUM = 1_000
 export const GUESS_MAXIMUM = 9_999
 export const GUESS_ATTEMPTS = 5
+
+/* Up means the secret sits above the guess, down means below. A player who
+ * is out of guesses gets the stop sign instead. */
+export const GUESS_REACTIONS = Object.freeze({
+  higher: '⬆️',
+  lower: '⬇️',
+  correct: '✅',
+  eliminated: '🚫',
+})
 
 export const GUESS_THE_NUMBER_COMMAND = Object.freeze({
   name: 'guessthenumber',
@@ -59,18 +62,8 @@ export const GUESS_THE_NUMBER_COMMAND = Object.freeze({
   ],
 })
 
-export function parseGuessButtonId(value) {
-  const match = BUTTON_PATTERN.exec(String(value ?? ''))
-  return match ? { gameId: match[1] } : null
-}
-
-export function parseGuessModalId(value) {
-  const match = MODAL_PATTERN.exec(String(value ?? ''))
-  return match ? { gameId: match[1] } : null
-}
-
-/* Players type into a free-text box, so anything from "4,200" to "4200 "
- * arrives here. Only a plain whole number inside the range is a guess. */
+/* Players type into the channel, so only a bare number counts as a guess:
+ * "4200" and "4,200" play, while "4200 is my lucky number" is chat. */
 export function parseGuessValue(value) {
   const text = String(value ?? '').replace(/[\s,_]/g, '')
   if (!/^\d{1,5}$/.test(text)) return null
@@ -158,30 +151,20 @@ export function evaluateGuess(game, userId, rawValue) {
   }
 }
 
-export function renderGameStart({ hostId, hostChoseSecret, prize = null }) {
+export function renderGameStart({ prize = null } = {}) {
   const lines = [
     '# Game Started',
     '',
     '**How To Play:**',
     `- I have thought of a number between **${GUESS_MINIMUM}** and **${GUESS_MAXIMUM}**.`,
     '- First person to guess the number wins!',
-    `- You have **${GUESS_ATTEMPTS}** guesses each — I answer **HIGHER** or **LOWER**.`,
+    `- You have **${GUESS_ATTEMPTS}** guesses each.`,
+    '- Type your guess in this channel.',
   ]
   if (prize) lines.push(`- Prize: **${prize}**`)
   lines.push('- Good Luck!')
-  if (hostChoseSecret) {
-    lines.push('', `-# <@${hostId}> chose the number, so they cannot play this round.`)
-  }
+  lines.push('', '-# An up arrow means aim higher, a down arrow means aim lower.')
   return lines.join('\n')
-}
-
-export function renderGuessResult({ userId, result }) {
-  if (result.status === 'correct') {
-    return null
-  }
-  const direction = result.status === 'higher' ? 'HIGHER' : 'LOWER'
-  const left = result.remaining === 1 ? '1 guess left' : `${result.remaining} guesses left`
-  return `<@${userId}> guessed **${result.guess}** — go **${direction}**. ${left}.`
 }
 
 export function renderWin({ userId, game, result }) {
@@ -193,33 +176,6 @@ export function renderWin({ userId, game, result }) {
   if (game.prize) lines.push(`Prize: **${game.prize}**`)
   lines.push(`-# Won with ${tries}.`)
   return lines.join('\n')
-}
-
-function guessButtonRow(gameId, disabled = false) {
-  return new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`${CUSTOM_ID_PREFIX}:guess:${gameId}`)
-      .setLabel('Guess')
-      .setStyle(ButtonStyle.Primary)
-      .setDisabled(disabled),
-  )
-}
-
-function guessModal(gameId) {
-  return new ModalBuilder()
-    .setCustomId(`${CUSTOM_ID_PREFIX}:submit:${gameId}`)
-    .setTitle('Guess the number')
-    .addComponents(
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder()
-          .setCustomId('guess')
-          .setLabel(`A number from ${GUESS_MINIMUM} to ${GUESS_MAXIMUM}`)
-          .setStyle(TextInputStyle.Short)
-          .setMinLength(4)
-          .setMaxLength(5)
-          .setRequired(true),
-      ),
-    )
 }
 
 async function ephemeralMessage(interaction, content) {
@@ -245,11 +201,10 @@ export function createGuessTheNumberWorkflow(options = {}) {
       || interaction.member?.permissions?.has?.(PermissionFlagsBits.Administrator) === true
   }
 
-  async function closeBoard(game) {
-    if (!game.message?.edit) return
-    await game.message
-      .edit({ components: [guessButtonRow(game.gameId, true)] })
-      .catch(() => undefined)
+  async function react(message, emoji) {
+    await message.react(emoji).catch((reason) => {
+      console.error('Could not react to a guess:', reason instanceof Error ? reason.message : reason)
+    })
   }
 
   async function handleCommand(interaction) {
@@ -263,12 +218,11 @@ export function createGuessTheNumberWorkflow(options = {}) {
       if (!mayReplace(interaction, running)) {
         await ephemeralMessage(
           interaction,
-          `A game is already running in this channel. Press **Guess** on it, or wait for <@${running.hostId}> to end it.`,
+          `A game is already running in this channel. Type your guess, or wait for <@${running.hostId}> to end it.`,
         )
         return { status: 'rejected', reason: 'game_in_progress' }
       }
       running.finished = true
-      await closeBoard(running)
     }
 
     const secret = interaction.options.getInteger?.('number') ?? null
@@ -291,99 +245,51 @@ export function createGuessTheNumberWorkflow(options = {}) {
 
     games.set(game.channelId, game)
     await interaction.reply({
-      content: renderGameStart({
-        hostId: game.hostId,
-        hostChoseSecret: !game.hostMayGuess,
-        prize: game.prize,
-      }),
-      components: [guessButtonRow(game.gameId)],
+      content: renderGameStart({ prize: game.prize }),
       allowedMentions: { parse: [] },
     })
     game.message = await interaction.fetchReply?.().catch(() => null) ?? null
     return { status: 'started', gameId: game.gameId, replaced: Boolean(running) }
   }
 
-  async function handleButton(interaction, parsed) {
-    const game = games.get(String(interaction.channelId))
-    if (!game || game.gameId !== parsed.gameId || game.finished) {
-      await ephemeralMessage(interaction, 'That game has already ended. Start a new one with /guessthenumber.')
-      return { status: 'rejected', reason: 'game_over' }
-    }
-    if (!game.hostMayGuess && String(interaction.user.id) === game.hostId) {
-      await ephemeralMessage(interaction, 'You chose this number, so you cannot guess it.')
-      return { status: 'rejected', reason: 'host_locked' }
-    }
-    if (attemptsLeft(game, interaction.user.id) === 0) {
-      await ephemeralMessage(interaction, `You have used all ${GUESS_ATTEMPTS} of your guesses for this game.`)
-      return { status: 'rejected', reason: 'eliminated' }
-    }
-    await interaction.showModal(guessModal(game.gameId))
-    return { status: 'guessing', gameId: game.gameId }
-  }
+  /* Every message in a channel with a running game passes through here, so
+   * anything that is not a bare in-range number is left untouched. */
+  async function handleMessage(message) {
+    if (message.author?.bot) return { status: 'ignored' }
+    const game = games.get(String(message.channelId))
+    if (!game || game.finished) return { status: 'ignored' }
+    if (parseGuessValue(message.content) === null) return { status: 'ignored' }
 
-  async function handleModal(interaction, parsed) {
-    const game = games.get(String(interaction.channelId))
-    if (!game || game.gameId !== parsed.gameId || game.finished) {
-      await ephemeralMessage(interaction, 'That game has already ended. Start a new one with /guessthenumber.')
-      return { status: 'rejected', reason: 'game_over' }
-    }
-
-    const result = evaluateGuess(game, interaction.user.id, interaction.fields.getTextInputValue('guess'))
-    if (result.status === 'out_of_range') {
-      await ephemeralMessage(
-        interaction,
-        `Guess a whole number from ${GUESS_MINIMUM} to ${GUESS_MAXIMUM}. That guess was not counted.`,
-      )
-      return { status: 'rejected', reason: 'out_of_range' }
+    const result = evaluateGuess(game, message.author.id, message.content)
+    if (result.status === 'host_locked' || result.status === 'finished') {
+      return { status: 'ignored', reason: result.status }
     }
     if (result.status === 'eliminated') {
-      await ephemeralMessage(interaction, `You have used all ${GUESS_ATTEMPTS} of your guesses for this game.`)
-      return { status: 'rejected', reason: 'eliminated' }
+      await react(message, GUESS_REACTIONS.eliminated)
+      return { status: 'eliminated' }
     }
-    if (result.status === 'host_locked') {
-      await ephemeralMessage(interaction, 'You chose this number, so you cannot guess it.')
-      return { status: 'rejected', reason: 'host_locked' }
-    }
-    if (result.status === 'finished') {
-      await ephemeralMessage(interaction, 'That game has already ended. Start a new one with /guessthenumber.')
-      return { status: 'rejected', reason: 'game_over' }
-    }
-
     if (result.status === 'correct') {
-      await interaction.reply({
-        content: renderWin({ userId: interaction.user.id, game, result }),
+      await react(message, GUESS_REACTIONS.correct)
+      await message.channel.send({
+        content: renderWin({ userId: message.author.id, game, result }),
         allowedMentions: { parse: [] },
       })
-      await closeBoard(game)
       return { status: 'won', gameId: game.gameId, winnerId: game.winnerId }
     }
 
-    await interaction.reply({
-      content: renderGuessResult({ userId: interaction.user.id, result }),
-      allowedMentions: { parse: [] },
-    })
+    await react(message, GUESS_REACTIONS[result.status])
     return { status: result.status, gameId: game.gameId, remaining: result.remaining }
   }
 
   async function handleInteraction(interaction) {
     if (
-      interaction.isChatInputCommand?.()
-      && interaction.commandName === GUESS_THE_NUMBER_COMMAND.name
-    ) {
-      return handleCommand(interaction)
-    }
-    if (interaction.isButton?.()) {
-      const parsed = parseGuessButtonId(interaction.customId)
-      if (parsed) return handleButton(interaction, parsed)
-    }
-    if (interaction.isModalSubmit?.()) {
-      const parsed = parseGuessModalId(interaction.customId)
-      if (parsed) return handleModal(interaction, parsed)
-    }
-    return { status: 'ignored' }
+      !interaction.isChatInputCommand?.()
+      || interaction.commandName !== GUESS_THE_NUMBER_COMMAND.name
+    ) return { status: 'ignored' }
+    return handleCommand(interaction)
   }
 
-  return { handleInteraction, games }
+  return { handleInteraction, handleMessage, games }
 }
 
 export function installGuessTheNumberWorkflow(client, options = {}) {
@@ -394,6 +300,12 @@ export function installGuessTheNumberWorkflow(client, options = {}) {
       console.error('/guessthenumber failed:', reason instanceof Error ? reason.message : reason)
       await ephemeralMessage(interaction, 'The guessing game hit an error. Start a new one with /guessthenumber.')
         .catch(() => undefined)
+    })
+  })
+  client.on(Events.MessageCreate, (message) => {
+    workflow.handleMessage(message).catch((reason) => {
+      options.errorReporter?.report('guess_the_number_guess', reason)
+      console.error('A guess could not be handled:', reason instanceof Error ? reason.message : reason)
     })
   })
   return workflow

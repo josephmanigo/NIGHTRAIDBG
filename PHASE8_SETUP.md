@@ -180,14 +180,22 @@ npm run test:announce
 
 The range is fixed at **1000 to 9999**, so there are no `min` and `max` options. Discord never shows option values to other members, so the number you type stays hidden — but a host who sets it is locked out of guessing that round.
 
-Players press **Guess** on the game message and type a number. The bot answers publicly in the channel so everyone can follow along:
+Players type a number straight into the channel and the bot reacts to their own message instead of replying:
 
-```
-@Ems guessed 4200 — go HIGHER. 4 guesses left.
-@yepo guessed 8000 — go LOWER. 4 guesses left.
-```
+| Reaction | Meaning |
+| --- | --- |
+| ⬆️ | Aim higher — the secret is above that guess. |
+| ⬇️ | Aim lower — the secret is below that guess. |
+| ✅ | Correct. |
+| 🚫 | That player has used all five guesses. |
 
-**Every player gets five guesses of their own.** One player running out does not end the game for anybody else. A guess that is not a whole number from 1000 to 9999 is rejected privately and does not cost an attempt. The first correct guess wins: the bot announces the winner, the number, and the prize, and the Guess button is disabled.
+Only a bare number from 1000 to 9999 counts as a guess. `4200` and `4,200` play; `4200 is my lucky number`, `42`, and ordinary chat are ignored completely, so the channel stays usable while a game runs. A message that is not a guess never costs an attempt.
+
+**Every player gets five guesses of their own.** One player running out does not end the game for anybody else. The first correct guess wins: the bot ticks that message and posts the winner, the number, and the prize.
+
+The bot needs **Add Reactions** and **Read Message History** in the channel, and **MESSAGE CONTENT INTENT** must stay enabled so it can read the numbers.
+
+A host who sets the number is locked out of playing: numbers they type are ignored rather than answered, since they already know the answer.
 
 One game runs per channel at a time. The host who started it, or a server administrator, can run `/guessthenumber` again to replace it; anyone else is told to wait. Games are held in memory, so restarting the bot clears whatever is in play.
 
