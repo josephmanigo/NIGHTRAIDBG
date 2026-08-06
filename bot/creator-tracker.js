@@ -21,24 +21,24 @@ const CREATORS_FILE_PATH = path.join(DATA_DIR, 'tracked-creators.json')
 export const STREAMER_MANAGEMENT_COMMANDS = Object.freeze([
   {
     name: 'addstreamer',
-    description: 'Add a creator account to automatically track for live/video announcements.',
+    description: 'Add a creator account or profile link to automatically track for live/video announcements.',
     options: [
       {
         type: ApplicationCommandOptionType.String,
-        name: 'platform',
-        description: 'Platform (tiktok, twitch, youtube)',
+        name: 'url',
+        description: 'Account profile link or username (e.g. https://www.tiktok.com/@zhara_nr)',
         required: true,
+      },
+      {
+        type: ApplicationCommandOptionType.String,
+        name: 'platform',
+        description: 'Platform (optional if full link is provided)',
+        required: false,
         choices: [
           { name: 'TikTok', value: 'tiktok' },
           { name: 'Twitch', value: 'twitch' },
           { name: 'YouTube', value: 'youtube' },
         ],
-      },
-      {
-        type: ApplicationCommandOptionType.String,
-        name: 'username',
-        description: 'Username or profile URL (e.g. @zhara_nr or channel link)',
-        required: true,
       },
     ],
   },
@@ -49,14 +49,14 @@ export const STREAMER_MANAGEMENT_COMMANDS = Object.freeze([
       {
         type: ApplicationCommandOptionType.String,
         name: 'username',
-        description: 'Username to remove (e.g. zhara_nr)',
+        description: 'Username or profile link to remove',
         required: true,
       },
     ],
   },
   {
     name: 'liststreamers',
-    description: 'List all currently tracked creator accounts.',
+    description: 'List all currently tracked creator accounts with profile links.',
   },
 ])
 
@@ -106,32 +106,89 @@ export function sanitizeUsername(input) {
   return cleaned
 }
 
-export function addTrackedCreator(platform, usernameInput, creatorsList = null) {
-  const normPlatform = platform.toLowerCase().trim()
-  const username = sanitizeUsername(usernameInput)
-  if (!username) throw new Error('Invalid username provided.')
+export function parseProfileInput(firstArg, secondArg = null) {
+  let platform = 'tiktok'
+  let username = ''
+  let profileUrl = ''
 
-  const list = creatorsList ?? loadTrackedCreators()
-  const existingIndex = list.findIndex(
-    (c) => c.platform === normPlatform && c.username.toLowerCase() === username.toLowerCase(),
+  let targetInput = firstArg
+  if (secondArg && /^https?:\/\//i.test(secondArg)) {
+    targetInput = secondArg
+    platform = firstArg.toLowerCase()
+  } else if (!/^https?:\/\//i.test(firstArg) && secondArg) {
+    platform = firstArg.toLowerCase()
+    targetInput = secondArg
+  }
+
+  if (/^https?:\/\//i.test(targetInput)) {
+    profileUrl = targetInput.trim()
+    const lower = profileUrl.toLowerCase()
+    if (lower.includes('tiktok.com')) {
+      platform = 'tiktok'
+      const match = profileUrl.match(/@([\w.-]+)/)
+      if (match) username = match[1]
+    } else if (lower.includes('twitch.tv')) {
+      platform = 'twitch'
+      const match = profileUrl.match(/twitch\.tv\/([\w.-]+)/)
+      if (match) username = match[1]
+    } else if (lower.includes('youtube.com') || lower.includes('youtu.be')) {
+      platform = 'youtube'
+      const match = profileUrl.match(/@([\w.-]+)/)
+      if (match) username = match[1]
+      else {
+        const parts = profileUrl.split('/').filter(Boolean)
+        username = parts[parts.length - 1]
+      }
+    }
+  } else {
+    username = targetInput.startsWith('@') ? targetInput.slice(1) : targetInput
+    profileUrl = `https://www.tiktok.com/@${username}`
+  }
+
+  if (!username) throw new Error('Please provide a valid creator username or full profile link.')
+
+  return {
+    platform,
+    username,
+    profileUrl,
+  }
+}
+
+export function addTrackedCreator(platformOrUrl, usernameInput = null, creatorsList = null) {
+  let list = creatorsList
+  if (Array.isArray(platformOrUrl)) {
+    list = platformOrUrl
+  }
+
+  const parsed = parseProfileInput(
+    typeof platformOrUrl === 'string' ? platformOrUrl : '',
+    typeof usernameInput === 'string' ? usernameInput : null,
+  )
+
+  const activeList = list ?? loadTrackedCreators()
+  const existingIndex = activeList.findIndex(
+    (c) => c.platform === parsed.platform && c.username.toLowerCase() === parsed.username.toLowerCase(),
   )
 
   if (existingIndex !== -1) {
-    return { created: false, creator: list[existingIndex], list }
+    activeList[existingIndex].profileUrl = parsed.profileUrl
+    if (!list) saveTrackedCreators(activeList)
+    return { created: false, creator: activeList[existingIndex], list: activeList }
   }
 
   const newCreator = {
-    platform: normPlatform,
-    username,
+    platform: parsed.platform,
+    username: parsed.username,
+    profileUrl: parsed.profileUrl,
     addedAt: new Date().toISOString(),
     lastSeenContentId: null,
     isLive: false,
   }
 
-  list.push(newCreator)
-  if (!creatorsList) saveTrackedCreators(list)
+  activeList.push(newCreator)
+  if (!list) saveTrackedCreators(activeList)
 
-  return { created: true, creator: newCreator, list }
+  return { created: true, creator: newCreator, list: activeList }
 }
 
 export function removeTrackedCreator(usernameInput, creatorsList = null) {
@@ -148,15 +205,16 @@ export function removeTrackedCreator(usernameInput, creatorsList = null) {
 
 export function formatCreatorList(creators) {
   if (!creators || creators.length === 0) {
-    return 'No creator accounts are currently being automatically tracked. Use `!addstreamer <platform> <username>` to add one.'
+    return 'No creator accounts are currently being automatically tracked. Use `!addstreamer <profile link>` to add one.'
   }
 
   const lines = ['# 📺 Tracked Creators & Streamers']
   creators.forEach((c, i) => {
     const badge = c.platform === 'tiktok' ? '🎵 TikTok' : c.platform === 'twitch' ? '🟣 Twitch' : '🔴 YouTube'
-    lines.push(`${i + 1}. **${c.username}** (${badge}) - Added ${new Date(c.addedAt).toLocaleDateString()}`)
+    const linkText = c.profileUrl ? `([Profile Link](${c.profileUrl}))` : ''
+    lines.push(`${i + 1}. **${c.username}** (${badge}) ${linkText} - Added ${new Date(c.addedAt).toLocaleDateString()}`)
   })
-  lines.push('', 'Use `!addstreamer` or `!removestreamer` to manage this list.')
+  lines.push('', 'Use `!addstreamer <profile link>` or `!removestreamer <username>` to manage this list.')
   return lines.join('\n')
 }
 
@@ -336,20 +394,20 @@ export function createCreatorTrackerWorkflow(options = {}) {
     if (content.startsWith('!addstreamer ')) {
       const raw = content.slice(13).trim()
       const parts = raw.split(/\s+/)
-      const platform = parts[0]
-      const username = parts[1]
+      const arg1 = parts[0]
+      const arg2 = parts[1] ?? null
 
-      if (!platform || !username) {
-        await message.reply({ content: 'Usage: `!addstreamer <tiktok|twitch|youtube> <username or URL>`.' }).catch(() => undefined)
+      if (!arg1) {
+        await message.reply({ content: 'Usage: `!addstreamer <profile link or username>` (e.g. `!addstreamer https://www.tiktok.com/@zhara_nr`).' }).catch(() => undefined)
         return { status: 'handled' }
       }
 
       try {
-        const { created, creator } = addTrackedCreator(platform, username)
+        const { created, creator } = addTrackedCreator(arg1, arg2)
         if (created) {
-          await message.reply({ content: `✅ Added **${creator.username}** (${creator.platform}) to automatic stream tracking!` }).catch(() => undefined)
+          await message.reply({ content: `✅ Added **${creator.username}** (${creator.platform}) to automatic stream tracking! ([Profile Link](${creator.profileUrl}))` }).catch(() => undefined)
         } else {
-          await message.reply({ content: `ℹ️ **${creator.username}** is already in the tracking list.` }).catch(() => undefined)
+          await message.reply({ content: `ℹ️ **${creator.username}** profile link updated!` }).catch(() => undefined)
         }
       } catch (err) {
         await message.reply({ content: `❌ ${err instanceof Error ? err.message : 'Failed to add streamer.'}` }).catch(() => undefined)
@@ -388,14 +446,14 @@ export function createCreatorTrackerWorkflow(options = {}) {
     const cmd = interaction.commandName
 
     if (cmd === 'addstreamer') {
-      const platform = interaction.options.getString('platform', true)
-      const username = interaction.options.getString('username', true)
+      const urlInput = interaction.options.getString('url', true)
+      const platformInput = interaction.options.getString('platform')
       try {
-        const { created, creator } = addTrackedCreator(platform, username)
+        const { created, creator } = addTrackedCreator(urlInput, platformInput)
         if (created) {
-          await interaction.reply({ content: `✅ Added **${creator.username}** (${creator.platform}) to automatic stream tracking!` })
+          await interaction.reply({ content: `✅ Added **${creator.username}** (${creator.platform}) to automatic stream tracking! ([Profile Link](${creator.profileUrl}))` })
         } else {
-          await interaction.reply({ content: `ℹ️ **${creator.username}** is already in the tracking list.`, flags: MessageFlags.Ephemeral })
+          await interaction.reply({ content: `ℹ️ **${creator.username}** profile link updated!`, flags: MessageFlags.Ephemeral })
         }
       } catch (err) {
         await interaction.reply({ content: `❌ ${err instanceof Error ? err.message : 'Failed to add streamer.'}`, flags: MessageFlags.Ephemeral })

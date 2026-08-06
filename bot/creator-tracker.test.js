@@ -32,15 +32,17 @@ test('sanitizeUsername handles raw handles, @ symbols, and full profile URLs', (
 
 test('addTrackedCreator and removeTrackedCreator manage creator list', () => {
   const list = []
-  const res1 = addTrackedCreator('tiktok', 'zhara_nr', list)
+  const res1 = addTrackedCreator('https://www.tiktok.com/@zhara_nr', null, list)
   assert.equal(res1.created, true)
   assert.equal(list.length, 1)
+  assert.equal(list[0].username, 'zhara_nr')
+  assert.equal(list[0].profileUrl, 'https://www.tiktok.com/@zhara_nr')
 
   const resDuplicate = addTrackedCreator('tiktok', '@zhara_nr', list)
   assert.equal(resDuplicate.created, false)
   assert.equal(list.length, 1)
 
-  const res2 = addTrackedCreator('twitch', 'legionfpsss', list)
+  const res2 = addTrackedCreator('https://www.twitch.tv/legionfpsss', null, list)
   assert.equal(res2.created, true)
   assert.equal(list.length, 2)
 
