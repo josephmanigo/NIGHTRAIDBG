@@ -50,6 +50,10 @@ import {
   installGameResultsMvpWorkflow,
 } from './game-results-mvp-review.js'
 import { installGameResultsReview } from './game-results-review.js'
+import {
+  GUESS_THE_NUMBER_COMMAND,
+  installGuessTheNumberWorkflow,
+} from './guess-the-number.js'
 import { createRoundSubmissionReader } from './game-results-round-reader.js'
 import { createStructuredLogger, createErrorReporter } from './game-results-runtime.js'
 import { createGameResultsSheetClient } from './game-results-sheet-client.js'
@@ -95,6 +99,7 @@ const COMMAND_DEFINITIONS = [
   { name: NIGHTRAID_RULES_COMMAND_NAME, description: 'Show the NIGHTRAID clan rules.' },
   { name: SCRIM_RULES_COMMAND_NAME, description: 'Show the official NIGHTRAID scrim mechanics.' },
   ANNOUNCE_COMMAND,
+  GUESS_THE_NUMBER_COMMAND,
   GAME_RESULTS_MVP_COMMAND,
   GAME_RESULTS_HEALTH_COMMAND,
   ...GAME_RESULTS_SCOREBOARD_COMMANDS,
@@ -461,6 +466,9 @@ installGameResultsIntake(client, {
     gameResultsReview.startAutomaticTally(submission, interaction),
 })
 installAnnounceWorkflow(client, {
+  errorReporter: gameResultsErrorReporter,
+})
+installGuessTheNumberWorkflow(client, {
   errorReporter: gameResultsErrorReporter,
 })
 installGameResultsHealthWorkflow(client, {

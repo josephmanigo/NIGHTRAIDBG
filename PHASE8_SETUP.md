@@ -165,6 +165,38 @@ Run the command's tests with:
 npm run test:announce
 ```
 
+## Guess the number
+
+`/guessthenumber` starts a minigame in the channel where it is run. Anyone in the server can start one.
+
+| Option | Required | Meaning |
+| --- | --- | --- |
+| `number` | No | The number players will guess, from 1000 to 9999. Left empty, the bot picks one. |
+| `prize` | No | What the winner gets. Shown on the board and again to the winner. |
+
+```
+/guessthenumber number:7777 prize:500 diamonds
+```
+
+The range is fixed at **1000 to 9999**, so there are no `min` and `max` options. Discord never shows option values to other members, so the number you type stays hidden — but a host who sets it is locked out of guessing that round.
+
+Players press **Guess** on the game message and type a number. The bot answers publicly in the channel so everyone can follow along:
+
+```
+@Ems guessed 4200 — go HIGHER. 4 guesses left.
+@yepo guessed 8000 — go LOWER. 4 guesses left.
+```
+
+**Every player gets five guesses of their own.** One player running out does not end the game for anybody else. A guess that is not a whole number from 1000 to 9999 is rejected privately and does not cost an attempt. The first correct guess wins: the bot announces the winner, the number, and the prize, and the Guess button is disabled.
+
+One game runs per channel at a time. The host who started it, or a server administrator, can run `/guessthenumber` again to replace it; anyone else is told to wait. Games are held in memory, so restarting the bot clears whatever is in play.
+
+Run the game's tests with:
+
+```bash
+npm run test:guess-the-number
+```
+
 ## Game-results screenshot intake
 
 The bot monitors only `GAME_RESULTS_CHANNEL_ID` for screenshot attachments. PNG, JPG, JPEG, and WEBP files within `GAME_RESULTS_MAX_FILE_SIZE_MB` are accepted, including multiple images in one message. A message containing any unsupported or oversized attachment is rejected as one submission.
