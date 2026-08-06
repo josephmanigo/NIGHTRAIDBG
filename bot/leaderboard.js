@@ -120,13 +120,27 @@ export async function fetchChannelLeaderboard(channel, options = {}) {
       fetchOptions.before = lastId
     }
 
-    const fetchedMap = await channel.messages.fetch(fetchOptions)
+    let fetchedMap
+    try {
+      fetchedMap = await channel.messages.fetch(fetchOptions)
+    } catch (error) {
+      console.error('fetchChannelLeaderboard batch error:', error)
+      break
+    }
+
+    if (!fetchedMap) break
     const batch = Array.from(fetchedMap.values ? fetchedMap.values() : fetchedMap)
     if (batch.length === 0) break
 
     allMessages = allMessages.concat(batch)
     remaining -= batch.length
-    lastId = batch[batch.length - 1].id
+
+    const lastMsg = batch[batch.length - 1]
+    const newLastId = lastMsg?.id
+    if (!newLastId || newLastId === lastId) {
+      break
+    }
+    lastId = newLastId
 
     if (batch.length < batchSize) break
   }
@@ -136,9 +150,10 @@ export async function fetchChannelLeaderboard(channel, options = {}) {
 
 async function ephemeralMessage(interaction, content) {
   const payload = { content, allowedMentions: { parse: [] } }
-  return interaction.replied || interaction.deferred
-    ? interaction.editReply(payload)
-    : interaction.reply({ ...payload, flags: MessageFlags.Ephemeral })
+  if (interaction.replied || interaction.deferred) {
+    return interaction.editReply(payload).catch(() => undefined)
+  }
+  return interaction.reply({ ...payload, flags: MessageFlags.Ephemeral }).catch(() => undefined)
 }
 
 export function createLeaderboardWorkflow(options = {}) {
@@ -150,17 +165,24 @@ export function createLeaderboardWorkflow(options = {}) {
       return { status: 'rejected', reason: 'direct_message' }
     }
 
-    await interaction.deferReply()
+    try {
+      if (!interaction.deferred && !interaction.replied) {
+        await interaction.deferReply()
+      }
+    } catch (deferError) {
+      console.error('/leaderboard deferReply failed:', deferError)
+      return { status: 'error', reason: 'defer_failed' }
+    }
 
     const specifiedChannel = interaction.options?.getChannel?.('channel')
     const targetChannelId = specifiedChannel?.id ?? defaultChannelId
 
     let channel = specifiedChannel
     if (!channel) {
-      if (interaction.channelId === targetChannelId) {
+      if (interaction.channelId === targetChannelId && interaction.channel) {
         channel = interaction.channel
       } else {
-        channel = await interaction.client.channels.fetch(targetChannelId).catch(() => null)
+        channel = await interaction.client?.channels?.fetch(targetChannelId).catch(() => null)
       }
     }
 
@@ -168,24 +190,26 @@ export function createLeaderboardWorkflow(options = {}) {
       channel = interaction.channel
     }
 
+    const effectiveChannelId = channel?.id ?? targetChannelId
+
     try {
       const leaderboard = await fetchChannelLeaderboard(channel)
       const content = renderLeaderboard({
         leaderboard,
-        targetChannelId: channel.id,
+        targetChannelId: effectiveChannelId,
       })
 
       await interaction.editReply({
         content,
         allowedMentions: { parse: [] },
       })
-      return { status: 'success', playerCount: leaderboard.length, channelId: channel.id }
+      return { status: 'success', playerCount: leaderboard.length, channelId: effectiveChannelId }
     } catch (error) {
       console.error('/leaderboard command failed:', error)
       await interaction.editReply({
         content: 'Could not fetch leaderboard at this time.',
         allowedMentions: { parse: [] },
-      })
+      }).catch(() => undefined)
       return { status: 'error', reason: error instanceof Error ? error.message : String(error) }
     }
   }

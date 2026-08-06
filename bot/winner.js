@@ -131,32 +131,38 @@ export async function fetchChannelWinners(channel, options = {}) {
 
   if (!channel?.messages?.fetch) return []
 
-  const messages = await channel.messages.fetch({ limit })
-  const winners = []
+  try {
+    const messages = await channel.messages.fetch({ limit })
+    const winners = []
 
-  const list = Array.from(messages.values ? messages.values() : messages)
-  for (const message of list) {
-    const timestamp =
-      message.createdTimestamp ??
-      (message.createdAt ? new Date(message.createdAt).getTime() : null)
+    const list = Array.from(messages.values ? messages.values() : messages)
+    for (const message of list) {
+      const timestamp =
+        message.createdTimestamp ??
+        (message.createdAt ? new Date(message.createdAt).getTime() : null)
 
-    if (timestamp && isSameDay(timestamp, targetDate)) {
-      const winner = parseWinnerFromMessage(message)
-      if (winner) {
-        winners.push(winner)
+      if (timestamp && isSameDay(timestamp, targetDate)) {
+        const winner = parseWinnerFromMessage(message)
+        if (winner) {
+          winners.push(winner)
+        }
       }
     }
-  }
 
-  winners.sort((a, b) => a.timestamp - b.timestamp)
-  return winners
+    winners.sort((a, b) => a.timestamp - b.timestamp)
+    return winners
+  } catch (error) {
+    console.error('fetchChannelWinners error:', error)
+    return []
+  }
 }
 
 async function ephemeralMessage(interaction, content) {
   const payload = { content, allowedMentions: { parse: [] } }
-  return interaction.replied || interaction.deferred
-    ? interaction.editReply(payload)
-    : interaction.reply({ ...payload, flags: MessageFlags.Ephemeral })
+  if (interaction.replied || interaction.deferred) {
+    return interaction.editReply(payload).catch(() => undefined)
+  }
+  return interaction.reply({ ...payload, flags: MessageFlags.Ephemeral }).catch(() => undefined)
 }
 
 export function createWinnerWorkflow(options = {}) {
@@ -168,17 +174,24 @@ export function createWinnerWorkflow(options = {}) {
       return { status: 'rejected', reason: 'direct_message' }
     }
 
-    await interaction.deferReply()
+    try {
+      if (!interaction.deferred && !interaction.replied) {
+        await interaction.deferReply()
+      }
+    } catch (deferError) {
+      console.error('/winner deferReply failed:', deferError)
+      return { status: 'error', reason: 'defer_failed' }
+    }
 
     const specifiedChannel = interaction.options?.getChannel?.('channel')
     const targetChannelId = specifiedChannel?.id ?? defaultChannelId
 
     let channel = specifiedChannel
     if (!channel) {
-      if (interaction.channelId === targetChannelId) {
+      if (interaction.channelId === targetChannelId && interaction.channel) {
         channel = interaction.channel
       } else {
-        channel = await interaction.client.channels.fetch(targetChannelId).catch(() => null)
+        channel = await interaction.client?.channels?.fetch(targetChannelId).catch(() => null)
       }
     }
 
@@ -186,11 +199,13 @@ export function createWinnerWorkflow(options = {}) {
       channel = interaction.channel
     }
 
+    const effectiveChannelId = channel?.id ?? targetChannelId
+
     try {
       const winners = await fetchChannelWinners(channel, { date: new Date() })
       const content = renderWinnersList({
         winners,
-        targetChannelId: channel.id,
+        targetChannelId: effectiveChannelId,
         date: new Date(),
       })
 
@@ -198,13 +213,13 @@ export function createWinnerWorkflow(options = {}) {
         content,
         allowedMentions: { parse: [] },
       })
-      return { status: 'success', winnerCount: winners.length, channelId: channel.id }
+      return { status: 'success', winnerCount: winners.length, channelId: effectiveChannelId }
     } catch (error) {
       console.error('/winner command failed:', error)
       await interaction.editReply({
         content: 'Could not fetch winners at this time.',
         allowedMentions: { parse: [] },
-      })
+      }).catch(() => undefined)
       return { status: 'error', reason: error instanceof Error ? error.message : String(error) }
     }
   }
