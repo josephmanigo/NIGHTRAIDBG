@@ -44,9 +44,12 @@ export const NUMBER_REACTIONS = Object.freeze([
   '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟',
 ])
 
+export const EMOJI_ATTEMPTS = 5
+
 export const EMOJI_REACTIONS = Object.freeze({
   correct: '✅',
   wrong: '❌',
+  eliminated: '🚫',
 })
 
 export const GUESS_THE_EMOJI_COMMAND = Object.freeze({
@@ -165,6 +168,10 @@ export function attemptsUsed(game, userId) {
   return game.attempts.get(String(userId)) ?? 0
 }
 
+export function attemptsLeft(game, userId) {
+  return Math.max(0, EMOJI_ATTEMPTS - attemptsUsed(game, userId))
+}
+
 export function evaluateEmojiGuess(game, userId, rawContent) {
   const player = String(userId)
   if (game.finished) return { status: 'finished' }
@@ -172,9 +179,11 @@ export function evaluateEmojiGuess(game, userId, rawContent) {
 
   const guessEmojis = parseEmojis(rawContent)
   if (!guessEmojis || guessEmojis.length === 0) return { status: 'not_a_guess' }
+  if (attemptsLeft(game, player) === 0) return { status: 'eliminated', remaining: 0 }
 
   const used = attemptsUsed(game, player) + 1
   game.attempts.set(player, used)
+  const remaining = EMOJI_ATTEMPTS - used
 
   const isExactLength = guessEmojis.length === game.secretEmojis.length
   const correctCount = countCorrectPositions(guessEmojis, game.secretEmojis)
@@ -182,7 +191,7 @@ export function evaluateEmojiGuess(game, userId, rawContent) {
   if (isExactLength && correctCount === game.secretEmojis.length) {
     game.finished = true
     game.winnerId = player
-    return { status: 'correct', count: correctCount, used }
+    return { status: 'correct', count: correctCount, used, remaining }
   }
 
   return {
@@ -190,6 +199,7 @@ export function evaluateEmojiGuess(game, userId, rawContent) {
     count: correctCount,
     reaction: getReactionForCount(correctCount),
     used,
+    remaining,
   }
 }
 
@@ -200,6 +210,7 @@ export function renderEmojiGameStart({ shuffled, totalCount, prize = null }) {
     '**How To Play:**',
     `- Shuffled Emojis: ${shuffled.join(' ')}`,
     `- Guess the exact sequence of **${totalCount}** emojis!`,
+    `- You have **${EMOJI_ATTEMPTS}** guesses each.`,
     '- Type your emoji sequence in this channel.',
     '- Reactions show how many emojis are in the **exact correct position** (e.g., 1️⃣, 2️⃣) or ❌ if 0 match.',
   ]
@@ -320,6 +331,10 @@ export function createGuessTheEmojiWorkflow(options = {}) {
     }
     if (result.status === 'host_locked') {
       return { status: 'host_locked' }
+    }
+    if (result.status === 'eliminated') {
+      await react(message, EMOJI_REACTIONS.eliminated)
+      return { status: 'eliminated', gameId: game.gameId }
     }
 
     if (result.status === 'correct') {

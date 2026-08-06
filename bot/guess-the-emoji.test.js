@@ -157,7 +157,16 @@ test('evaluateEmojiGuess handles guesses, reactions, and victory', () => {
   assert.equal(wrongRes.status, 'wrong')
   assert.equal(wrongRes.count, 2)
   assert.equal(wrongRes.reaction, '2️⃣')
-  assert.equal(attemptsUsed(active, 'player-1'), 1)
+  // 5 guess limit test
+  const testGame = game({ emojis: '🥰 🫡 🐱 💚' })
+  for (let i = 1; i <= 5; i++) {
+    const res = evaluateEmojiGuess(testGame, 'player-2', '🥰 🐱 🫡 💚')
+    assert.equal(res.status, 'wrong')
+    assert.equal(res.remaining, 5 - i)
+  }
+  // 6th guess gets eliminated status
+  const eliminatedRes = evaluateEmojiGuess(testGame, 'player-2', '🥰 🐱 🫡 💚')
+  assert.equal(eliminatedRes.status, 'eliminated')
 
   // Correct guess
   const correctRes = evaluateEmojiGuess(active, 'player-1', '🥰 🫡 🐱 💚')
