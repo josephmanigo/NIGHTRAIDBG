@@ -17,6 +17,10 @@ import {
   VoiceConnectionStatus,
 } from '@discordjs/voice'
 import play from 'play-dl'
+import spotifyUrlInfo from 'spotify-url-info'
+import fetch from 'node-fetch'
+
+const spotifyInfo = spotifyUrlInfo(fetch)
 import {
   ApplicationCommandOptionType,
   Events,
@@ -74,28 +78,31 @@ export async function resolveTrack(rawInput, options = {}) {
   if (!parsed) throw new Error('Please provide a song name or link.')
 
   const playImpl = options.playImpl ?? play
+  const spotifyImpl = options.spotifyImpl ?? spotifyInfo
 
-  if (parsed.type === 'spotify_track') {
+  if (parsed.type === 'spotify_track' || parsed.type === 'spotify_playlist') {
     try {
-      if (playImpl.is_expired?.()) {
-        await playImpl.refreshToken?.().catch(() => undefined)
-      }
-      const spotifyData = await playImpl.spotify?.(parsed.query).catch(() => null)
-      if (spotifyData && spotifyData.name) {
-        const searchTerm = `${spotifyData.name} ${spotifyData.artists?.[0]?.name ?? ''}`
-        const searchResult = await playImpl.search(searchTerm, { limit: 1 }).catch(() => [])
-        if (searchResult && searchResult.length > 0) {
-          const video = searchResult[0]
-          return {
-            title: spotifyData.name,
-            artist: spotifyData.artists?.[0]?.name ?? video.channel?.name ?? 'Unknown Artist',
-            url: video.url,
-            duration: video.durationRaw ?? '3:00',
-            durationSec: video.durationInSec ?? 180,
-            thumbnail: spotifyData.thumbnail?.url ?? video.thumbnails?.[0]?.url ?? null,
+      const spotifyTracks = await spotifyImpl.getTracks(parsed.query).catch(() => [])
+      if (spotifyTracks && spotifyTracks.length > 0) {
+        const tracks = []
+        for (const spTrack of spotifyTracks) {
+          const trackTitle = spTrack.name
+          const artistName = spTrack.artist || spTrack.artists?.[0]?.name || ''
+          const searchTerm = artistName ? `${trackTitle} ${artistName}` : trackTitle
+
+          const searchResult = await playImpl.search(searchTerm, { limit: 1 }).catch(() => [])
+          const video = searchResult?.[0]
+          tracks.push({
+            title: trackTitle,
+            artist: artistName || video?.channel?.name || 'Unknown Artist',
+            url: video?.url ?? `https://www.youtube.com/results?search_query=${encodeURIComponent(searchTerm)}`,
+            duration: video?.durationRaw ?? '3:00',
+            durationSec: video?.durationInSec ?? 180,
+            thumbnail: spTrack.coverArt?.sources?.[0]?.url ?? video?.thumbnails?.[0]?.url ?? null,
             source: 'spotify',
-          }
+          })
         }
+        return tracks
       }
     } catch {
       /* Fall through to general YouTube search */
@@ -108,15 +115,17 @@ export async function resolveTrack(rawInput, options = {}) {
   }
 
   const video = searchResult[0]
-  return {
-    title: video.title ?? 'Unknown Track',
-    artist: video.channel?.name ?? 'YouTube',
-    url: video.url,
-    duration: video.durationRaw ?? '0:00',
-    durationSec: video.durationInSec ?? 0,
-    thumbnail: video.thumbnails?.[0]?.url ?? null,
-    source: 'youtube',
-  }
+  return [
+    {
+      title: video.title ?? 'Unknown Track',
+      artist: video.channel?.name ?? 'YouTube',
+      url: video.url,
+      duration: video.durationRaw ?? '0:00',
+      durationSec: video.durationInSec ?? 0,
+      thumbnail: video.thumbnails?.[0]?.url ?? null,
+      source: 'youtube',
+    },
+  ]
 }
 
 export function formatQueueMessage(musicQueue) {
@@ -279,24 +288,37 @@ export function createMusicWorkflow(options = {}) {
       return { status: 'error', message: 'You must be in a Voice Channel to play music!' }
     }
 
-    let track
+    let tracks = []
     try {
-      track = await resolveTrack(query, { playImpl })
+      tracks = await resolveTrack(query, { playImpl, spotifyImpl: options.spotifyImpl })
     } catch (reason) {
       return { status: 'error', message: reason instanceof Error ? reason.message : 'Track resolution failed.' }
     }
 
-    track.requestedBy = String(userId)
-
-    const queueState = setupQueue({ guildId, voiceChannel, textChannel })
-    queueState.queue.push(track)
-
-    if (!queueState.isPlaying) {
-      await playNext(guildId)
-      return { status: 'started', track }
+    if (!tracks || tracks.length === 0) {
+      return { status: 'error', message: `No music results found for "${query}".` }
     }
 
-    return { status: 'queued', track, position: queueState.queue.length }
+    tracks.forEach((t) => {
+      t.requestedBy = String(userId)
+    })
+
+    const queueState = setupQueue({ guildId, voiceChannel, textChannel })
+    const isFirstPlay = !queueState.isPlaying && !queueState.currentTrack
+    queueState.queue.push(...tracks)
+
+    if (isFirstPlay) {
+      await playNext(guildId)
+      if (tracks.length === 1) {
+        return { status: 'started', track: tracks[0] }
+      }
+      return { status: 'started_playlist', count: tracks.length, firstTrack: tracks[0] }
+    }
+
+    if (tracks.length === 1) {
+      return { status: 'queued', track: tracks[0], position: queueState.queue.length }
+    }
+    return { status: 'queued_playlist', count: tracks.length, firstTrack: tracks[0] }
   }
 
   async function handleSkipRequest({ guildId, userId }) {
@@ -364,6 +386,10 @@ export function createMusicWorkflow(options = {}) {
         await message.reply({ content: `❌ ${res.message}` }).catch(() => undefined)
       } else if (res.status === 'queued') {
         await message.reply({ content: `✅ Queued **[${res.track.title}](${res.track.url})** at position #${res.position}.` }).catch(() => undefined)
+      } else if (res.status === 'queued_playlist') {
+        await message.reply({ content: `✅ Queued **${res.count} tracks** from Spotify playlist!` }).catch(() => undefined)
+      } else if (res.status === 'started_playlist') {
+        await message.reply({ content: `🎶 Started playing **${res.count} tracks** from Spotify playlist (Starting with **[${res.firstTrack.title}](${res.firstTrack.url})**).` }).catch(() => undefined)
       }
       return { status: 'handled' }
     }
@@ -426,6 +452,10 @@ export function createMusicWorkflow(options = {}) {
         await interaction.editReply({ content: `❌ ${res.message}` })
       } else if (res.status === 'queued') {
         await interaction.editReply({ content: `✅ Queued **[${res.track.title}](${res.track.url})** at position #${res.position}.` })
+      } else if (res.status === 'queued_playlist') {
+        await interaction.editReply({ content: `✅ Queued **${res.count} tracks** from Spotify playlist!` })
+      } else if (res.status === 'started_playlist') {
+        await interaction.editReply({ content: `🎶 Started playing **${res.count} tracks** from Spotify playlist in <#${voiceChannel.id}>.` })
       } else {
         await interaction.editReply({ content: `🎶 Started playing **[${res.track.title}](${res.track.url})** in <#${voiceChannel.id}>.` })
       }

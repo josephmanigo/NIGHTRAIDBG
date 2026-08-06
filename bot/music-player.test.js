@@ -117,15 +117,28 @@ test('parseMusicQuery categorizes Spotify links, YouTube URLs, and plain search 
 
 test('resolveTrack resolves Spotify tracks and search terms into playable tracks', async () => {
   const playImpl = mockPlayDl()
-  const track = await resolveTrack('pahintulot', { playImpl })
-  assert.equal(track.title, 'Shirebound and Busking - Pahintulot (Official Audio)')
-  assert.equal(track.duration, '5:12')
-  assert.equal(track.source, 'youtube')
+  const mockSpotifyImpl = {
+    getTracks: async (url) => {
+      if (url.includes('track/123') || url.includes('playlist/31z')) {
+        return [
+          { name: 'Pahintulot', artist: 'Shirebound and Busking' },
+          { name: 'Panaginip', artist: 'Nicole' },
+        ]
+      }
+      return []
+    },
+  }
 
-  const spotifyTrack = await resolveTrack('https://open.spotify.com/track/123', { playImpl })
-  assert.equal(spotifyTrack.title, 'Pahintulot')
-  assert.equal(spotifyTrack.artist, 'Shirebound and Busking')
-  assert.equal(spotifyTrack.source, 'spotify')
+  const tracks = await resolveTrack('pahintulot', { playImpl, spotifyImpl: mockSpotifyImpl })
+  assert.equal(tracks[0].title, 'Shirebound and Busking - Pahintulot (Official Audio)')
+  assert.equal(tracks[0].duration, '5:12')
+  assert.equal(tracks[0].source, 'youtube')
+
+  const spotifyTracks = await resolveTrack('https://open.spotify.com/playlist/31z', { playImpl, spotifyImpl: mockSpotifyImpl })
+  assert.equal(spotifyTracks.length, 2)
+  assert.equal(spotifyTracks[0].title, 'Pahintulot')
+  assert.equal(spotifyTracks[0].artist, 'Shirebound and Busking')
+  assert.equal(spotifyTracks[1].title, 'Panaginip')
 })
 
 test('formatQueueMessage renders current track and upcoming list', () => {
