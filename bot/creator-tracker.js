@@ -13,12 +13,15 @@ import {
   MessageFlags,
   PermissionFlagsBits,
 } from 'discord.js'
+import { TRACK_COMMAND_DEFINITIONS, createSocialTrackerCommandHandler } from './social-tracker/commands.js'
+import { SocialTrackerService } from './social-tracker/social-tracker-service.js'
+import { SocialTrackerStore } from './social-tracker/social-tracker-store.js'
 import { DEFAULT_LIVE_CHANNEL_ID, createLiveNotificationEmbed, parseLiveUrl } from './live-notifier.js'
 
 const DATA_DIR = path.join(process.cwd(), 'data')
 const CREATORS_FILE_PATH = path.join(DATA_DIR, 'tracked-creators.json')
 
-export const STREAMER_MANAGEMENT_COMMANDS = Object.freeze([])
+export const STREAMER_MANAGEMENT_COMMANDS = TRACK_COMMAND_DEFINITIONS
 
 function ensureDataDirExists() {
   if (!fs.existsSync(DATA_DIR)) {
@@ -416,19 +419,23 @@ export function createCreatorTrackerWorkflow(options = {}) {
     return { status: 'ignored' }
   }
 
-  async function handleInteraction() {
-    return { status: 'ignored' }
+  const socialService = options.socialService || new SocialTrackerService(options)
+  const commandHandler = createSocialTrackerCommandHandler(socialService)
+
+  async function handleInteraction(interaction) {
+    return commandHandler.handleInteraction(interaction)
   }
 
   return {
     handleMessageCommand,
     handleInteraction,
+    socialService,
   }
 }
 
 export function installCreatorTracker(client, options = {}) {
-  const workflow = createCreatorTrackerWorkflow(options)
-  const pollIntervalMs = options.pollIntervalMs ?? 30 * 1_000
+  const socialService = options.socialService || new SocialTrackerService(options)
+  const workflow = createCreatorTrackerWorkflow({ ...options, socialService })
 
   client.on(Events.InteractionCreate, (interaction) => {
     workflow.handleInteraction(interaction).catch((reason) => {
@@ -445,11 +452,7 @@ export function installCreatorTracker(client, options = {}) {
   })
 
   client.once(Events.ClientReady, () => {
-    console.log(`[CreatorTracker] Starting automated background polling (Every ${pollIntervalMs / 1000}s)...`)
-    pollAllCreators({ client, channelId: options.channelId }).catch((e) => console.error('[CreatorTracker] Initial poll failed:', e.message))
-    setInterval(() => {
-      pollAllCreators({ client, channelId: options.channelId }).catch((e) => console.error('[CreatorTracker] Background poll failed:', e.message))
-    }, pollIntervalMs)
+    socialService.start(client)
   })
 
   return workflow
