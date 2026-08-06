@@ -16,10 +16,10 @@ import {
 const TEST_FILE_PATH = path.join(process.cwd(), 'data', 'test-tracked-creators.json')
 
 test('STREAMER_MANAGEMENT_COMMANDS options', () => {
-  assert.equal(STREAMER_MANAGEMENT_COMMANDS.length, 5)
+  assert.equal(STREAMER_MANAGEMENT_COMMANDS.length, 6)
   assert.deepEqual(
     STREAMER_MANAGEMENT_COMMANDS.map((c) => c.name),
-    ['track', 'untrack', 'tracked', 'track-edit', 'track-check'],
+    ['track', 'untrack', 'tracked', 'track-edit', 'track-check', 'tracker-status'],
   )
 })
 
