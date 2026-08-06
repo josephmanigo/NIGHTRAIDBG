@@ -168,18 +168,25 @@ export async function checkCreatorUpdates(creator, fetchImpl = fetch) {
     const profileUrl = `https://www.tiktok.com/@${username}`
     const liveUrl = `https://www.tiktok.com/@${username}/live`
 
-    try {
-      const res = await fetchImpl(profileUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
-        },
-      }).catch(() => null)
+    const headers = {
+      'User-Agent':
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1',
+      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'en-US,en;q=0.9',
+    }
 
-      if (res && res.ok) {
-        const html = await res.text().catch(() => '')
-        const videoMatch = html.match(/\/video\/(\d+)/)
-        if (videoMatch) {
-          const videoId = videoMatch[1]
+    try {
+      const resProf = await fetchImpl(profileUrl, { headers }).catch(() => null)
+      if (resProf && resProf.ok) {
+        const html = await resProf.text().catch(() => '')
+
+        const videoMatches = [
+          ...[...html.matchAll(/\/video\/(\d{10,20})/g)].map((m) => m[1]),
+          ...[...html.matchAll(/"id"\s*:\s*"(\d{10,20})"/g)].map((m) => m[1]),
+        ]
+
+        if (videoMatches.length > 0) {
+          const videoId = videoMatches[0]
           if (videoId !== lastSeenContentId) {
             newContent = {
               type: 'video',
@@ -189,13 +196,41 @@ export async function checkCreatorUpdates(creator, fetchImpl = fetch) {
             }
           }
         }
-        const isLiveNow = html.includes('"room_id"') || html.includes('live-room')
+
+        const isLiveNow =
+          html.includes('"room_id"') ||
+          html.includes('live-room') ||
+          html.includes('"status":2') ||
+          (html.includes('"roomId"') && !html.includes('"roomId":""') && !html.includes('"roomId":"0"'))
+
         if (isLiveNow && !isLive) {
           newContent = {
             type: 'live',
             id: `live-${Date.now()}`,
             url: liveUrl,
             title: `${username} is live on TikTok!`,
+          }
+        }
+      }
+
+      if (!newContent && !isLive) {
+        const resLive = await fetchImpl(liveUrl, { headers }).catch(() => null)
+        if (resLive && resLive.ok) {
+          const htmlLive = await resLive.text().catch(() => '')
+          const isLiveNow =
+            htmlLive.includes('"roomId"') ||
+            htmlLive.includes('"room_id"') ||
+            htmlLive.includes('live-room') ||
+            htmlLive.includes('"status":2') ||
+            resLive.url?.includes('/live')
+
+          if (isLiveNow && !htmlLive.includes('LIVE ended') && !htmlLive.includes('page not available')) {
+            newContent = {
+              type: 'live',
+              id: `live-${Date.now()}`,
+              url: liveUrl,
+              title: `${username} is live on TikTok!`,
+            }
           }
         }
       }
