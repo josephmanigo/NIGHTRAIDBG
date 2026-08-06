@@ -14,6 +14,7 @@
     "test:guess-the-number": "node --test bot/guess-the-number.test.js",
     "test:guess-the-word": "node --test bot/guess-the-word.test.js",
     "test:guess-the-emoji": "node --test bot/guess-the-emoji.test.js",
+    "test:music": "node --test bot/music-player.test.js",
     "test:minigame-end": "node --test bot/minigame-end.test.js",
     "test:winner": "node --test bot/winner.test.js",
     "test:leaderboard": "node --test bot/leaderboard.test.js",
@@ -33,6 +34,7 @@
     "preflight:game-results-sheet": "node --env-file-if-exists=.env.local --env-file-if-exists=.env bot/game-results-sheet-live-preflight.js"
   },
   "dependencies": {
+    "@discordjs/voice": "^0.19.2",
     "@radix-ui/react-slot": "^1.3.0",
     "@react-three/drei": "^9.122.0",
     "@react-three/fiber": "^8.18.0",
@@ -47,8 +49,11 @@
     "gsap": "^3.15.0",
     "jose": "^6.2.4",
     "lenis": "^1.3.25",
+    "libsodium-wrappers": "^0.8.4",
     "lucide-react": "^1.24.0",
     "motion": "^12.42.2",
+    "opusscript": "^0.0.8",
+    "play-dl": "^1.9.7",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tailwind-merge": "^3.6.0",

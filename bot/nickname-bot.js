@@ -62,6 +62,7 @@ import {
   GUESS_THE_EMOJI_COMMAND,
   installGuessTheEmojiWorkflow,
 } from './guess-the-emoji.js'
+import { MUSIC_COMMANDS, installMusicWorkflow } from './music-player.js'
 import { END_GAME_COMMAND, installEndGameWorkflow } from './minigame-end.js'
 import { WINNER_COMMAND, installWinnerWorkflow } from './winner.js'
 import { LEADERBOARD_COMMAND, installLeaderboardWorkflow } from './leaderboard.js'
@@ -118,6 +119,7 @@ const COMMAND_DEFINITIONS = [
   LEADERBOARD_COMMAND,
   GAME_RESULTS_MVP_COMMAND,
   GAME_RESULTS_HEALTH_COMMAND,
+  ...MUSIC_COMMANDS,
   ...GAME_RESULTS_SCOREBOARD_COMMANDS,
   ...GAME_RESULTS_ADMIN_COMMANDS,
 ]
@@ -369,6 +371,7 @@ const client = new Client({
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildVoiceStates,
   ],
   partials: [Partials.Channel, Partials.Message],
 })
@@ -501,6 +504,9 @@ installWinnerWorkflow(client, {
   errorReporter: gameResultsErrorReporter,
 })
 installLeaderboardWorkflow(client, {
+  errorReporter: gameResultsErrorReporter,
+})
+installMusicWorkflow(client, {
   errorReporter: gameResultsErrorReporter,
 })
 installGameResultsHealthWorkflow(client, {
