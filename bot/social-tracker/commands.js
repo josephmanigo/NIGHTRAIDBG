@@ -94,6 +94,11 @@ export const TRACK_COMMAND_DEFINITIONS = Object.freeze([
       },
     ],
   },
+  {
+    name: 'tracker-status',
+    description: 'Show webhook/tracker system health and subscription diagnostics (Admin).',
+    default_member_permissions: String(PermissionFlagsBits.Administrator),
+  },
 ])
 
 export function hasAdminOrManageGuildPermission(member) {
@@ -114,7 +119,7 @@ export function createSocialTrackerCommandHandler(socialTrackerService) {
     if (!interaction.isChatInputCommand?.()) return { status: 'ignored' }
     const cmd = interaction.commandName
 
-    if (!['track', 'untrack', 'tracked', 'track-edit', 'track-check'].includes(cmd)) {
+    if (!['track', 'untrack', 'tracked', 'track-edit', 'track-check', 'tracker-status'].includes(cmd)) {
       return { status: 'ignored' }
     }
 
@@ -122,7 +127,7 @@ export function createSocialTrackerCommandHandler(socialTrackerService) {
     const member = interaction.member
 
     // Permission check for admin commands
-    if (['track', 'untrack', 'track-edit', 'track-check'].includes(cmd)) {
+    if (['track', 'untrack', 'track-edit', 'track-check', 'tracker-status'].includes(cmd)) {
       if (!hasAdminOrManageGuildPermission(member)) {
         await interaction.reply({
           content: '❌ You need **Manage Server** permission to use tracking management commands.',
@@ -168,18 +173,36 @@ export function createSocialTrackerCommandHandler(socialTrackerService) {
         }
       } catch {}
 
+      // Resolve platform_user_id for webhook subscriptions
+      let platformUserId = null
+      try {
+        if (parsed.platform === 'twitch') {
+          platformUserId = await socialTrackerService.adapters.twitch.getBroadcasterId(parsed.username)
+        } else if (parsed.platform === 'youtube') {
+          platformUserId = await socialTrackerService.adapters.youtube.resolveChannelId(parsed.canonicalUrl)
+        }
+      } catch {}
+
       const { created, record } = store.addTrackedCreator({
         guildId,
         discordChannelId: targetChannel.id,
         platform: parsed.platform,
         profileUrl: parsed.canonicalUrl,
         username: parsed.username,
+        platformUserId,
         liveNotifications,
         uploadNotifications,
         createdBy: interaction.user.id,
         initialContentId,
         initialLiveId,
       })
+
+      // Ensure platform subscription exists for webhook-driven platforms
+      if (socialTrackerService.ensureSubscriptionForRecord) {
+        socialTrackerService.ensureSubscriptionForRecord(record).catch((e) =>
+          console.error(`[Track] Failed to create subscription for ${record.username}:`, e.message),
+        )
+      }
 
       const platformLabel = parsed.platform === 'tiktok' ? 'TikTok' : parsed.platform === 'twitch' ? 'Twitch' : 'YouTube'
 
@@ -210,8 +233,21 @@ export function createSocialTrackerCommandHandler(socialTrackerService) {
       const parsed = parseSocialUrl(inputUrl)
       const targetUserOrUrl = parsed ? parsed.canonicalUrl : inputUrl
 
+      // Get the record before removing so we can clean up subscriptions
+      let recordToRemove = null
+      if (parsed) {
+        recordToRemove = store.findRecord(guildId, parsed.platform, parsed.username)
+      }
+
       const { removed } = store.removeTrackedCreator(guildId, targetUserOrUrl)
       if (removed) {
+        // Clean up platform subscription if this was the last guild tracking this creator
+        if (recordToRemove && socialTrackerService.cleanupSubscriptionsForCreator) {
+          socialTrackerService.cleanupSubscriptionsForCreator(
+            recordToRemove.platform,
+            recordToRemove.platform_user_id,
+          ).catch((e) => console.error(`[Untrack] Subscription cleanup failed:`, e.message))
+        }
         await interaction.reply({ content: `✅ Removed **${inputUrl}** from social media tracking.` })
       } else {
         await interaction.reply({ content: `❌ Could not find **${inputUrl}** in the tracking list for this server.`, flags: MessageFlags.Ephemeral })
@@ -292,11 +328,26 @@ export function createSocialTrackerCommandHandler(socialTrackerService) {
       const isLive = Boolean(statusData.live?.isLive)
       const livePayload = socialTrackerService.notificationService.createLiveEmbed(statusData)
 
+      // Get webhook/subscription diagnostics
+      const trackedRecord = store.findRecord(guildId, parsed.platform, parsed.username)
+      let diagnosticLines = []
+      if (trackedRecord && socialTrackerService.getCreatorDiagnostics) {
+        const diag = socialTrackerService.getCreatorDiagnostics(trackedRecord)
+        diagnosticLines = [
+          '',
+          `📡 **Tracking Mode**: ${diag.trackingMode}`,
+          ...diag.subscriptions.map((s) => `  ↳ ${s.type}: ${s.status}${s.expires_at ? ` (expires ${new Date(s.expires_at).toLocaleString()})` : ''}`),
+          `⏱️ **Last Event**: ${diag.last_event_at || 'None'}`,
+        ]
+      }
+
       const summaryText = [
         `🔍 **Manual Status Check for ${statusData.displayName || statusData.username}** (${statusData.platform})`,
         `Profile: ${statusData.profileUrl}`,
         `🔴 **Live Status**: ${isLive ? `LIVE NOW (Viewers: ${statusData.live?.viewers ?? 0})` : 'Offline'}`,
         `🎬 **Latest Content ID**: ${statusData.latestContent?.id || 'None detected'}`,
+        `🔔 **Notification Channel**: ${trackedRecord ? `<#${trackedRecord.discord_channel_id}>` : 'Not tracked in this server'}`,
+        ...diagnosticLines,
         '',
         `*Test Preview Notification Below:*`,
       ].join('\n')
@@ -306,6 +357,16 @@ export function createSocialTrackerCommandHandler(socialTrackerService) {
         embeds: livePayload.embeds,
         components: livePayload.components,
       })
+      return { status: 'handled' }
+    }
+
+    if (cmd === 'tracker-status') {
+      if (socialTrackerService.getTrackerStatusText) {
+        const statusText = socialTrackerService.getTrackerStatusText()
+        await interaction.reply({ content: statusText, flags: MessageFlags.Ephemeral })
+      } else {
+        await interaction.reply({ content: 'ℹ️ Tracker status unavailable.', flags: MessageFlags.Ephemeral })
+      }
       return { status: 'handled' }
     }
 

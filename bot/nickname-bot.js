@@ -66,6 +66,7 @@ import { MUSIC_COMMANDS, installMusicWorkflow } from './music-player.js'
 import { WATCHPARTY_COMMAND, installWatchpartyWorkflow } from './watchparty.js'
 import { LIVE_COMMAND, installLiveWorkflow } from './live-notifier.js'
 import { STREAMER_MANAGEMENT_COMMANDS, installCreatorTracker } from './creator-tracker.js'
+import { createWebhookHandler } from './social-tracker/webhook-server.js'
 import { END_GAME_COMMAND, installEndGameWorkflow } from './minigame-end.js'
 import { WINNER_COMMAND, installWinnerWorkflow } from './winner.js'
 import { LEADERBOARD_COMMAND, installLeaderboardWorkflow } from './leaderboard.js'
@@ -81,7 +82,7 @@ import { createSupabaseGameResultsStore } from './game-results-store.js'
 import { createTeamMappingService } from './game-results-team-mapper.js'
 import { formatNickname } from './name-format.js'
 import { containsLinkKeyword, NIGHTRAID_SERVER_INVITE_URL } from './server-link.js'
-import { containsJoinNRKeyword, formatJoinNRReply } from './join-nr.js'
+import { containsJoinNRKeyword, formatJoinNRReply, fetchAndFormatJoinNRReply } from './join-nr.js'
 import { installScrimAutomation } from './scrim-automation.js'
 
 const required = (name) => {
@@ -522,7 +523,7 @@ installWatchpartyWorkflow(client, {
 installLiveWorkflow(client, {
   errorReporter: gameResultsErrorReporter,
 })
-installCreatorTracker(client, {
+const trackerWorkflow = installCreatorTracker(client, {
   errorReporter: gameResultsErrorReporter,
 })
 installGameResultsHealthWorkflow(client, {
@@ -675,12 +676,12 @@ client.on(Events.MessageCreate, async (message) => {
   }
 
   if (containsJoinNRKeyword(message.content)) {
-    const joinLink = formatJoinNRReply(message.guildId)
+    const replyPayload = await fetchAndFormatJoinNRReply(client, message.guildId)
     await message.reply({
-      content: joinLink,
+      ...replyPayload,
       allowedMentions: { parse: [], repliedUser: true },
     }).catch((reason) => {
-      console.error('Could not reply with the join NIGHTRAID link:', reason instanceof Error ? reason.message : reason)
+      console.error('Could not reply with the join NIGHTRAID info:', reason instanceof Error ? reason.message : reason)
     })
     return
   }
@@ -744,11 +745,28 @@ client.login(BOT_TOKEN).catch((reason) => {
 })
 
 /* Hosts that only run web services (for example Render's free tier) set PORT
- * and expect the process to answer HTTP; uptime pingers keep it awake. */
-const port = Number(process.env.PORT)
-if (port) {
-  createServer((_request, response) => {
-    response.writeHead(200, { 'Content-Type': 'text/plain' })
-    response.end('Nickname bot is running.')
-  }).listen(port, () => console.log(`Health endpoint listening on port ${port}.`))
+ * and expect the process to answer HTTP; uptime pingers keep it awake.
+ * This server also handles webhook callbacks for Twitch EventSub, YouTube
+ * WebSub, and TikTok provider push events. */
+const webhookPort = Number(process.env.WEBHOOK_PORT || process.env.PORT || 0)
+if (webhookPort) {
+  const webhookHandler = createWebhookHandler({ socialService: trackerWorkflow.socialService })
+
+  createServer(async (request, response) => {
+    try {
+      // Try webhook routes first
+      const handled = await webhookHandler(request, response)
+      if (handled) return
+
+      // Default health endpoint
+      response.writeHead(200, { 'Content-Type': 'text/plain' })
+      response.end('Nickname bot is running.')
+    } catch (err) {
+      console.error('[WebhookServer] Unhandled request error:', err.message)
+      if (!response.headersSent) {
+        response.writeHead(500, { 'Content-Type': 'text/plain' })
+        response.end('Internal Server Error')
+      }
+    }
+  }).listen(webhookPort, () => console.log(`Webhook + health endpoint listening on port ${webhookPort}.`))
 }

@@ -455,5 +455,5 @@ export function installCreatorTracker(client, options = {}) {
     socialService.start(client)
   })
 
-  return workflow
+  return { ...workflow, socialService }
 }

@@ -1,9 +1,11 @@
+import crypto from 'node:crypto'
 import fetch from 'node-fetch'
 
 export class TwitchAdapter {
   constructor(config = {}) {
     this.clientId = config.TWITCH_CLIENT_ID || process.env.TWITCH_CLIENT_ID || ''
     this.clientSecret = config.TWITCH_CLIENT_SECRET || process.env.TWITCH_CLIENT_SECRET || ''
+    this.eventSubSecret = config.TWITCH_EVENTSUB_SECRET || process.env.TWITCH_EVENTSUB_SECRET || ''
     this.accessToken = null
   }
 
@@ -25,6 +27,121 @@ export class TwitchAdapter {
       console.error('[TwitchAdapter] Failed to get OAuth token:', err.message)
     }
     return null
+  }
+
+  verifySignature(headers, rawBodyBuffer) {
+    if (!this.eventSubSecret) return false
+    const msgId = headers['twitch-eventsub-message-id']
+    const msgTimestamp = headers['twitch-eventsub-message-timestamp']
+    const msgSignature = headers['twitch-eventsub-message-signature']
+
+    if (!msgId || !msgTimestamp || !msgSignature) return false
+
+    // Reject events older than 10 minutes (replay attack protection)
+    const timestampSec = Math.floor(new Date(msgTimestamp).getTime() / 1000)
+    const nowSec = Math.floor(Date.now() / 1000)
+    if (Number.isNaN(timestampSec) || Math.abs(nowSec - timestampSec) > 600) {
+      console.warn('[TwitchAdapter] Rejecting EventSub message due to stale timestamp.')
+      return false
+    }
+
+    try {
+      const hmacMessage = Buffer.concat([
+        Buffer.from(msgId, 'utf8'),
+        Buffer.from(msgTimestamp, 'utf8'),
+        rawBodyBuffer,
+      ])
+      const hmac = crypto.createHmac('sha256', this.eventSubSecret).update(hmacMessage).digest('hex')
+      const expectedSignature = `sha256=${hmac}`
+
+      const sigBuffer = Buffer.from(msgSignature, 'utf8')
+      const expBuffer = Buffer.from(expectedSignature, 'utf8')
+      if (sigBuffer.length !== expBuffer.length) return false
+      return crypto.timingSafeEqual(sigBuffer, expBuffer)
+    } catch (err) {
+      console.error('[TwitchAdapter] Signature verification error:', err.message)
+      return false
+    }
+  }
+
+  async getBroadcasterId(username, fetchImpl = fetch) {
+    const token = await this.getAccessToken(fetchImpl)
+    if (!token) return null
+
+    try {
+      const res = await fetchImpl(`https://api.twitch.tv/helix/users?login=${encodeURIComponent(username.replace(/^@/, ''))}`, {
+        headers: {
+          'Client-ID': this.clientId,
+          Authorization: `Bearer ${token}`,
+        },
+      })
+      if (res.ok) {
+        const data = await res.json()
+        return data.data?.[0]?.id || null
+      }
+    } catch (err) {
+      console.error('[TwitchAdapter] Failed to fetch broadcaster ID:', err.message)
+    }
+    return null
+  }
+
+  async subscribeEventSub(broadcasterId, eventType, callbackUrl, fetchImpl = fetch) {
+    const token = await this.getAccessToken(fetchImpl)
+    if (!token || !this.eventSubSecret) return null
+
+    try {
+      const body = {
+        type: eventType,
+        version: '1',
+        condition: { broadcaster_user_id: broadcasterId },
+        transport: {
+          method: 'webhook',
+          callback: callbackUrl,
+          secret: this.eventSubSecret,
+        },
+      }
+
+      const res = await fetchImpl('https://api.twitch.tv/helix/eventsub/subscriptions', {
+        method: 'POST',
+        headers: {
+          'Client-ID': this.clientId,
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      })
+
+      if (res.ok) {
+        const data = await res.json()
+        const sub = data.data?.[0]
+        console.log(`[TwitchAdapter] Subscribed EventSub ${eventType} for broadcaster ${broadcasterId}: ${sub?.id}`)
+        return sub
+      } else {
+        const errText = await res.text()
+        console.error(`[TwitchAdapter] EventSub subscription failed (${res.status}):`, errText)
+      }
+    } catch (err) {
+      console.error('[TwitchAdapter] subscribeEventSub error:', err.message)
+    }
+    return null
+  }
+
+  async unsubscribeEventSub(subscriptionId, fetchImpl = fetch) {
+    const token = await this.getAccessToken(fetchImpl)
+    if (!token) return false
+
+    try {
+      const res = await fetchImpl(`https://api.twitch.tv/helix/eventsub/subscriptions?id=${subscriptionId}`, {
+        method: 'DELETE',
+        headers: {
+          'Client-ID': this.clientId,
+          Authorization: `Bearer ${token}`,
+        },
+      })
+      return res.ok || res.status === 404
+    } catch {
+      return false
+    }
   }
 
   async getProfile(profileUrl, fetchImpl = fetch) {
@@ -73,6 +190,7 @@ export class TwitchAdapter {
               platform: 'twitch',
               username: user.login,
               displayName: user.display_name,
+              platformUserId: user.id,
               avatar: user.profile_image_url,
               profileUrl: canonicalUrl,
               live: {
@@ -113,6 +231,7 @@ export class TwitchAdapter {
       platform: 'twitch',
       username,
       displayName: username,
+      platformUserId: null,
       avatar,
       profileUrl: canonicalUrl,
       live: {

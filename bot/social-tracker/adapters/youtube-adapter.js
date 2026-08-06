@@ -5,6 +5,145 @@ export class YouTubeAdapter {
     this.apiKey = config.YOUTUBE_API_KEY || process.env.YOUTUBE_API_KEY || ''
   }
 
+  /**
+   * Resolve a YouTube profile URL or handle to a channel ID.
+   * Tries: embedded channel_id in URL, YouTube Data API search, HTML scrape.
+   */
+  async resolveChannelId(profileUrl, fetchImpl = fetch) {
+    // Direct channel URL: youtube.com/channel/UCxxx
+    const channelMatch = profileUrl.match(/\/channel\/([a-zA-Z0-9_-]{24})/)
+    if (channelMatch) return channelMatch[1]
+
+    const handleMatch = profileUrl.match(/@([\w.-]+)/)
+    const username = handleMatch ? handleMatch[1] : profileUrl.split('/').filter(Boolean).pop()
+
+    // Try YouTube Data API
+    if (this.apiKey) {
+      try {
+        const searchUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(username)}&type=channel&key=${this.apiKey}`
+        const res = await fetchImpl(searchUrl)
+        if (res.ok) {
+          const data = await res.json()
+          const channel = data.items?.[0]
+          if (channel?.id?.channelId) return channel.id.channelId
+        }
+      } catch {}
+    }
+
+    // HTML scrape fallback
+    const canonicalUrl = `https://www.youtube.com/@${username}`
+    try {
+      const pageRes = await fetchImpl(canonicalUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+        },
+      }).catch(() => null)
+      if (pageRes && pageRes.ok) {
+        const html = await pageRes.text().catch(() => '')
+        const idMatch = html.match(/channel_id=([a-zA-Z0-9_-]{24})/) || html.match(/"channelId"\s*:\s*"([a-zA-Z0-9_-]{24})"/)
+        if (idMatch) return idMatch[1]
+      }
+    } catch {}
+
+    return null
+  }
+
+  /**
+   * Subscribe to YouTube WebSub (PubSubHubbub) push notifications for a channel.
+   */
+  async subscribeWebSub(channelId, callbackUrl, fetchImpl = fetch) {
+    const hubUrl = 'https://pubsubhubbub.appspot.com/subscribe'
+    const topicUrl = `https://www.youtube.com/xml/feeds/videos.xml?channel_id=${channelId}`
+
+    try {
+      const body = new URLSearchParams({
+        'hub.callback': callbackUrl,
+        'hub.topic': topicUrl,
+        'hub.verify': 'async',
+        'hub.mode': 'subscribe',
+        'hub.lease_seconds': '432000', // 5 days
+      })
+
+      const res = await fetchImpl(hubUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString(),
+      })
+
+      if (res.ok || res.status === 202 || res.status === 204) {
+        console.log(`[YouTubeAdapter] WebSub subscription requested for channel ${channelId}`)
+        return { success: true, channelId, topicUrl }
+      } else {
+        const errText = await res.text().catch(() => '')
+        console.error(`[YouTubeAdapter] WebSub subscribe failed (${res.status}):`, errText)
+      }
+    } catch (err) {
+      console.error('[YouTubeAdapter] subscribeWebSub error:', err.message)
+    }
+    return { success: false, channelId, topicUrl }
+  }
+
+  /**
+   * Unsubscribe from YouTube WebSub notifications.
+   */
+  async unsubscribeWebSub(channelId, callbackUrl, fetchImpl = fetch) {
+    const hubUrl = 'https://pubsubhubbub.appspot.com/subscribe'
+    const topicUrl = `https://www.youtube.com/xml/feeds/videos.xml?channel_id=${channelId}`
+
+    try {
+      const body = new URLSearchParams({
+        'hub.callback': callbackUrl,
+        'hub.topic': topicUrl,
+        'hub.verify': 'async',
+        'hub.mode': 'unsubscribe',
+      })
+
+      const res = await fetchImpl(hubUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString(),
+      })
+
+      return res.ok || res.status === 202 || res.status === 204
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * Parse a YouTube WebSub Atom XML push notification.
+   * Returns { videoId, channelId, title, published, updated } or null.
+   */
+  parseAtomEntry(xmlString) {
+    if (!xmlString || typeof xmlString !== 'string') return null
+
+    try {
+      const videoIdMatch = xmlString.match(/<yt:videoId>(.*?)<\/yt:videoId>/)
+      const channelIdMatch = xmlString.match(/<yt:channelId>(.*?)<\/yt:channelId>/)
+      const titleMatch = xmlString.match(/<title>(.*?)<\/title>/g)
+      const publishedMatch = xmlString.match(/<published>(.*?)<\/published>/)
+      const updatedMatch = xmlString.match(/<updated>(.*?)<\/updated>/)
+
+      if (!videoIdMatch) return null
+
+      // The first <title> is the feed title, the second is the entry title
+      let entryTitle = null
+      if (titleMatch && titleMatch.length > 1) {
+        entryTitle = titleMatch[1].replace(/<\/?title>/g, '')
+      }
+
+      return {
+        videoId: videoIdMatch[1],
+        channelId: channelIdMatch ? channelIdMatch[1] : null,
+        title: entryTitle || 'New video',
+        published: publishedMatch ? publishedMatch[1] : null,
+        updated: updatedMatch ? updatedMatch[1] : null,
+      }
+    } catch {
+      return null
+    }
+  }
+
   async getProfile(profileUrl, fetchImpl = fetch) {
     const handleMatch = profileUrl.match(/@([\w.-]+)/)
     const username = handleMatch ? `@${handleMatch[1]}` : profileUrl.split('/').filter(Boolean).pop()
@@ -53,6 +192,7 @@ export class YouTubeAdapter {
               platform: 'youtube',
               username: snippet.title || username,
               displayName: snippet.title || username,
+              platformUserId: channelId,
               avatar: snippet.thumbnails?.high?.url || snippet.thumbnails?.default?.url,
               profileUrl: canonicalUrl,
               live: {
@@ -77,6 +217,7 @@ export class YouTubeAdapter {
     let liveId = null
     let latestContent = null
     let avatar = null
+    let channelId = null
 
     try {
       const pageRes = await fetchImpl(canonicalUrl, {
@@ -92,7 +233,7 @@ export class YouTubeAdapter {
         isLive = html.includes('"style":"LIVE"') || html.includes('"label":"LIVE NOW"') || html.includes('hqdefault_live.jpg')
 
         if (channelIdMatch) {
-          const channelId = channelIdMatch[1]
+          channelId = channelIdMatch[1]
           const rssUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}`
           const rssRes = await fetchImpl(rssUrl).catch(() => null)
           if (rssRes && rssRes.ok) {
@@ -121,6 +262,7 @@ export class YouTubeAdapter {
       platform: 'youtube',
       username,
       displayName: username,
+      platformUserId: channelId,
       avatar,
       profileUrl: canonicalUrl,
       live: {
