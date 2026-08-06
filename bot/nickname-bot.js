@@ -79,6 +79,7 @@ import { createSupabaseGameResultsStore } from './game-results-store.js'
 import { createTeamMappingService } from './game-results-team-mapper.js'
 import { formatNickname } from './name-format.js'
 import { containsLinkKeyword, NIGHTRAID_SERVER_INVITE_URL } from './server-link.js'
+import { containsJoinNRKeyword, formatJoinNRReply } from './join-nr.js'
 import { installScrimAutomation } from './scrim-automation.js'
 
 const required = (name) => {
@@ -659,6 +660,17 @@ client.on(Events.MessageCreate, async (message) => {
       allowedMentions: { parse: [], repliedUser: true },
     }).catch((reason) => {
       console.error('Could not reply with the NIGHTRAID server link:', reason instanceof Error ? reason.message : reason)
+    })
+    return
+  }
+
+  if (containsJoinNRKeyword(message.content)) {
+    const joinLink = formatJoinNRReply(message.guildId)
+    await message.reply({
+      content: joinLink,
+      allowedMentions: { parse: [], repliedUser: true },
+    }).catch((reason) => {
+      console.error('Could not reply with the join NIGHTRAID link:', reason instanceof Error ? reason.message : reason)
     })
     return
   }
