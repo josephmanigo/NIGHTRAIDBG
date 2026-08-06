@@ -7,7 +7,7 @@
  */
 
 export const JOIN_NR_MESSAGE_ID = '1529820235253809234'
-export const JOIN_NR_CHANNEL_ID = '1239020074908520478'
+export const JOIN_NR_CHANNEL_ID = '1393094465513852979'
 
 export function containsJoinNRKeyword(content) {
   if (!content || typeof content !== 'string') return false
