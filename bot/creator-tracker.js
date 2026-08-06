@@ -490,7 +490,7 @@ export function createCreatorTrackerWorkflow(options = {}) {
 
 export function installCreatorTracker(client, options = {}) {
   const workflow = createCreatorTrackerWorkflow(options)
-  const pollIntervalMs = options.pollIntervalMs ?? 3 * 60 * 1_000
+  const pollIntervalMs = options.pollIntervalMs ?? 30 * 1_000
 
   client.on(Events.InteractionCreate, (interaction) => {
     workflow.handleInteraction(interaction).catch((reason) => {
