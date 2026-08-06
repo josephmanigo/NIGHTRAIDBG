@@ -9,6 +9,7 @@
  */
 import {
   AudioPlayerStatus,
+  NoSubscriberBehavior,
   StreamType,
   VoiceConnectionStatus,
   createAudioPlayer,
@@ -160,7 +161,13 @@ export function createMusicWorkflow(options = {}) {
   const queues = options.queues ?? new Map()
   const playImpl = options.playImpl ?? play
   const joinVoiceImpl = options.joinVoiceImpl ?? joinVoiceChannel
-  const createPlayerImpl = options.createPlayerImpl ?? createAudioPlayer
+  const createPlayerImpl = options.createPlayerImpl ?? ((options) =>
+    createAudioPlayer({
+      behaviors: {
+        noSubscriber: NoSubscriberBehavior.Play,
+      },
+      ...options,
+    }))
 
   function getQueue(guildId) {
     return queues.get(String(guildId)) ?? null
@@ -263,8 +270,20 @@ export function createMusicWorkflow(options = {}) {
       selfDeaf: false,
       selfMute: false,
     })
-    const player = createPlayerImpl()
+    const player = createPlayerImpl({
+      behaviors: {
+        noSubscriber: NoSubscriberBehavior.Play,
+      },
+    })
     connection.subscribe(player)
+
+    connection.on('stateChange', (oldState, newState) => {
+      console.log(`[MusicVoice] Connection status changed from ${oldState.status} to ${newState.status}`)
+    })
+
+    player.on('stateChange', (oldState, newState) => {
+      console.log(`[MusicPlayer] Player status changed from ${oldState.status} to ${newState.status}`)
+    })
 
     queueState = {
       guildId: String(guildId),
