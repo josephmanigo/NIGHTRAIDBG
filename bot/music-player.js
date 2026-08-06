@@ -188,8 +188,33 @@ export function createMusicWorkflow(options = {}) {
     queueState.currentTrack = nextTrack
     queueState.isPlaying = true
 
+    let stream = null
     try {
-      const stream = await playImpl.stream(nextTrack.url)
+      stream = await playImpl.stream(nextTrack.url)
+    } catch (err) {
+      console.warn(`YouTube stream failed for "${nextTrack.title}" (${err.message}). Trying SoundCloud fallback...`)
+      try {
+        if (playImpl.getFreeClientID) {
+          const clientID = await playImpl.getFreeClientID().catch(() => null)
+          if (clientID && playImpl.setToken) {
+            await playImpl.setToken({ soundcloud: { client_id: clientID } }).catch(() => undefined)
+          }
+        }
+        const scResults = await playImpl.search(nextTrack.title, { source: { soundcloud: 'tracks' }, limit: 1 }).catch(() => [])
+        if (scResults && scResults[0]) {
+          stream = await playImpl.stream(scResults[0].url)
+        }
+      } catch (scErr) {
+        console.error(`SoundCloud fallback also failed for "${nextTrack.title}":`, scErr.message)
+      }
+    }
+
+    if (!stream) {
+      console.error(`Could not stream track "${nextTrack.title}". Skipping to next track.`)
+      return playNext(guildId)
+    }
+
+    try {
       const resource = createAudioResource(stream.stream, { inputType: stream.type })
       queueState.player.play(resource)
 
@@ -201,7 +226,6 @@ export function createMusicWorkflow(options = {}) {
       }
     } catch (reason) {
       console.error(`Failed to play track "${nextTrack.title}":`, reason instanceof Error ? reason.message : reason)
-      // Try next track if current fails
       await playNext(guildId)
     }
   }
