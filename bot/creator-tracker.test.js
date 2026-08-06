@@ -16,11 +16,7 @@ import {
 const TEST_FILE_PATH = path.join(process.cwd(), 'data', 'test-tracked-creators.json')
 
 test('STREAMER_MANAGEMENT_COMMANDS options', () => {
-  assert.equal(STREAMER_MANAGEMENT_COMMANDS.length, 3)
-  assert.deepEqual(
-    STREAMER_MANAGEMENT_COMMANDS.map((c) => c.name),
-    ['addstreamer', 'removestreamer', 'liststreamers'],
-  )
+  assert.equal(STREAMER_MANAGEMENT_COMMANDS.length, 0)
 })
 
 test('sanitizeUsername handles raw handles, @ symbols, and full profile URLs', () => {

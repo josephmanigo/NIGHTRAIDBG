@@ -18,47 +18,7 @@ import { DEFAULT_LIVE_CHANNEL_ID, createLiveNotificationEmbed, parseLiveUrl } fr
 const DATA_DIR = path.join(process.cwd(), 'data')
 const CREATORS_FILE_PATH = path.join(DATA_DIR, 'tracked-creators.json')
 
-export const STREAMER_MANAGEMENT_COMMANDS = Object.freeze([
-  {
-    name: 'addstreamer',
-    description: 'Add a creator account or profile link to automatically track for live/video announcements.',
-    options: [
-      {
-        type: ApplicationCommandOptionType.String,
-        name: 'url',
-        description: 'Account profile link or username (e.g. https://www.tiktok.com/@zhara_nr)',
-        required: true,
-      },
-      {
-        type: ApplicationCommandOptionType.String,
-        name: 'platform',
-        description: 'Platform (optional if full link is provided)',
-        required: false,
-        choices: [
-          { name: 'TikTok', value: 'tiktok' },
-          { name: 'Twitch', value: 'twitch' },
-          { name: 'YouTube', value: 'youtube' },
-        ],
-      },
-    ],
-  },
-  {
-    name: 'removestreamer',
-    description: 'Remove a creator from automated tracking.',
-    options: [
-      {
-        type: ApplicationCommandOptionType.String,
-        name: 'username',
-        description: 'Username or profile link to remove',
-        required: true,
-      },
-    ],
-  },
-  {
-    name: 'liststreamers',
-    description: 'List all currently tracked creator accounts with profile links.',
-  },
-])
+export const STREAMER_MANAGEMENT_COMMANDS = Object.freeze([])
 
 function ensureDataDirExists() {
   if (!fs.existsSync(DATA_DIR)) {
@@ -441,44 +401,7 @@ export function createCreatorTrackerWorkflow(options = {}) {
     return { status: 'ignored' }
   }
 
-  async function handleInteraction(interaction) {
-    if (!interaction.isChatInputCommand?.()) return { status: 'ignored' }
-    const cmd = interaction.commandName
-
-    if (cmd === 'addstreamer') {
-      const urlInput = interaction.options.getString('url', true)
-      const platformInput = interaction.options.getString('platform')
-      try {
-        const { created, creator } = addTrackedCreator(urlInput, platformInput)
-        if (created) {
-          await interaction.reply({ content: `✅ Added **${creator.username}** (${creator.platform}) to automatic stream tracking! ([Profile Link](${creator.profileUrl}))` })
-        } else {
-          await interaction.reply({ content: `ℹ️ **${creator.username}** profile link updated!`, flags: MessageFlags.Ephemeral })
-        }
-      } catch (err) {
-        await interaction.reply({ content: `❌ ${err instanceof Error ? err.message : 'Failed to add streamer.'}`, flags: MessageFlags.Ephemeral })
-      }
-      return { status: 'handled' }
-    }
-
-    if (cmd === 'removestreamer') {
-      const username = interaction.options.getString('username', true)
-      const { removed } = removeTrackedCreator(username)
-      if (removed) {
-        await interaction.reply({ content: `✅ Removed **${username}** from automated tracking.` })
-      } else {
-        await interaction.reply({ content: `❌ Could not find **${username}** in the tracking list.`, flags: MessageFlags.Ephemeral })
-      }
-      return { status: 'handled' }
-    }
-
-    if (cmd === 'liststreamers') {
-      const creators = loadTrackedCreators()
-      const text = formatCreatorList(creators)
-      await interaction.reply({ content: text })
-      return { status: 'handled' }
-    }
-
+  async function handleInteraction() {
     return { status: 'ignored' }
   }
 
