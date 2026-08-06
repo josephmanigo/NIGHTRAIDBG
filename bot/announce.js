@@ -196,9 +196,17 @@ export function createAnnounceWorkflow(options = {}) {
   )
   const fetchImpl = options.fetchImpl ?? fetch
 
-  async function resolveTargetChannel(interaction, channelId) {
-    const channel = await interaction.client.channels.fetch(channelId)
-    if (!channel?.isTextBased?.() || !channel.send) {
+  async function resolveTargetChannel(interaction, targetOption) {
+    const channelId = typeof targetOption === 'string' ? targetOption : targetOption?.id
+    let channel = typeof targetOption === 'object' && targetOption !== null ? targetOption : null
+
+    if (!channel?.isTextBased?.() || typeof channel?.send !== 'function') {
+      channel = (channelId ? interaction.client?.channels?.cache?.get(channelId) : null)
+        || (channelId ? interaction.guild?.channels?.cache?.get(channelId) : null)
+        || (channelId ? await interaction.client?.channels?.fetch(channelId).catch(() => null) : null)
+    }
+
+    if (!channel?.isTextBased?.() || !channel?.send) {
       throw new Error('That channel cannot receive messages.')
     }
     if (interaction.guildId && channel.guildId && channel.guildId !== interaction.guildId) {
@@ -257,7 +265,7 @@ export function createAnnounceWorkflow(options = {}) {
 
     await interaction.deferReply({ flags: MessageFlags.Ephemeral })
     const files = photo ? [await downloadAnnouncementPhoto(photo, fetchImpl)] : []
-    const target = await resolveTargetChannel(interaction, channel.id)
+    const target = await resolveTargetChannel(interaction, channel)
     const posted = await target.send({
       content,
       allowedMentions: announcementMentions(mention),

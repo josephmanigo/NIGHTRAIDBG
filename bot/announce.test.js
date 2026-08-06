@@ -264,3 +264,26 @@ test('other commands are ignored', async () => {
   })
   assert.equal(result.status, 'ignored')
 })
+
+test('avoids duplicate channel fetch when channel option is already text-based', async () => {
+  let fetchCalled = false
+  const workflow = createAnnounceWorkflow({ administratorIds: new Set(['admin-1']) })
+  const destination = {
+    id: CHANNEL_ID,
+    guildId: 'guild-1',
+    isTextBased: () => true,
+    send: async () => ({ id: 'msg-1' }),
+  }
+  const interaction = announceInteraction({
+    channel: destination,
+    target: destination,
+  })
+  interaction.client.channels.fetch = async () => {
+    fetchCalled = true
+    return destination
+  }
+  const result = await workflow.handleInteraction(interaction)
+  assert.equal(result.status, 'posted')
+  assert.equal(fetchCalled, false)
+})
+
