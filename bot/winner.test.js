@@ -3,6 +3,7 @@ import test from 'node:test'
 import {
   DEFAULT_ADMIN_CLAIM_CHANNEL_ID,
   DEFAULT_PUBLIC_CLAIM_CHANNEL_ID,
+  DEFAULT_PUBLIC_CLAIM_EMOJI_ID,
   DEFAULT_PUBLIC_CLAIM_MESSAGE_ID,
   DEFAULT_WINNER_CHANNEL_ID,
   WINNER_COMMAND,
@@ -23,6 +24,7 @@ test('WINNER_COMMAND has the correct command structure and default channel IDs',
   assert.equal(DEFAULT_ADMIN_CLAIM_CHANNEL_ID, '1345711473476898896')
   assert.equal(DEFAULT_PUBLIC_CLAIM_CHANNEL_ID, '1535215403834544158')
   assert.equal(DEFAULT_PUBLIC_CLAIM_MESSAGE_ID, '1535223055914246185')
+  assert.equal(DEFAULT_PUBLIC_CLAIM_EMOJI_ID, '1535222637545001082')
   assert.equal(WINNER_COMMAND.options.length, 1)
   assert.equal(WINNER_COMMAND.options[0].name, 'channel')
 })
@@ -136,7 +138,7 @@ test('renderClaimCard formats claim details card correctly', () => {
   assert.match(card, /Handled by\*\* — None yet/)
 })
 
-test('renderPublicClaimNotice formats notice using Discord markdown underline', () => {
+test('renderPublicClaimNotice formats notice using custom emoji 1535222637545001082 and space line after via gcash', () => {
   const pendingNotice = renderPublicClaimNotice({
     winnerId: '999888',
     winnerName: 'Mayen',
@@ -148,6 +150,8 @@ test('renderPublicClaimNotice formats notice using Discord markdown underline', 
   assert.match(pendingNotice, /aug 8 2026/)
   assert.match(pendingNotice, /P100/)
   assert.match(pendingNotice, /via gcash/)
+  assert.match(pendingNotice, /1535222637545001082/)
+  assert.match(pendingNotice, /via gcash `\n\n<:nr_status:1535222637545001082>/)
   assert.match(pendingNotice, /__Please wait while an admin processes your reward.__/)
   assert.equal(pendingNotice.includes('<u>'), false)
 
@@ -343,7 +347,7 @@ test('claim prize button handles non-winner vs winner and modal submit with dual
   assert.match(adminSentPayload.content, /Full Name\*\*: John Doe/)
   assert.match(adminSentPayload.content, /GCash Number\*\*: 09123456789/)
 
-  // Verify public notice updated in target message 1535217895276023838
+  // Verify public notice updated in target message 1535223055914246185
   assert.notEqual(publicEditedPayload, null)
   assert.match(publicEditedPayload.content, /congratulations nightraid!/)
   assert.match(publicEditedPayload.content, /John Doe/)
@@ -432,7 +436,7 @@ test('claim status select menu updates claim status for admins and syncs public 
   assert.match(updatePayload.content, /Status\*\*: ⚙️ Processing/)
   assert.match(updatePayload.content, /Handled by\*\* — <@admin-100>/)
 
-  // Check that public notice in message 1535217895276023838 was edited to processing
+  // Check that public notice in message 1535223055914246185 was edited to processing
   assert.notEqual(publicNoticeUpdated, null)
   assert.match(publicNoticeUpdated.content, /__An admin is currently processing your reward.__/)
 
@@ -455,6 +459,6 @@ test('claim status select menu updates claim status for admins and syncs public 
   assert.equal(adminDoneResult.newStatus, 'done')
   assert.match(updatePayload.content, /Status\*\*: ✅ Done/)
 
-  // Check that public notice in message 1535217895276023838 was edited to done
+  // Check that public notice in message 1535223055914246185 was edited to done
   assert.match(publicNoticeUpdated.content, /__Your reward has been processed and sent!__/)
 })

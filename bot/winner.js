@@ -21,6 +21,8 @@ export const DEFAULT_WINNER_CHANNEL_ID = '1534862469367992321'
 export const DEFAULT_ADMIN_CLAIM_CHANNEL_ID = '1345711473476898896'
 export const DEFAULT_PUBLIC_CLAIM_CHANNEL_ID = '1535215403834544158'
 export const DEFAULT_PUBLIC_CLAIM_MESSAGE_ID = '1535223055914246185'
+export const DEFAULT_PUBLIC_CLAIM_EMOJI_ID = '1535222637545001082'
+export const DEFAULT_PUBLIC_CLAIM_EMOJI = `<:nr_status:${DEFAULT_PUBLIC_CLAIM_EMOJI_ID}>`
 export const DEFAULT_WINNER_CLAIM_CHANNEL_ID = DEFAULT_PUBLIC_CLAIM_CHANNEL_ID
 
 export const WINNER_COMMAND = Object.freeze({
@@ -124,15 +126,16 @@ export function renderPublicClaimNotice({
   const nameDisplay = winnerName || `<@${winnerId}>`
 
   let headerLine = '✧ **congratulations nightraid!**'
-  let pendingEmoji = '🔴'
+  let pendingEmoji = DEFAULT_PUBLIC_CLAIM_EMOJI
 
   if (templateContent) {
     const lines = templateContent.split('\n').map((l) => l.trim()).filter(Boolean)
     if (lines[0]) {
       headerLine = lines[0]
     }
-    if (lines.length >= 4) {
-      const statusMatch = lines[3].match(/^([^\s_a-zA-Z0-9]+|<a?:[^:]+:\d+>)/)
+    const lastLine = lines[lines.length - 1]
+    if (lastLine) {
+      const statusMatch = lastLine.match(/^([^\s_a-zA-Z0-9]+|<a?:[^:]+:\d+>)/)
       if (statusMatch) {
         pendingEmoji = statusMatch[1]
       }
@@ -152,8 +155,10 @@ export function renderPublicClaimNotice({
 
   return [
     headerLine,
+    '',
     `🎉 \` ${nameDisplay} \` — \` ${formattedDate} \``,
     `💸 \` ${prize} \` — \` ${paymentMethod} \``,
+    '',
     `${statusEmoji} ${statusText}`,
   ].join('\n')
 }
@@ -318,10 +323,13 @@ async function syncPublicClaimNotice(client, options, { winnerId, winnerName, st
     process.env.DISCORD_PUBLIC_CLAIM_CHANNEL_ID ||
     DEFAULT_PUBLIC_CLAIM_CHANNEL_ID
 
-  const publicMessageId =
-    options.publicClaimMessageId ||
-    process.env.DISCORD_PUBLIC_CLAIM_MESSAGE_ID ||
-    DEFAULT_PUBLIC_CLAIM_MESSAGE_ID
+  const candidateMsgIds = [
+    options.publicClaimMessageId,
+    process.env.DISCORD_PUBLIC_CLAIM_MESSAGE_ID,
+    '1535222637545001082',
+    '1535223055914246185',
+    DEFAULT_PUBLIC_CLAIM_MESSAGE_ID,
+  ].filter(Boolean)
 
   if (!client?.channels?.fetch) return null
 
@@ -332,23 +340,26 @@ async function syncPublicClaimNotice(client, options, { winnerId, winnerName, st
     let templateContent = null
     const botUserId = client.user?.id
 
-    // 1. Fetch template message 1535223055914246185 to extract exact custom emojis & title
-    if (publicMessageId && publicChannel.messages?.fetch) {
-      const targetMsg = await publicChannel.messages.fetch(publicMessageId).catch(() => null)
-      if (targetMsg) {
-        templateContent = targetMsg.content || null
+    // 1. Fetch template message to extract custom emoji & formatting
+    if (publicChannel.messages?.fetch) {
+      for (const msgId of candidateMsgIds) {
+        const targetMsg = await publicChannel.messages.fetch(msgId).catch(() => null)
+        if (targetMsg) {
+          templateContent = targetMsg.content || null
 
-        // If targetMsg was authored by our bot, edit it directly
-        const isBotAuthor = !botUserId || !targetMsg.author?.id || targetMsg.author?.id === botUserId
-        if (isBotAuthor && typeof targetMsg.edit === 'function') {
-          const noticeContent = renderPublicClaimNotice({
-            winnerId,
-            winnerName,
-            status,
-            templateContent,
-          })
-          await targetMsg.edit({ content: noticeContent, allowedMentions: { parse: [] } }).catch(() => null)
-          return { action: 'edited', messageId: publicMessageId }
+          // If targetMsg was authored by our bot, edit it directly
+          const isBotAuthor = !botUserId || !targetMsg.author?.id || targetMsg.author?.id === botUserId
+          if (isBotAuthor && typeof targetMsg.edit === 'function') {
+            const noticeContent = renderPublicClaimNotice({
+              winnerId,
+              winnerName,
+              status,
+              templateContent,
+            })
+            await targetMsg.edit({ content: noticeContent, allowedMentions: { parse: [] } }).catch(() => null)
+            return { action: 'edited', messageId: msgId }
+          }
+          break
         }
       }
     }
@@ -567,7 +578,7 @@ export function createWinnerWorkflow(options = {}) {
       }).catch(() => undefined)
     }
 
-    // Sync public status notice to channel 1535215403834544158 editing existing bot message or template 1535223055914246185
+    // Sync public status notice with space after via gcash and custom status emoji 1535222637545001082
     await syncPublicClaimNotice(interaction.client, options, {
       winnerId: interaction.user.id,
       winnerName: name,
@@ -632,7 +643,7 @@ export function createWinnerWorkflow(options = {}) {
       }).catch(() => undefined)
     }
 
-    // Sync updated public status notice in channel 1535215403834544158 (editing existing bot message)
+    // Sync updated public status notice with space after via gcash and custom status emoji 1535222637545001082
     await syncPublicClaimNotice(interaction.client, options, {
       winnerId,
       winnerName: name !== 'N/A' ? name : null,
