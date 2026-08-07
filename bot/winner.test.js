@@ -10,6 +10,7 @@ import {
   createClaimPrizeButton,
   createClaimStatusSelectMenu,
   createWinnerWorkflow,
+  extractPrizeFromText,
   fetchChannelWinners,
   formatPublicNoticePrize,
   isSameDay,
@@ -137,6 +138,19 @@ test('renderClaimCard formats claim details card correctly', () => {
   assert.match(card, /In-Game UID\*\*: UID999/)
   assert.match(card, /Status\*\*: ⏳ Pending/)
   assert.match(card, /Handled by\*\* — None yet/)
+})
+
+test('extractPrizeFromText extracts prize from announcement text or game win messages', () => {
+  const text1 = 'CONGRATS @NIGHT • yepo IKAW ANG MASWERTENG MAGWAWAGI NG 50 GCASH NGAYONG ARAW'
+  assert.equal(extractPrizeFromText(text1), '50 GCash')
+  assert.equal(formatPublicNoticePrize(extractPrizeFromText(text1)), 'P50')
+
+  const text2 = 'CONGRATS @user IKAW ANG MAGWAWAGI NG 100 GCASH'
+  assert.equal(extractPrizeFromText(text2), '100 GCash')
+  assert.equal(formatPublicNoticePrize(extractPrizeFromText(text2)), 'P100')
+
+  const text3 = 'Prize: **50 GCash**'
+  assert.equal(extractPrizeFromText(text3), '50 GCash')
 })
 
 test('formatPublicNoticePrize formats 50 GCash, 100 GCash, 200 GCash dynamically', () => {

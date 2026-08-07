@@ -190,6 +190,31 @@ export function isSameDay(timestamp, referenceDate = new Date()) {
   )
 }
 
+export function extractPrizeFromText(text) {
+  if (!text) return null
+  const str = String(text)
+
+  const prizeLabelMatch = str.match(/Prize:\s*(?:\*\*)?([^*]+|\d+)(?:\*\*)?/i)
+  if (prizeLabelMatch) {
+    const val = prizeLabelMatch[1].trim()
+    const amountMatch = val.match(/(\d+)/)
+    if (amountMatch) return `${amountMatch[1]} GCash`
+    return val
+  }
+
+  const gcashMatch = str.match(/(\d+)\s*(?:GCASH|gcash|Gcash)/i)
+  if (gcashMatch) {
+    return `${gcashMatch[1]} GCash`
+  }
+
+  const pMatch = str.match(/(?:P|₱)\s*(\d+)/i)
+  if (pMatch) {
+    return `P${pMatch[1]}`
+  }
+
+  return null
+}
+
 export function parseWinnerFromMessage(message) {
   const content = message?.content ?? ''
   if (
@@ -574,6 +599,11 @@ export function createWinnerWorkflow(options = {}) {
     const matches = [...content.matchAll(/<@!?([^\s>]+)>/g)]
     const winnerIds = new Set(matches.map((m) => m[1]))
 
+    const extractedPrize = extractPrizeFromText(content)
+    if (extractedPrize) {
+      activeWinnerPrizes.set(interaction.user.id, extractedPrize)
+    }
+
     if (winnerIds.size > 0 && !winnerIds.has(interaction.user.id)) {
       await interaction.reply({
         content: '❌ Only designated winners on this list can claim this prize!',
@@ -582,8 +612,9 @@ export function createWinnerWorkflow(options = {}) {
       return { status: 'rejected', reason: 'not_winner' }
     }
 
+    const encodedPrize = extractedPrize ? encodeURIComponent(extractedPrize) : ''
     const modal = new ModalBuilder()
-      .setCustomId(`claim_prize_modal:${interaction.user.id}`)
+      .setCustomId(`claim_prize_modal:${interaction.user.id}:${encodedPrize}`)
       .setTitle('Claim Winner Prize')
       .addComponents(
         new ActionRowBuilder().addComponents(
@@ -622,6 +653,14 @@ export function createWinnerWorkflow(options = {}) {
     const customId = interaction.customId ?? ''
     if (!customId.startsWith('claim_prize_modal')) {
       return { status: 'ignored' }
+    }
+
+    const customIdParts = customId.split(':')
+    const prizeFromModal = customIdParts[2] ? decodeURIComponent(customIdParts[2]) : null
+    const prize = prizeFromModal || activeWinnerPrizes.get(interaction.user.id) || null
+
+    if (prize) {
+      activeWinnerPrizes.set(interaction.user.id, prize)
     }
 
     const name = interaction.fields?.getTextInputValue?.('name')?.trim() || ''
@@ -672,6 +711,7 @@ export function createWinnerWorkflow(options = {}) {
       winnerId: interaction.user.id,
       winnerName: `<@${interaction.user.id}>`,
       status: 'pending',
+      prize,
     })
 
     return { status: 'success', name, gcash, uid }
@@ -732,11 +772,14 @@ export function createWinnerWorkflow(options = {}) {
       }).catch(() => undefined)
     }
 
+    const prize = activeWinnerPrizes.get(winnerId) || null
+
     // Sync updated public status notice with space after via gcash and custom status emoji 1535222637545001082
     await syncPublicClaimNotice(interaction.client, options, {
       winnerId,
       winnerName: `<@${winnerId}>`,
       status: newStatus,
+      prize,
     })
 
     return { status: 'updated', newStatus, adminId: interaction.user.id }
