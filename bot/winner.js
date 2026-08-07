@@ -107,15 +107,30 @@ export function renderClaimCard({
   return lines.join('\n')
 }
 
+export function formatPublicNoticePrize(prize) {
+  if (!prize) return 'P100'
+  const str = String(prize).trim()
+  const match = str.match(/^(?:P|₱)?\s*(\d+)\s*(?:GCash)?$/i)
+  if (match) {
+    return `P${match[1]}`
+  }
+  if (str.toLowerCase().includes('50')) return 'P50'
+  if (str.toLowerCase().includes('100')) return 'P100'
+  if (str.toLowerCase().includes('200')) return 'P200'
+  if (str.toLowerCase().includes('500')) return 'P500'
+  return str
+}
+
 export function renderPublicClaimNotice({
   winnerId,
   winnerName = null,
   dateStr = null,
   status = 'pending',
-  prize = 'P100',
+  prize = null,
   paymentMethod = 'via gcash',
   templateContent = null,
 }) {
+  const displayPrize = formatPublicNoticePrize(prize)
   const formattedDate =
     dateStr ||
     new Date()
@@ -159,7 +174,7 @@ export function renderPublicClaimNotice({
     headerLine,
     '',
     `🎉 ${nameTag} — \` ${formattedDate} \``,
-    `💸 \` ${prize} \` — \` ${paymentMethod} \``,
+    `💸 \` ${displayPrize} \` — \` ${paymentMethod} \``,
     '',
     `${statusEmoji} ${statusText}`,
   ].join('\n')
@@ -318,18 +333,25 @@ async function ephemeralMessage(interaction, content) {
 }
 
 const activePublicNotices = new Map()
+const activeWinnerPrizes = new Map()
 let cachedTemplateContent = null
 const globalHandledWinnerInteractions = new Set()
 const globalInFlightWinnerInteractions = new Set()
 const inFlightUserClaims = new Set()
 
-async function syncPublicClaimNotice(client, options, { winnerId, winnerName, status }) {
+async function syncPublicClaimNotice(client, options, { winnerId, winnerName, status, prize = null }) {
   const publicChannelId =
     options.publicClaimChannelId ||
     process.env.DISCORD_PUBLIC_CLAIM_CHANNEL_ID ||
     DEFAULT_PUBLIC_CLAIM_CHANNEL_ID
 
   if (!client) return null
+
+  if (winnerId && prize) {
+    activeWinnerPrizes.set(winnerId, prize)
+  }
+
+  let resolvedPrize = prize || activeWinnerPrizes.get(winnerId) || null
 
   try {
     let publicChannel = client.channels?.cache?.get?.(publicChannelId)
@@ -346,6 +368,30 @@ async function syncPublicClaimNotice(client, options, { winnerId, winnerName, st
 
     const botUserId = client.user?.id
 
+    // If prize is still unresolved, attempt to find win message in channel cache
+    if (!resolvedPrize && client.channels?.cache) {
+      try {
+        for (const [, ch] of client.channels.cache) {
+          if (ch?.messages?.cache) {
+            const list = Array.from(ch.messages.cache.values())
+            const winMsg = list.find(
+              (m) =>
+                m.content?.includes(winnerId) &&
+                (m.content?.includes('# Guessed It') || m.content?.includes('Prize:')),
+            )
+            if (winMsg) {
+              const parsed = parseWinnerFromMessage(winMsg)
+              if (parsed?.prize) {
+                resolvedPrize = parsed.prize
+                activeWinnerPrizes.set(winnerId, resolvedPrize)
+                break
+              }
+            }
+          }
+        }
+      } catch {}
+    }
+
     // 1. Fast path: Memory cache check if we saved a bot message ID for THIS winner
     const existingMsgId = activePublicNotices.get(winnerId)
     if (existingMsgId && publicChannel.messages?.fetch) {
@@ -355,6 +401,7 @@ async function syncPublicClaimNotice(client, options, { winnerId, winnerName, st
           winnerId,
           winnerName,
           status,
+          prize: resolvedPrize,
           templateContent: cachedTemplateContent,
         })
         await existingMsg.edit({ content: noticeContent, allowedMentions: { parse: [] } }).catch(() => null)
@@ -396,6 +443,7 @@ async function syncPublicClaimNotice(client, options, { winnerId, winnerName, st
                 winnerId,
                 winnerName,
                 status,
+                prize: resolvedPrize,
                 templateContent: cachedTemplateContent,
               })
               await targetMsg.edit({ content: noticeContent, allowedMentions: { parse: [] } }).catch(() => null)
@@ -411,6 +459,7 @@ async function syncPublicClaimNotice(client, options, { winnerId, winnerName, st
       winnerId,
       winnerName,
       status,
+      prize: resolvedPrize,
       templateContent: cachedTemplateContent,
     })
 

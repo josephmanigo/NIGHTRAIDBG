@@ -11,6 +11,7 @@ import {
   createClaimStatusSelectMenu,
   createWinnerWorkflow,
   fetchChannelWinners,
+  formatPublicNoticePrize,
   isSameDay,
   parseWinnerFromMessage,
   renderClaimCard,
@@ -138,17 +139,28 @@ test('renderClaimCard formats claim details card correctly', () => {
   assert.match(card, /Handled by\*\* — None yet/)
 })
 
+test('formatPublicNoticePrize formats 50 GCash, 100 GCash, 200 GCash dynamically', () => {
+  assert.equal(formatPublicNoticePrize('50 GCash'), 'P50')
+  assert.equal(formatPublicNoticePrize('50'), 'P50')
+  assert.equal(formatPublicNoticePrize('P50'), 'P50')
+  assert.equal(formatPublicNoticePrize('100 GCash'), 'P100')
+  assert.equal(formatPublicNoticePrize('100'), 'P100')
+  assert.equal(formatPublicNoticePrize('200 GCash'), 'P200')
+  assert.equal(formatPublicNoticePrize(null), 'P100')
+})
+
 test('renderPublicClaimNotice formats notice using custom emoji 1535222637545001082 and space line after via gcash', () => {
   const pendingNotice = renderPublicClaimNotice({
     winnerId: '999888',
     winnerName: 'Mayen',
     dateStr: 'aug 8 2026',
     status: 'pending',
+    prize: '50 GCash',
   })
   assert.match(pendingNotice, /congratulations nightraid!/)
   assert.match(pendingNotice, /Mayen/)
   assert.match(pendingNotice, /aug 8 2026/)
-  assert.match(pendingNotice, /P100/)
+  assert.match(pendingNotice, /P50/)
   assert.match(pendingNotice, /via gcash/)
   assert.match(pendingNotice, /1535222637545001082/)
   assert.match(pendingNotice, /via gcash `\n\n<:nr_status:1535222637545001082>/)
