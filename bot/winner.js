@@ -34,8 +34,7 @@ export function createClaimPrizeButton() {
     new ButtonBuilder()
       .setCustomId('claim_winner_prize')
       .setLabel('Claim Prize')
-      .setStyle(ButtonStyle.Success)
-      .setEmoji('🎁')
+      .setStyle(ButtonStyle.Danger),
   )
 }
 
