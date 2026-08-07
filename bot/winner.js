@@ -120,11 +120,11 @@ export function renderPublicClaimNotice({
       .replace(',', '')
       .toLowerCase()
 
-  let statusLine = '🔴 <u>Please wait while an admin processes your reward.</u>'
+  let statusLine = '🔴 __Please wait while an admin processes your reward.__'
   if (status === 'processing') {
-    statusLine = '🟡 <u>An admin is currently processing your reward.</u>'
+    statusLine = '🟡 __An admin is currently processing your reward.__'
   } else if (status === 'done') {
-    statusLine = '🟢 <u>Your reward has been processed and sent!</u>'
+    statusLine = '🟢 __Your reward has been processed and sent!__'
   }
 
   const nameDisplay = winnerName || `<@${winnerId}>`
@@ -289,6 +289,8 @@ async function ephemeralMessage(interaction, content) {
   return interaction.reply({ ...payload, flags: MessageFlags.Ephemeral }).catch(() => undefined)
 }
 
+const activePublicNotices = new Map()
+
 async function syncPublicClaimNotice(client, options, { winnerId, winnerName, status }) {
   const publicChannelId =
     options.publicClaimChannelId ||
@@ -312,17 +314,37 @@ async function syncPublicClaimNotice(client, options, { winnerId, winnerName, st
     const publicChannel = await client.channels.fetch(publicChannelId).catch(() => null)
     if (!publicChannel) return null
 
-    let targetMsg = null
+    const botUserId = client.user?.id
+
+    // 1. Check if configured target message ID can be edited by our bot
     if (publicMessageId && publicChannel.messages?.fetch) {
-      targetMsg = await publicChannel.messages.fetch(publicMessageId).catch(() => null)
+      const targetMsg = await publicChannel.messages.fetch(publicMessageId).catch(() => null)
+      if (targetMsg) {
+        const isBotAuthor = !botUserId || targetMsg.author?.id === botUserId
+        if (isBotAuthor && typeof targetMsg.edit === 'function') {
+          await targetMsg.edit({ content: noticeContent, allowedMentions: { parse: [] } })
+          return { action: 'edited', messageId: publicMessageId }
+        }
+      }
     }
 
-    if (targetMsg?.edit) {
-      await targetMsg.edit({ content: noticeContent, allowedMentions: { parse: [] } }).catch(() => null)
-      return { action: 'edited', messageId: publicMessageId }
-    } else if (publicChannel.send) {
+    // 2. Check if we have an existing public message saved for this winnerId
+    const existingMsgId = activePublicNotices.get(winnerId)
+    if (existingMsgId && publicChannel.messages?.fetch) {
+      const existingMsg = await publicChannel.messages.fetch(existingMsgId).catch(() => null)
+      if (existingMsg && typeof existingMsg.edit === 'function') {
+        await existingMsg.edit({ content: noticeContent, allowedMentions: { parse: [] } })
+        return { action: 'edited', messageId: existingMsgId }
+      }
+    }
+
+    // 3. Send ONE new message and store its ID to prevent duplicate messages
+    if (publicChannel.send) {
       const sent = await publicChannel.send({ content: noticeContent, allowedMentions: { parse: [] } }).catch(() => null)
-      return { action: 'sent', messageId: sent?.id ?? null }
+      if (sent?.id) {
+        activePublicNotices.set(winnerId, sent.id)
+        return { action: 'sent', messageId: sent.id }
+      }
     }
   } catch (err) {
     console.error('syncPublicClaimNotice error:', err)
@@ -495,7 +517,7 @@ export function createWinnerWorkflow(options = {}) {
       }).catch(() => undefined)
     }
 
-    // Sync public status notice to channel 1535215403834544158 (message 1535217895276023838)
+    // Sync public status notice to channel 1535215403834544158 without creating duplicate messages
     await syncPublicClaimNotice(interaction.client, options, {
       winnerId: interaction.user.id,
       winnerName: name,
@@ -560,7 +582,7 @@ export function createWinnerWorkflow(options = {}) {
       }).catch(() => undefined)
     }
 
-    // Sync updated public status notice to channel 1535215403834544158 (message 1535217895276023838)
+    // Sync updated public status notice in channel 1535215403834544158 (editing existing message)
     await syncPublicClaimNotice(interaction.client, options, {
       winnerId,
       winnerName: name !== 'N/A' ? name : null,

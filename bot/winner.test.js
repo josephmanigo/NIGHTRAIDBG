@@ -136,7 +136,7 @@ test('renderClaimCard formats claim details card correctly', () => {
   assert.match(card, /Handled by\*\* — None yet/)
 })
 
-test('renderPublicClaimNotice formats notice matching design screenshot', () => {
+test('renderPublicClaimNotice formats notice using Discord markdown underline', () => {
   const pendingNotice = renderPublicClaimNotice({
     winnerId: '999888',
     winnerName: 'Mayen',
@@ -148,13 +148,14 @@ test('renderPublicClaimNotice formats notice matching design screenshot', () => 
   assert.match(pendingNotice, /aug 8 2026/)
   assert.match(pendingNotice, /P100/)
   assert.match(pendingNotice, /via gcash/)
-  assert.match(pendingNotice, /Please wait while an admin processes your reward/)
+  assert.match(pendingNotice, /__Please wait while an admin processes your reward.__/)
+  assert.equal(pendingNotice.includes('<u>'), false)
 
   const doneNotice = renderPublicClaimNotice({
     winnerId: '999888',
     status: 'done',
   })
-  assert.match(doneNotice, /Your reward has been processed and sent!/)
+  assert.match(doneNotice, /__Your reward has been processed and sent!__/)
 })
 
 test('fetchChannelWinners filters messages by today and sorts chronologically', async () => {
@@ -279,12 +280,14 @@ test('claim prize button handles non-winner vs winner and modal submit with dual
 
   const targetPublicMsg = {
     id: DEFAULT_PUBLIC_CLAIM_MESSAGE_ID,
+    author: { id: 'bot-123' },
     edit: async (payload) => {
       publicEditedPayload = payload
     },
   }
 
   const clientMock = {
+    user: { id: 'bot-123' },
     channels: {
       fetch: async (channelId) => {
         if (channelId === DEFAULT_ADMIN_CLAIM_CHANNEL_ID) {
@@ -344,7 +347,7 @@ test('claim prize button handles non-winner vs winner and modal submit with dual
   assert.notEqual(publicEditedPayload, null)
   assert.match(publicEditedPayload.content, /congratulations nightraid!/)
   assert.match(publicEditedPayload.content, /John Doe/)
-  assert.match(publicEditedPayload.content, /Please wait while an admin processes/)
+  assert.match(publicEditedPayload.content, /__Please wait while an admin processes your reward.__/)
 })
 
 test('claim status select menu updates claim status for admins and syncs public channel', async () => {
@@ -352,12 +355,14 @@ test('claim status select menu updates claim status for admins and syncs public 
 
   const targetPublicMsg = {
     id: DEFAULT_PUBLIC_CLAIM_MESSAGE_ID,
+    author: { id: 'bot-123' },
     edit: async (payload) => {
       publicNoticeUpdated = payload
     },
   }
 
   const clientMock = {
+    user: { id: 'bot-123' },
     channels: {
       fetch: async (channelId) => {
         if (channelId === DEFAULT_PUBLIC_CLAIM_CHANNEL_ID) {
@@ -429,7 +434,7 @@ test('claim status select menu updates claim status for admins and syncs public 
 
   // Check that public notice in message 1535217895276023838 was edited to processing
   assert.notEqual(publicNoticeUpdated, null)
-  assert.match(publicNoticeUpdated.content, /An admin is currently processing your reward/)
+  assert.match(publicNoticeUpdated.content, /__An admin is currently processing your reward.__/)
 
   // Admin status change attempt to done
   const adminDoneInteraction = {
@@ -451,5 +456,5 @@ test('claim status select menu updates claim status for admins and syncs public 
   assert.match(updatePayload.content, /Status\*\*: ✅ Done/)
 
   // Check that public notice in message 1535217895276023838 was edited to done
-  assert.match(publicNoticeUpdated.content, /Your reward has been processed and sent!/)
+  assert.match(publicNoticeUpdated.content, /__Your reward has been processed and sent!__/)
 })
