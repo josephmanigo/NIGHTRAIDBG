@@ -112,6 +112,7 @@ export function renderPublicClaimNotice({
   status = 'pending',
   prize = 'P100',
   paymentMethod = 'via gcash',
+  templateContent = null,
 }) {
   const formattedDate =
     dateStr ||
@@ -120,20 +121,40 @@ export function renderPublicClaimNotice({
       .replace(',', '')
       .toLowerCase()
 
-  let statusLine = '🔴 __Please wait while an admin processes your reward.__'
-  if (status === 'processing') {
-    statusLine = '🟡 __An admin is currently processing your reward.__'
-  } else if (status === 'done') {
-    statusLine = '🟢 __Your reward has been processed and sent!__'
-  }
-
   const nameDisplay = winnerName || `<@${winnerId}>`
 
+  let headerLine = '✧ **congratulations nightraid!**'
+  let pendingEmoji = '🔴'
+
+  if (templateContent) {
+    const lines = templateContent.split('\n').map((l) => l.trim()).filter(Boolean)
+    if (lines[0]) {
+      headerLine = lines[0]
+    }
+    if (lines.length >= 4) {
+      const statusMatch = lines[3].match(/^([^\s_a-zA-Z0-9]+|<a?:[^:]+:\d+>)/)
+      if (statusMatch) {
+        pendingEmoji = statusMatch[1]
+      }
+    }
+  }
+
+  let statusEmoji = pendingEmoji
+  let statusText = '__Please wait while an admin processes your reward.__'
+
+  if (status === 'processing') {
+    statusEmoji = '🟡'
+    statusText = '__An admin is currently processing your reward.__'
+  } else if (status === 'done') {
+    statusEmoji = '🟢'
+    statusText = '__Your reward has been processed and sent!__'
+  }
+
   return [
-    '✧ **congratulations nightraid!** 🛡️',
+    headerLine,
     `🎉 \` ${nameDisplay} \` — \` ${formattedDate} \``,
     `💸 \` ${prize} \` — \` ${paymentMethod} \``,
-    statusLine,
+    `${statusEmoji} ${statusText}`,
   ].join('\n')
 }
 
@@ -302,43 +323,72 @@ async function syncPublicClaimNotice(client, options, { winnerId, winnerName, st
     process.env.DISCORD_PUBLIC_CLAIM_MESSAGE_ID ||
     DEFAULT_PUBLIC_CLAIM_MESSAGE_ID
 
-  const noticeContent = renderPublicClaimNotice({
-    winnerId,
-    winnerName,
-    status,
-  })
-
   if (!client?.channels?.fetch) return null
 
   try {
     const publicChannel = await client.channels.fetch(publicChannelId).catch(() => null)
     if (!publicChannel) return null
 
+    let templateContent = null
     const botUserId = client.user?.id
 
-    // 1. Check if configured target message ID can be edited by our bot
+    // 1. Fetch template message 1535223055914246185 to extract exact custom emojis & title
     if (publicMessageId && publicChannel.messages?.fetch) {
       const targetMsg = await publicChannel.messages.fetch(publicMessageId).catch(() => null)
       if (targetMsg) {
-        const isBotAuthor = !botUserId || targetMsg.author?.id === botUserId
+        templateContent = targetMsg.content || null
+
+        // If targetMsg was authored by our bot, edit it directly
+        const isBotAuthor = !botUserId || !targetMsg.author?.id || targetMsg.author?.id === botUserId
         if (isBotAuthor && typeof targetMsg.edit === 'function') {
-          await targetMsg.edit({ content: noticeContent, allowedMentions: { parse: [] } })
+          const noticeContent = renderPublicClaimNotice({
+            winnerId,
+            winnerName,
+            status,
+            templateContent,
+          })
+          await targetMsg.edit({ content: noticeContent, allowedMentions: { parse: [] } }).catch(() => null)
           return { action: 'edited', messageId: publicMessageId }
         }
       }
     }
 
-    // 2. Check if we have an existing public message saved for this winnerId
+    const noticeContent = renderPublicClaimNotice({
+      winnerId,
+      winnerName,
+      status,
+      templateContent,
+    })
+
+    // 2. Check if we saved a bot message ID in memory for this winner
     const existingMsgId = activePublicNotices.get(winnerId)
     if (existingMsgId && publicChannel.messages?.fetch) {
       const existingMsg = await publicChannel.messages.fetch(existingMsgId).catch(() => null)
       if (existingMsg && typeof existingMsg.edit === 'function') {
-        await existingMsg.edit({ content: noticeContent, allowedMentions: { parse: [] } })
+        await existingMsg.edit({ content: noticeContent, allowedMentions: { parse: [] } }).catch(() => null)
         return { action: 'edited', messageId: existingMsgId }
       }
     }
 
-    // 3. Send ONE new message and store its ID to prevent duplicate messages
+    // 3. Scan recent channel messages for an existing bot message to edit instead of posting new duplicate
+    if (publicChannel.messages?.fetch && botUserId) {
+      const recentMessages = await publicChannel.messages.fetch({ limit: 20 }).catch(() => null)
+      if (recentMessages) {
+        const list = Array.from(recentMessages.values ? recentMessages.values() : recentMessages)
+        const botMsg = list.find(
+          (m) =>
+            m.author?.id === botUserId &&
+            (m.content?.includes('congratulations nightraid') || m.content?.includes(winnerId)),
+        )
+        if (botMsg && typeof botMsg.edit === 'function') {
+          await botMsg.edit({ content: noticeContent, allowedMentions: { parse: [] } }).catch(() => null)
+          activePublicNotices.set(winnerId, botMsg.id)
+          return { action: 'edited', messageId: botMsg.id }
+        }
+      }
+    }
+
+    // 4. Otherwise send ONE new message and save its ID so all future status changes edit it
     if (publicChannel.send) {
       const sent = await publicChannel.send({ content: noticeContent, allowedMentions: { parse: [] } }).catch(() => null)
       if (sent?.id) {
@@ -517,7 +567,7 @@ export function createWinnerWorkflow(options = {}) {
       }).catch(() => undefined)
     }
 
-    // Sync public status notice to channel 1535215403834544158 without creating duplicate messages
+    // Sync public status notice to channel 1535215403834544158 editing existing bot message or template 1535223055914246185
     await syncPublicClaimNotice(interaction.client, options, {
       winnerId: interaction.user.id,
       winnerName: name,
@@ -582,7 +632,7 @@ export function createWinnerWorkflow(options = {}) {
       }).catch(() => undefined)
     }
 
-    // Sync updated public status notice in channel 1535215403834544158 (editing existing message)
+    // Sync updated public status notice in channel 1535215403834544158 (editing existing bot message)
     await syncPublicClaimNotice(interaction.client, options, {
       winnerId,
       winnerName: name !== 'N/A' ? name : null,
