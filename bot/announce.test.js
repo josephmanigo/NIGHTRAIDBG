@@ -14,6 +14,7 @@ import {
 const CHANNEL_ID = '1208605026868535387'
 
 function announceInteraction({
+  id = null,
   userId = 'admin-1',
   roles = [],
   administrator = false,
@@ -35,6 +36,7 @@ function announceInteraction({
     },
   }
   return {
+    id,
     state,
     isChatInputCommand: () => true,
     commandName: ANNOUNCE_COMMAND.name,
@@ -286,4 +288,32 @@ test('avoids duplicate channel fetch when channel option is already text-based',
   assert.equal(result.status, 'posted')
   assert.equal(fetchCalled, false)
 })
+
+test('duplicate interaction with same ID is ignored and posted only once', async () => {
+  const workflow = createAnnounceWorkflow({ administratorIds: new Set(['admin-1']) })
+  const interaction = announceInteraction({
+    id: 'duplicate-int-100',
+    message: 'Test message',
+  })
+  const firstResult = await workflow.handleInteraction(interaction)
+  assert.equal(firstResult.status, 'posted')
+  assert.equal(interaction.state.sent.length, 1)
+
+  const secondResult = await workflow.handleInteraction(interaction)
+  assert.equal(secondResult.status, 'duplicate')
+  assert.equal(interaction.state.sent.length, 1)
+})
+
+test('already replied or deferred interaction is ignored as duplicate', async () => {
+  const workflow = createAnnounceWorkflow({ administratorIds: new Set(['admin-1']) })
+  const interaction = announceInteraction({
+    id: 'already-replied-int',
+    message: 'Test message',
+  })
+  interaction.deferred = true
+  const result = await workflow.handleInteraction(interaction)
+  assert.equal(result.status, 'duplicate')
+  assert.equal(interaction.state.sent.length, 0)
+})
+
 

@@ -350,7 +350,7 @@ test('claim prize button handles non-winner vs winner and modal submit with dual
   // Verify public notice updated in target message 1535223055914246185
   assert.notEqual(publicEditedPayload, null)
   assert.match(publicEditedPayload.content, /congratulations nightraid!/)
-  assert.match(publicEditedPayload.content, /John Doe/)
+  assert.match(publicEditedPayload.content, /<@winner-111>/)
   assert.match(publicEditedPayload.content, /__Please wait while an admin processes your reward.__/)
 })
 
@@ -462,3 +462,35 @@ test('claim status select menu updates claim status for admins and syncs public 
   // Check that public notice in message 1535223055914246185 was edited to done
   assert.match(publicNoticeUpdated.content, /__Your reward has been processed and sent!__/)
 })
+
+test('duplicate claim interaction with same ID or already replied is ignored as duplicate', async () => {
+  const workflow = createWinnerWorkflow({ administratorIds: new Set(['admin-1']) })
+
+  const interaction1 = {
+    id: 'dup-claim-1',
+    isModalSubmit: () => true,
+    customId: 'claim_prize_modal:user-dup-1',
+    user: { id: 'user-dup-1' },
+    fields: { getTextInputValue: () => 'Test Name' },
+    reply: async () => {},
+  }
+
+  const result1 = await workflow.handleInteraction(interaction1)
+  assert.equal(result1.status, 'success')
+
+  // Second submission with exact same interaction ID
+  const result2 = await workflow.handleInteraction(interaction1)
+  assert.equal(result2.status, 'duplicate')
+
+  // Submission with already replied flag set
+  const interaction2 = {
+    id: 'dup-claim-2',
+    replied: true,
+    isModalSubmit: () => true,
+    customId: 'claim_prize_modal:user-dup-2',
+    user: { id: 'user-dup-2' },
+  }
+  const result3 = await workflow.handleInteraction(interaction2)
+  assert.equal(result3.status, 'duplicate')
+})
+

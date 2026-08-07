@@ -126,7 +126,7 @@ export function renderPublicClaimNotice({
   const nameDisplay = winnerName || `<@${winnerId}>`
 
   let headerLine = '✧ **congratulations nightraid!**'
-  let pendingEmoji = DEFAULT_PUBLIC_CLAIM_EMOJI
+  let customStatusEmoji = DEFAULT_PUBLIC_CLAIM_EMOJI
 
   if (templateContent) {
     const lines = templateContent.split('\n').map((l) => l.trim()).filter(Boolean)
@@ -137,26 +137,28 @@ export function renderPublicClaimNotice({
     if (lastLine) {
       const statusMatch = lastLine.match(/^([^\s_a-zA-Z0-9]+|<a?:[^:]+:\d+>)/)
       if (statusMatch) {
-        pendingEmoji = statusMatch[1]
+        customStatusEmoji = statusMatch[1]
       }
     }
   }
 
-  let statusEmoji = pendingEmoji
+  let statusEmoji = customStatusEmoji
   let statusText = '__Please wait while an admin processes your reward.__'
 
   if (status === 'processing') {
-    statusEmoji = '🟡'
+    statusEmoji = customStatusEmoji
     statusText = '__An admin is currently processing your reward.__'
   } else if (status === 'done') {
-    statusEmoji = '🟢'
+    statusEmoji = customStatusEmoji
     statusText = '__Your reward has been processed and sent!__'
   }
+
+  const nameTag = nameDisplay.startsWith('<@') ? nameDisplay : `\` ${nameDisplay} \``
 
   return [
     headerLine,
     '',
-    `🎉 \` ${nameDisplay} \` — \` ${formattedDate} \``,
+    `🎉 ${nameTag} — \` ${formattedDate} \``,
     `💸 \` ${prize} \` — \` ${paymentMethod} \``,
     '',
     `${statusEmoji} ${statusText}`,
@@ -316,6 +318,10 @@ async function ephemeralMessage(interaction, content) {
 }
 
 const activePublicNotices = new Map()
+let cachedTemplateContent = null
+const globalHandledWinnerInteractions = new Set()
+const globalInFlightWinnerInteractions = new Set()
+const inFlightUserClaims = new Set()
 
 async function syncPublicClaimNotice(client, options, { winnerId, winnerName, status }) {
   const publicChannelId =
@@ -323,29 +329,46 @@ async function syncPublicClaimNotice(client, options, { winnerId, winnerName, st
     process.env.DISCORD_PUBLIC_CLAIM_CHANNEL_ID ||
     DEFAULT_PUBLIC_CLAIM_CHANNEL_ID
 
-  const candidateMsgIds = [
-    options.publicClaimMessageId,
-    process.env.DISCORD_PUBLIC_CLAIM_MESSAGE_ID,
-    '1535222637545001082',
-    '1535223055914246185',
-    DEFAULT_PUBLIC_CLAIM_MESSAGE_ID,
-  ].filter(Boolean)
-
   if (!client?.channels?.fetch) return null
 
   try {
     const publicChannel = await client.channels.fetch(publicChannelId).catch(() => null)
     if (!publicChannel) return null
 
-    let templateContent = null
     const botUserId = client.user?.id
 
-    // 1. Fetch template message to extract custom emoji & formatting
-    if (publicChannel.messages?.fetch) {
+    // 1. Fast path: Check if we saved a bot message ID in memory for this winner
+    const existingMsgId = activePublicNotices.get(winnerId)
+    if (existingMsgId && publicChannel.messages?.fetch) {
+      const existingMsg = await publicChannel.messages.fetch(existingMsgId).catch(() => null)
+      if (existingMsg && typeof existingMsg.edit === 'function') {
+        const noticeContent = renderPublicClaimNotice({
+          winnerId,
+          winnerName,
+          status,
+          templateContent: cachedTemplateContent,
+        })
+        await existingMsg.edit({ content: noticeContent, allowedMentions: { parse: [] } }).catch(() => null)
+        return { action: 'edited', messageId: existingMsgId }
+      }
+    }
+
+    // 2. Fetch template content if not cached yet
+    let templateContent = cachedTemplateContent
+    if (!templateContent && publicChannel.messages?.fetch) {
+      const candidateMsgIds = [
+        options.publicClaimMessageId,
+        process.env.DISCORD_PUBLIC_CLAIM_MESSAGE_ID,
+        '1535222637545001082',
+        '1535223055914246185',
+        DEFAULT_PUBLIC_CLAIM_MESSAGE_ID,
+      ].filter(Boolean)
+
       for (const msgId of candidateMsgIds) {
         const targetMsg = await publicChannel.messages.fetch(msgId).catch(() => null)
         if (targetMsg) {
           templateContent = targetMsg.content || null
+          cachedTemplateContent = templateContent
 
           // If targetMsg was authored by our bot, edit it directly
           const isBotAuthor = !botUserId || !targetMsg.author?.id || targetMsg.author?.id === botUserId
@@ -357,6 +380,7 @@ async function syncPublicClaimNotice(client, options, { winnerId, winnerName, st
               templateContent,
             })
             await targetMsg.edit({ content: noticeContent, allowedMentions: { parse: [] } }).catch(() => null)
+            activePublicNotices.set(winnerId, msgId)
             return { action: 'edited', messageId: msgId }
           }
           break
@@ -370,16 +394,6 @@ async function syncPublicClaimNotice(client, options, { winnerId, winnerName, st
       status,
       templateContent,
     })
-
-    // 2. Check if we saved a bot message ID in memory for this winner
-    const existingMsgId = activePublicNotices.get(winnerId)
-    if (existingMsgId && publicChannel.messages?.fetch) {
-      const existingMsg = await publicChannel.messages.fetch(existingMsgId).catch(() => null)
-      if (existingMsg && typeof existingMsg.edit === 'function') {
-        await existingMsg.edit({ content: noticeContent, allowedMentions: { parse: [] } }).catch(() => null)
-        return { action: 'edited', messageId: existingMsgId }
-      }
-    }
 
     // 3. Scan recent channel messages for an existing bot message to edit instead of posting new duplicate
     if (publicChannel.messages?.fetch && botUserId) {
@@ -415,6 +429,8 @@ async function syncPublicClaimNotice(client, options, { winnerId, winnerName, st
 
 export function createWinnerWorkflow(options = {}) {
   const defaultChannelId = options.defaultChannelId ?? DEFAULT_WINNER_CHANNEL_ID
+  const handledInteractions = options.handledInteractions ?? globalHandledWinnerInteractions
+  const inFlightInteractions = options.inFlightInteractions ?? globalInFlightWinnerInteractions
 
   async function handleCommand(interaction) {
     if (!interaction.guildId) {
@@ -581,7 +597,7 @@ export function createWinnerWorkflow(options = {}) {
     // Sync public status notice with space after via gcash and custom status emoji 1535222637545001082
     await syncPublicClaimNotice(interaction.client, options, {
       winnerId: interaction.user.id,
-      winnerName: name,
+      winnerName: `<@${interaction.user.id}>`,
       status: 'pending',
     })
 
@@ -646,7 +662,7 @@ export function createWinnerWorkflow(options = {}) {
     // Sync updated public status notice with space after via gcash and custom status emoji 1535222637545001082
     await syncPublicClaimNotice(interaction.client, options, {
       winnerId,
-      winnerName: name !== 'N/A' ? name : null,
+      winnerName: `<@${winnerId}>`,
       status: newStatus,
     })
 
@@ -654,23 +670,60 @@ export function createWinnerWorkflow(options = {}) {
   }
 
   async function handleInteraction(interaction) {
-    if (interaction.isChatInputCommand?.() && interaction.commandName === WINNER_COMMAND.name) {
-      return handleCommand(interaction)
+    const interactionId = interaction.id ? String(interaction.id) : null
+
+    if (
+      interactionId &&
+      (handledInteractions.has(interactionId) || inFlightInteractions.has(interactionId))
+    ) {
+      return { status: 'duplicate' }
     }
 
-    if (interaction.isButton?.() && (interaction.customId ?? '').startsWith('claim_winner_prize')) {
-      return handleButtonClick(interaction)
+    if (interaction.replied || interaction.deferred) {
+      return { status: 'duplicate' }
     }
 
-    if (interaction.isModalSubmit?.() && (interaction.customId ?? '').startsWith('claim_prize_modal')) {
-      return handleModalSubmit(interaction)
+    if (interactionId) {
+      inFlightInteractions.add(interactionId)
+      handledInteractions.add(interactionId)
+      if (handledInteractions.size > 1000) {
+        const first = handledInteractions.values().next().value
+        handledInteractions.delete(first)
+      }
     }
 
-    if (interaction.isStringSelectMenu?.() && (interaction.customId ?? '') === 'claim_status_select') {
-      return handleStatusSelect(interaction)
-    }
+    try {
+      if (interaction.isChatInputCommand?.() && interaction.commandName === WINNER_COMMAND.name) {
+        return await handleCommand(interaction)
+      }
 
-    return { status: 'ignored' }
+      if (interaction.isButton?.() && (interaction.customId ?? '').startsWith('claim_winner_prize')) {
+        return await handleButtonClick(interaction)
+      }
+
+      if (interaction.isModalSubmit?.() && (interaction.customId ?? '').startsWith('claim_prize_modal')) {
+        const winnerId = interaction.user?.id
+        if (winnerId && inFlightUserClaims.has(winnerId)) {
+          return { status: 'duplicate' }
+        }
+        if (winnerId) inFlightUserClaims.add(winnerId)
+        try {
+          return await handleModalSubmit(interaction)
+        } finally {
+          if (winnerId) inFlightUserClaims.delete(winnerId)
+        }
+      }
+
+      if (interaction.isStringSelectMenu?.() && (interaction.customId ?? '') === 'claim_status_select') {
+        return await handleStatusSelect(interaction)
+      }
+
+      return { status: 'ignored' }
+    } finally {
+      if (interactionId) {
+        inFlightInteractions.delete(interactionId)
+      }
+    }
   }
 
   return { handleInteraction, handleCommand, handleButtonClick, handleModalSubmit, handleStatusSelect }

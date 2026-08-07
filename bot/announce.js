@@ -187,6 +187,9 @@ async function ephemeralMessage(interaction, content) {
     : interaction.reply({ ...payload, flags: MessageFlags.Ephemeral })
 }
 
+const globalHandledInteractions = new Set()
+const globalInFlightInteractions = new Set()
+
 export function createAnnounceWorkflow(options = {}) {
   const administratorIds = configuredIds(
     options.administratorIds ?? process.env.ADMIN_DISCORD_IDS,
@@ -203,6 +206,8 @@ export function createAnnounceWorkflow(options = {}) {
     options.announcerRoleIds ?? process.env.ANNOUNCE_ROLE_IDS,
   )
   const fetchImpl = options.fetchImpl ?? fetch
+  const handledInteractions = options.handledInteractions ?? globalHandledInteractions
+  const inFlightInteractions = options.inFlightInteractions ?? globalInFlightInteractions
 
   async function resolveTargetChannel(interaction, targetOption) {
     const channelId = typeof targetOption === 'string' ? targetOption : targetOption?.id
@@ -224,73 +229,103 @@ export function createAnnounceWorkflow(options = {}) {
   }
 
   async function handleCommand(interaction) {
-    if (!interaction.guildId) {
-      await ephemeralMessage(interaction, 'The announcement command only works inside the NIGHTRAID server.')
-      return { status: 'rejected', reason: 'direct_message' }
+    const interactionId = interaction.id ? String(interaction.id) : null
+
+    if (
+      interactionId &&
+      (handledInteractions.has(interactionId) || inFlightInteractions.has(interactionId))
+    ) {
+      return { status: 'duplicate' }
     }
 
-    const member = interaction.member?.permissions || interaction.member?.roles
-      ? interaction.member
-      : await interaction.guild?.members?.fetch?.(interaction.user.id).catch(() => interaction.member)
-    if (!canAnnounce({
-      interaction,
-      member,
-      administratorIds,
-      administratorRoleIds,
-      tournamentAdminRoleIds,
-      announcerRoleIds,
-    })) {
-      await ephemeralMessage(interaction, 'Only an administrator, Tournament Admin, or Announcer may post announcements.')
-      return { status: 'unauthorized' }
+    if (interaction.replied || interaction.deferred) {
+      return { status: 'duplicate' }
     }
 
-    const channel = interaction.options.getChannel('channel')
-    const mention = interaction.options.getString('mention') ?? 'none'
-    if (!channel?.id) {
-      await ephemeralMessage(interaction, 'Pick the channel that should receive the announcement.')
-      return { status: 'rejected', reason: 'missing_channel' }
-    }
-    if (!(mention in MENTIONS)) {
-      await ephemeralMessage(interaction, 'That mention option is not supported.')
-      return { status: 'rejected', reason: 'invalid_mention' }
+    if (interactionId) {
+      inFlightInteractions.add(interactionId)
+      handledInteractions.add(interactionId)
+      if (handledInteractions.size > 1000) {
+        const first = handledInteractions.values().next().value
+        handledInteractions.delete(first)
+      }
     }
 
-    const photo = interaction.options.getAttachment?.('photo') ?? null
-    let content
     try {
-      content = buildAnnouncementContent({
-        message: interaction.options.getString('message'),
-        mention,
-      })
-      if (photo) assertAnnouncementPhoto(photo)
-    } catch (reason) {
-      await ephemeralMessage(
-        interaction,
-        `${reason instanceof Error ? reason.message : reason} Fix it and run /announce again.`,
-      )
-      return { status: 'rejected', reason: 'invalid_content' }
-    }
+      if (!interaction.guildId) {
+        await ephemeralMessage(interaction, 'The announcement command only works inside the NIGHTRAID server.')
+        return { status: 'rejected', reason: 'direct_message' }
+      }
 
-    const claimButton = interaction.options.getBoolean?.('claim_button') ?? false
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral })
-    const files = photo ? [await downloadAnnouncementPhoto(photo, fetchImpl)] : []
-    const target = await resolveTargetChannel(interaction, channel)
-    const components = claimButton ? [createClaimPrizeButton()] : []
-    const posted = await target.send({
-      content,
-      allowedMentions: announcementMentions(mention),
-      ...(files.length > 0 ? { files } : {}),
-      ...(components.length > 0 ? { components } : {}),
-    })
-    await interaction.editReply({
-      content: `Announcement posted in <#${channel.id}>.${posted?.url ? `\n${posted.url}` : ''}`,
-      allowedMentions: { parse: [] },
-    })
-    return {
-      status: 'posted',
-      channelId: channel.id,
-      messageId: posted?.id ?? null,
-      photo: files.length > 0,
+      const member = interaction.member?.permissions || interaction.member?.roles
+        ? interaction.member
+        : await interaction.guild?.members?.fetch?.(interaction.user.id).catch(() => interaction.member)
+      if (!canAnnounce({
+        interaction,
+        member,
+        administratorIds,
+        administratorRoleIds,
+        tournamentAdminRoleIds,
+        announcerRoleIds,
+      })) {
+        await ephemeralMessage(interaction, 'Only an administrator, Tournament Admin, or Announcer may post announcements.')
+        return { status: 'unauthorized' }
+      }
+
+      const channel = interaction.options.getChannel('channel')
+      const mention = interaction.options.getString('mention') ?? 'none'
+      if (!channel?.id) {
+        await ephemeralMessage(interaction, 'Pick the channel that should receive the announcement.')
+        return { status: 'rejected', reason: 'missing_channel' }
+      }
+      if (!(mention in MENTIONS)) {
+        await ephemeralMessage(interaction, 'That mention option is not supported.')
+        return { status: 'rejected', reason: 'invalid_mention' }
+      }
+
+      const photo = interaction.options.getAttachment?.('photo') ?? null
+      let content
+      try {
+        content = buildAnnouncementContent({
+          message: interaction.options.getString('message'),
+          mention,
+        })
+        if (photo) assertAnnouncementPhoto(photo)
+      } catch (reason) {
+        await ephemeralMessage(
+          interaction,
+          `${reason instanceof Error ? reason.message : reason} Fix it and run /announce again.`,
+        )
+        return { status: 'rejected', reason: 'invalid_content' }
+      }
+
+      const claimButton = interaction.options.getBoolean?.('claim_button') ?? false
+      if (!interaction.deferred && !interaction.replied) {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral })
+      }
+      const files = photo ? [await downloadAnnouncementPhoto(photo, fetchImpl)] : []
+      const target = await resolveTargetChannel(interaction, channel)
+      const components = claimButton ? [createClaimPrizeButton()] : []
+      const posted = await target.send({
+        content,
+        allowedMentions: announcementMentions(mention),
+        ...(files.length > 0 ? { files } : {}),
+        ...(components.length > 0 ? { components } : {}),
+      })
+      await interaction.editReply({
+        content: `Announcement posted in <#${channel.id}>.${posted?.url ? `\n${posted.url}` : ''}`,
+        allowedMentions: { parse: [] },
+      })
+      return {
+        status: 'posted',
+        channelId: channel.id,
+        messageId: posted?.id ?? null,
+        photo: files.length > 0,
+      }
+    } finally {
+      if (interactionId) {
+        inFlightInteractions.delete(interactionId)
+      }
     }
   }
 
