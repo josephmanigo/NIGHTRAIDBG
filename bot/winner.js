@@ -329,33 +329,41 @@ async function syncPublicClaimNotice(client, options, { winnerId, winnerName, st
     process.env.DISCORD_PUBLIC_CLAIM_CHANNEL_ID ||
     DEFAULT_PUBLIC_CLAIM_CHANNEL_ID
 
-  if (!client?.channels?.fetch) return null
+  if (!client) return null
 
   try {
-    const publicChannel = await client.channels.fetch(publicChannelId).catch(() => null)
-    if (!publicChannel) return null
+    let publicChannel = client.channels?.cache?.get?.(publicChannelId)
+    if (!publicChannel && client.channels?.fetch) {
+      publicChannel = await client.channels.fetch(publicChannelId).catch((err) => {
+        console.error(`Could not fetch public claim channel ${publicChannelId}:`, err)
+        return null
+      })
+    }
+    if (!publicChannel) {
+      console.warn(`Public claim channel ${publicChannelId} was not found on client.`)
+      return null
+    }
 
     const botUserId = client.user?.id
+    const noticeContent = renderPublicClaimNotice({
+      winnerId,
+      winnerName,
+      status,
+      templateContent: cachedTemplateContent,
+    })
 
     // 1. Fast path: Check if we saved a bot message ID in memory for this winner
     const existingMsgId = activePublicNotices.get(winnerId)
     if (existingMsgId && publicChannel.messages?.fetch) {
       const existingMsg = await publicChannel.messages.fetch(existingMsgId).catch(() => null)
       if (existingMsg && typeof existingMsg.edit === 'function') {
-        const noticeContent = renderPublicClaimNotice({
-          winnerId,
-          winnerName,
-          status,
-          templateContent: cachedTemplateContent,
-        })
         await existingMsg.edit({ content: noticeContent, allowedMentions: { parse: [] } }).catch(() => null)
         return { action: 'edited', messageId: existingMsgId }
       }
     }
 
-    // 2. Fetch template content if not cached yet
-    let templateContent = cachedTemplateContent
-    if (!templateContent && publicChannel.messages?.fetch) {
+    // 2. Fetch template content if not cached yet & check candidate message IDs
+    if (publicChannel.messages?.fetch) {
       const candidateMsgIds = [
         options.publicClaimMessageId,
         process.env.DISCORD_PUBLIC_CLAIM_MESSAGE_ID,
@@ -367,18 +375,11 @@ async function syncPublicClaimNotice(client, options, { winnerId, winnerName, st
       for (const msgId of candidateMsgIds) {
         const targetMsg = await publicChannel.messages.fetch(msgId).catch(() => null)
         if (targetMsg) {
-          templateContent = targetMsg.content || null
-          cachedTemplateContent = templateContent
-
-          // If targetMsg was authored by our bot, edit it directly
+          if (!cachedTemplateContent) {
+            cachedTemplateContent = targetMsg.content || null
+          }
           const isBotAuthor = !botUserId || !targetMsg.author?.id || targetMsg.author?.id === botUserId
           if (isBotAuthor && typeof targetMsg.edit === 'function') {
-            const noticeContent = renderPublicClaimNotice({
-              winnerId,
-              winnerName,
-              status,
-              templateContent,
-            })
             await targetMsg.edit({ content: noticeContent, allowedMentions: { parse: [] } }).catch(() => null)
             activePublicNotices.set(winnerId, msgId)
             return { action: 'edited', messageId: msgId }
@@ -388,34 +389,38 @@ async function syncPublicClaimNotice(client, options, { winnerId, winnerName, st
       }
     }
 
-    const noticeContent = renderPublicClaimNotice({
-      winnerId,
-      winnerName,
-      status,
-      templateContent,
-    })
-
-    // 3. Scan recent channel messages for an existing bot message to edit instead of posting new duplicate
-    if (publicChannel.messages?.fetch && botUserId) {
-      const recentMessages = await publicChannel.messages.fetch({ limit: 20 }).catch(() => null)
+    // 3. Scan recent channel messages (up to 100) for an existing bot message to edit
+    if (publicChannel.messages?.fetch) {
+      const recentMessages = await publicChannel.messages.fetch({ limit: 100 }).catch(() => null)
       if (recentMessages) {
         const list = Array.from(recentMessages.values ? recentMessages.values() : recentMessages)
-        const botMsg = list.find(
+        let targetMsg = list.find(
           (m) =>
-            m.author?.id === botUserId &&
-            (m.content?.includes('congratulations nightraid') || m.content?.includes(winnerId)),
+            (!botUserId || m.author?.id === botUserId) &&
+            (m.content?.includes(winnerId) || (winnerId && m.content?.includes(`<@${winnerId}>`))),
         )
-        if (botMsg && typeof botMsg.edit === 'function') {
-          await botMsg.edit({ content: noticeContent, allowedMentions: { parse: [] } }).catch(() => null)
-          activePublicNotices.set(winnerId, botMsg.id)
-          return { action: 'edited', messageId: botMsg.id }
+        if (!targetMsg) {
+          targetMsg = list.find(
+            (m) =>
+              (!botUserId || m.author?.id === botUserId) &&
+              m.content?.includes('congratulations nightraid'),
+          )
+        }
+
+        if (targetMsg && typeof targetMsg.edit === 'function') {
+          await targetMsg.edit({ content: noticeContent, allowedMentions: { parse: [] } }).catch(() => null)
+          activePublicNotices.set(winnerId, targetMsg.id)
+          return { action: 'edited', messageId: targetMsg.id }
         }
       }
     }
 
     // 4. Otherwise send ONE new message and save its ID so all future status changes edit it
     if (publicChannel.send) {
-      const sent = await publicChannel.send({ content: noticeContent, allowedMentions: { parse: [] } }).catch(() => null)
+      const sent = await publicChannel.send({ content: noticeContent, allowedMentions: { parse: [] } }).catch((err) => {
+        console.error(`Failed to send public claim notice to channel ${publicChannelId}:`, err)
+        return null
+      })
       if (sent?.id) {
         activePublicNotices.set(winnerId, sent.id)
         return { action: 'sent', messageId: sent.id }
