@@ -18,6 +18,7 @@ import {
 } from 'discord.js'
 
 export const DEFAULT_WINNER_CHANNEL_ID = '1534862469367992321'
+export const DEFAULT_WINNER_CLAIM_CHANNEL_ID = '1535215403834544158'
 
 export const WINNER_COMMAND = Object.freeze({
   name: 'winner',
@@ -387,7 +388,8 @@ export function createWinnerWorkflow(options = {}) {
     const claimChannelId =
       options.claimChannelId ||
       process.env.DISCORD_WINNER_CLAIM_CHANNEL_ID ||
-      process.env.DISCORD_LOG_CHANNEL_ID
+      process.env.DISCORD_LOG_CHANNEL_ID ||
+      DEFAULT_WINNER_CLAIM_CHANNEL_ID
 
     let claimChannel = null
     if (claimChannelId && interaction.client?.channels?.fetch) {
