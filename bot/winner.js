@@ -18,7 +18,10 @@ import {
 } from 'discord.js'
 
 export const DEFAULT_WINNER_CHANNEL_ID = '1534862469367992321'
-export const DEFAULT_WINNER_CLAIM_CHANNEL_ID = '1535215403834544158'
+export const DEFAULT_ADMIN_CLAIM_CHANNEL_ID = '1345711473476898896'
+export const DEFAULT_PUBLIC_CLAIM_CHANNEL_ID = '1535215403834544158'
+export const DEFAULT_PUBLIC_CLAIM_MESSAGE_ID = '1535217895276023838'
+export const DEFAULT_WINNER_CLAIM_CHANNEL_ID = DEFAULT_PUBLIC_CLAIM_CHANNEL_ID
 
 export const WINNER_COMMAND = Object.freeze({
   name: 'winner',
@@ -100,6 +103,38 @@ export function renderClaimCard({
   }
 
   return lines.join('\n')
+}
+
+export function renderPublicClaimNotice({
+  winnerId,
+  winnerName = null,
+  dateStr = null,
+  status = 'pending',
+  prize = 'P100',
+  paymentMethod = 'via gcash',
+}) {
+  const formattedDate =
+    dateStr ||
+    new Date()
+      .toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+      .replace(',', '')
+      .toLowerCase()
+
+  let statusLine = '🔴 <u>Please wait while an admin processes your reward.</u>'
+  if (status === 'processing') {
+    statusLine = '🟡 <u>An admin is currently processing your reward.</u>'
+  } else if (status === 'done') {
+    statusLine = '🟢 <u>Your reward has been processed and sent!</u>'
+  }
+
+  const nameDisplay = winnerName || `<@${winnerId}>`
+
+  return [
+    '✧ **congratulations nightraid!** 🛡️',
+    `🎉 \` ${nameDisplay} \` — \` ${formattedDate} \``,
+    `💸 \` ${prize} \` — \` ${paymentMethod} \``,
+    statusLine,
+  ].join('\n')
 }
 
 export function isSameDay(timestamp, referenceDate = new Date()) {
@@ -254,6 +289,47 @@ async function ephemeralMessage(interaction, content) {
   return interaction.reply({ ...payload, flags: MessageFlags.Ephemeral }).catch(() => undefined)
 }
 
+async function syncPublicClaimNotice(client, options, { winnerId, winnerName, status }) {
+  const publicChannelId =
+    options.publicClaimChannelId ||
+    process.env.DISCORD_PUBLIC_CLAIM_CHANNEL_ID ||
+    DEFAULT_PUBLIC_CLAIM_CHANNEL_ID
+
+  const publicMessageId =
+    options.publicClaimMessageId ||
+    process.env.DISCORD_PUBLIC_CLAIM_MESSAGE_ID ||
+    DEFAULT_PUBLIC_CLAIM_MESSAGE_ID
+
+  const noticeContent = renderPublicClaimNotice({
+    winnerId,
+    winnerName,
+    status,
+  })
+
+  if (!client?.channels?.fetch) return null
+
+  try {
+    const publicChannel = await client.channels.fetch(publicChannelId).catch(() => null)
+    if (!publicChannel) return null
+
+    let targetMsg = null
+    if (publicMessageId && publicChannel.messages?.fetch) {
+      targetMsg = await publicChannel.messages.fetch(publicMessageId).catch(() => null)
+    }
+
+    if (targetMsg?.edit) {
+      await targetMsg.edit({ content: noticeContent, allowedMentions: { parse: [] } }).catch(() => null)
+      return { action: 'edited', messageId: publicMessageId }
+    } else if (publicChannel.send) {
+      const sent = await publicChannel.send({ content: noticeContent, allowedMentions: { parse: [] } }).catch(() => null)
+      return { action: 'sent', messageId: sent?.id ?? null }
+    }
+  } catch (err) {
+    console.error('syncPublicClaimNotice error:', err)
+  }
+  return null
+}
+
 export function createWinnerWorkflow(options = {}) {
   const defaultChannelId = options.defaultChannelId ?? DEFAULT_WINNER_CHANNEL_ID
 
@@ -385,18 +461,20 @@ export function createWinnerWorkflow(options = {}) {
       flags: MessageFlags.Ephemeral,
     }).catch(() => undefined)
 
-    const claimChannelId =
+    const adminChannelId =
+      options.adminClaimChannelId ||
+      process.env.DISCORD_ADMIN_CLAIM_CHANNEL_ID ||
       options.claimChannelId ||
       process.env.DISCORD_WINNER_CLAIM_CHANNEL_ID ||
       process.env.DISCORD_LOG_CHANNEL_ID ||
-      DEFAULT_WINNER_CLAIM_CHANNEL_ID
+      DEFAULT_ADMIN_CLAIM_CHANNEL_ID
 
-    let claimChannel = null
-    if (claimChannelId && interaction.client?.channels?.fetch) {
-      claimChannel = await interaction.client.channels.fetch(claimChannelId).catch(() => null)
+    let adminChannel = null
+    if (adminChannelId && interaction.client?.channels?.fetch) {
+      adminChannel = await interaction.client.channels.fetch(adminChannelId).catch(() => null)
     }
-    if (!claimChannel) {
-      claimChannel = interaction.channel
+    if (!adminChannel) {
+      adminChannel = interaction.channel
     }
 
     const claimedAt = Math.floor(Date.now() / 1000)
@@ -410,12 +488,19 @@ export function createWinnerWorkflow(options = {}) {
       claimedAt,
     })
 
-    if (claimChannel?.send) {
-      await claimChannel.send({
+    if (adminChannel?.send) {
+      await adminChannel.send({
         content: claimCardContent,
         components: [createClaimStatusSelectMenu('pending')],
       }).catch(() => undefined)
     }
+
+    // Sync public status notice to channel 1535215403834544158 (message 1535217895276023838)
+    await syncPublicClaimNotice(interaction.client, options, {
+      winnerId: interaction.user.id,
+      winnerName: name,
+      status: 'pending',
+    })
 
     return { status: 'success', name, gcash, uid }
   }
@@ -474,6 +559,13 @@ export function createWinnerWorkflow(options = {}) {
         components: [createClaimStatusSelectMenu(newStatus)],
       }).catch(() => undefined)
     }
+
+    // Sync updated public status notice to channel 1535215403834544158 (message 1535217895276023838)
+    await syncPublicClaimNotice(interaction.client, options, {
+      winnerId,
+      winnerName: name !== 'N/A' ? name : null,
+      status: newStatus,
+    })
 
     return { status: 'updated', newStatus, adminId: interaction.user.id }
   }
