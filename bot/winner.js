@@ -10,6 +10,9 @@ import {
   Events,
   MessageFlags,
   ModalBuilder,
+  PermissionFlagsBits,
+  StringSelectMenuBuilder,
+  StringSelectMenuOptionBuilder,
   TextInputBuilder,
   TextInputStyle,
 } from 'discord.js'
@@ -36,6 +39,66 @@ export function createClaimPrizeButton() {
       .setLabel('Claim Prize')
       .setStyle(ButtonStyle.Danger),
   )
+}
+
+export function createClaimStatusSelectMenu(currentStatus = 'pending') {
+  return new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId('claim_status_select')
+      .setPlaceholder('Update Claim Status...')
+      .addOptions([
+        new StringSelectMenuOptionBuilder()
+          .setLabel('Processing')
+          .setValue('processing')
+          .setDescription('Mark prize claim as currently processing')
+          .setEmoji('⚙️')
+          .setDefault(currentStatus === 'processing'),
+        new StringSelectMenuOptionBuilder()
+          .setLabel('Done')
+          .setValue('done')
+          .setDescription('Mark prize claim as completed')
+          .setEmoji('✅')
+          .setDefault(currentStatus === 'done'),
+        new StringSelectMenuOptionBuilder()
+          .setLabel('Pending')
+          .setValue('pending')
+          .setDescription('Reset prize claim status to pending')
+          .setEmoji('⏳')
+          .setDefault(currentStatus === 'pending'),
+      ]),
+  )
+}
+
+export function renderClaimCard({
+  winnerId,
+  name,
+  gcash,
+  uid,
+  status = 'pending',
+  handledBy = null,
+  claimedAt = null,
+}) {
+  const statusLabel =
+    status === 'done' ? '✅ Done' : status === 'processing' ? '⚙️ Processing' : '⏳ Pending'
+
+  const lines = [
+    `💖 <@${winnerId}>`,
+    '',
+    '• **PRIZE CLAIM DETAILS**',
+    `• **Full Name**: ${name}`,
+    `• **GCash Number**: ${gcash}`,
+    `• **In-Game UID**: ${uid}`,
+    '',
+    `⚡ **Status**: ${statusLabel}`,
+    '',
+    `**Handled by** — ${handledBy ? `<@${handledBy}>` : 'None yet'}`,
+  ]
+
+  if (claimedAt) {
+    lines.push(`-# Submitted: <t:${claimedAt}:R>`)
+  }
+
+  return lines.join('\n')
 }
 
 export function isSameDay(timestamp, referenceDate = new Date()) {
@@ -334,20 +397,83 @@ export function createWinnerWorkflow(options = {}) {
       claimChannel = interaction.channel
     }
 
+    const claimedAt = Math.floor(Date.now() / 1000)
+    const claimCardContent = renderClaimCard({
+      winnerId: interaction.user.id,
+      name,
+      gcash,
+      uid,
+      status: 'pending',
+      handledBy: null,
+      claimedAt,
+    })
+
     if (claimChannel?.send) {
       await claimChannel.send({
-        content: [
-          '📥 **NEW PRIZE CLAIM RECEIVED**',
-          `• **Winner**: <@${interaction.user.id}> (${interaction.user.tag || interaction.user.username || 'User'})`,
-          `• **Full Name**: ${name}`,
-          `• **GCash Number**: ${gcash}`,
-          `• **In-Game UID**: ${uid}`,
-          `• **Claimed At**: <t:${Math.floor(Date.now() / 1000)}:F>`,
-        ].join('\n'),
+        content: claimCardContent,
+        components: [createClaimStatusSelectMenu('pending')],
       }).catch(() => undefined)
     }
 
     return { status: 'success', name, gcash, uid }
+  }
+
+  async function handleStatusSelect(interaction) {
+    const customId = interaction.customId ?? ''
+    if (customId !== 'claim_status_select') {
+      return { status: 'ignored' }
+    }
+
+    const member = interaction.member
+    const isAuthorized =
+      member?.permissions?.has?.(PermissionFlagsBits.Administrator) ||
+      member?.permissions?.has?.(PermissionFlagsBits.ManageGuild) ||
+      Boolean(options.administratorIds?.has?.(interaction.user.id))
+
+    if (!isAuthorized) {
+      await interaction.reply({
+        content: '❌ Only administrators can update the claim status.',
+        flags: MessageFlags.Ephemeral,
+      }).catch(() => undefined)
+      return { status: 'rejected', reason: 'unauthorized' }
+    }
+
+    const newStatus = interaction.values?.[0] || 'pending'
+    const content = interaction.message?.content ?? ''
+
+    const winnerIdMatch = content.match(/💖\s*<@!?([^\s>]+)>/)
+    const winnerId = winnerIdMatch ? winnerIdMatch[1] : interaction.user.id
+
+    const nameMatch = content.match(/• \*\*Full Name\*\*: (.*)/)
+    const name = nameMatch ? nameMatch[1] : 'N/A'
+
+    const gcashMatch = content.match(/• \*\*GCash Number\*\*: (.*)/)
+    const gcash = gcashMatch ? gcashMatch[1] : 'N/A'
+
+    const uidMatch = content.match(/• \*\*In-Game UID\*\*: (.*)/)
+    const uid = uidMatch ? uidMatch[1] : 'N/A'
+
+    const claimedAtMatch = content.match(/<t:(\d+):R>/)
+    const claimedAt = claimedAtMatch ? Number(claimedAtMatch[1]) : null
+
+    const updatedContent = renderClaimCard({
+      winnerId,
+      name,
+      gcash,
+      uid,
+      status: newStatus,
+      handledBy: interaction.user.id,
+      claimedAt,
+    })
+
+    if (interaction.update) {
+      await interaction.update({
+        content: updatedContent,
+        components: [createClaimStatusSelectMenu(newStatus)],
+      }).catch(() => undefined)
+    }
+
+    return { status: 'updated', newStatus, adminId: interaction.user.id }
   }
 
   async function handleInteraction(interaction) {
@@ -363,10 +489,14 @@ export function createWinnerWorkflow(options = {}) {
       return handleModalSubmit(interaction)
     }
 
+    if (interaction.isStringSelectMenu?.() && (interaction.customId ?? '') === 'claim_status_select') {
+      return handleStatusSelect(interaction)
+    }
+
     return { status: 'ignored' }
   }
 
-  return { handleInteraction, handleCommand, handleButtonClick, handleModalSubmit }
+  return { handleInteraction, handleCommand, handleButtonClick, handleModalSubmit, handleStatusSelect }
 }
 
 export function installWinnerWorkflow(client, options = {}) {

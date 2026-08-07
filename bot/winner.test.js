@@ -4,10 +4,12 @@ import {
   DEFAULT_WINNER_CHANNEL_ID,
   WINNER_COMMAND,
   createClaimPrizeButton,
+  createClaimStatusSelectMenu,
   createWinnerWorkflow,
   fetchChannelWinners,
   isSameDay,
   parseWinnerFromMessage,
+  renderClaimCard,
   renderWinnersList,
 } from './winner.js'
 
@@ -107,6 +109,24 @@ test('renderWinnersList formats empty state and populated state', () => {
   assert.match(populatedText, /Word: VICTORY/)
   assert.match(populatedText, /VIP Role/)
   assert.match(populatedText, /Total winners today: \*\*1\*\*/)
+})
+
+test('renderClaimCard formats claim details card correctly', () => {
+  const card = renderClaimCard({
+    winnerId: '999888',
+    name: 'Mayen',
+    gcash: '09123456789',
+    uid: 'UID999',
+    status: 'pending',
+    handledBy: null,
+  })
+
+  assert.match(card, /💖 <@999888>/)
+  assert.match(card, /Full Name\*\*: Mayen/)
+  assert.match(card, /GCash Number\*\*: 09123456789/)
+  assert.match(card, /In-Game UID\*\*: UID999/)
+  assert.match(card, /Status\*\*: ⏳ Pending/)
+  assert.match(card, /Handled by\*\* — None yet/)
 })
 
 test('fetchChannelWinners filters messages by today and sorts chronologically', async () => {
@@ -248,4 +268,74 @@ test('claim prize button handles non-winner vs winner and modal submit', async (
   assert.equal(modalResult.status, 'success')
   assert.equal(modalResult.name, 'John Doe')
   assert.match(modalReply.content, /Prize claim submitted/)
+})
+
+test('claim status select menu updates claim status for admins and rejects non-admins', async () => {
+  const workflow = createWinnerWorkflow({
+    administratorIds: new Set(['admin-100']),
+  })
+
+  const cardText = renderClaimCard({
+    winnerId: 'winner-111',
+    name: 'Jane Doe',
+    gcash: '09876543210',
+    uid: 'UID777',
+    status: 'pending',
+    handledBy: null,
+  })
+
+  // Non-admin status change attempt
+  const nonAdminInteraction = {
+    isStringSelectMenu: () => true,
+    customId: 'claim_status_select',
+    values: ['processing'],
+    user: { id: 'user-222' },
+    member: { permissions: { has: () => false } },
+    message: { content: cardText },
+    reply: async (payload) => {
+      nonAdminInteraction.replyPayload = payload
+    },
+  }
+
+  const nonAdminResult = await workflow.handleInteraction(nonAdminInteraction)
+  assert.equal(nonAdminResult.status, 'rejected')
+  assert.equal(nonAdminResult.reason, 'unauthorized')
+
+  // Admin status change attempt to processing
+  let updatePayload = null
+  const adminInteraction = {
+    isStringSelectMenu: () => true,
+    customId: 'claim_status_select',
+    values: ['processing'],
+    user: { id: 'admin-100' },
+    member: { permissions: { has: () => true } },
+    message: { content: cardText },
+    update: async (payload) => {
+      updatePayload = payload
+    },
+  }
+
+  const adminResult = await workflow.handleInteraction(adminInteraction)
+  assert.equal(adminResult.status, 'updated')
+  assert.equal(adminResult.newStatus, 'processing')
+  assert.match(updatePayload.content, /Status\*\*: ⚙️ Processing/)
+  assert.match(updatePayload.content, /Handled by\*\* — <@admin-100>/)
+
+  // Admin status change attempt to done
+  const adminDoneInteraction = {
+    isStringSelectMenu: () => true,
+    customId: 'claim_status_select',
+    values: ['done'],
+    user: { id: 'admin-100' },
+    member: { permissions: { has: () => true } },
+    message: { content: updatePayload.content },
+    update: async (payload) => {
+      updatePayload = payload
+    },
+  }
+
+  const adminDoneResult = await workflow.handleInteraction(adminDoneInteraction)
+  assert.equal(adminDoneResult.status, 'updated')
+  assert.equal(adminDoneResult.newStatus, 'done')
+  assert.match(updatePayload.content, /Status\*\*: ✅ Done/)
 })
