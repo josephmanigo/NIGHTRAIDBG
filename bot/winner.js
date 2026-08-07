@@ -322,23 +322,29 @@ export function createWinnerWorkflow(options = {}) {
     }).catch(() => undefined)
 
     const claimChannelId =
+      options.claimChannelId ||
       process.env.DISCORD_WINNER_CLAIM_CHANNEL_ID ||
       process.env.DISCORD_LOG_CHANNEL_ID
 
+    let claimChannel = null
     if (claimChannelId && interaction.client?.channels?.fetch) {
-      const claimChannel = await interaction.client.channels.fetch(claimChannelId).catch(() => null)
-      if (claimChannel?.send) {
-        await claimChannel.send({
-          content: [
-            '📥 **NEW PRIZE CLAIM RECEIVED**',
-            `• **Winner**: <@${interaction.user.id}> (${interaction.user.tag || interaction.user.username || 'User'})`,
-            `• **Full Name**: ${name}`,
-            `• **GCash Number**: ${gcash}`,
-            `• **In-Game UID**: ${uid}`,
-            `• **Claimed At**: <t:${Math.floor(Date.now() / 1000)}:F>`,
-          ].join('\n'),
-        }).catch(() => undefined)
-      }
+      claimChannel = await interaction.client.channels.fetch(claimChannelId).catch(() => null)
+    }
+    if (!claimChannel) {
+      claimChannel = interaction.channel
+    }
+
+    if (claimChannel?.send) {
+      await claimChannel.send({
+        content: [
+          '📥 **NEW PRIZE CLAIM RECEIVED**',
+          `• **Winner**: <@${interaction.user.id}> (${interaction.user.tag || interaction.user.username || 'User'})`,
+          `• **Full Name**: ${name}`,
+          `• **GCash Number**: ${gcash}`,
+          `• **In-Game UID**: ${uid}`,
+          `• **Claimed At**: <t:${Math.floor(Date.now() / 1000)}:F>`,
+        ].join('\n'),
+      }).catch(() => undefined)
     }
 
     return { status: 'success', name, gcash, uid }
