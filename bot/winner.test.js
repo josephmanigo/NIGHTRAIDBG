@@ -22,7 +22,7 @@ test('WINNER_COMMAND has the correct command structure and default channel IDs',
   assert.equal(DEFAULT_WINNER_CHANNEL_ID, '1534862469367992321')
   assert.equal(DEFAULT_ADMIN_CLAIM_CHANNEL_ID, '1345711473476898896')
   assert.equal(DEFAULT_PUBLIC_CLAIM_CHANNEL_ID, '1535215403834544158')
-  assert.equal(DEFAULT_PUBLIC_CLAIM_MESSAGE_ID, '1535217895276023838')
+  assert.equal(DEFAULT_PUBLIC_CLAIM_MESSAGE_ID, '1535223055914246185')
   assert.equal(WINNER_COMMAND.options.length, 1)
   assert.equal(WINNER_COMMAND.options[0].name, 'channel')
 })
