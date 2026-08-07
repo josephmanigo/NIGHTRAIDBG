@@ -23,6 +23,8 @@ import {
   PermissionFlagsBits,
 } from 'discord.js'
 
+import { createClaimPrizeButton } from './winner.js'
+
 const DISCORD_MESSAGE_LIMIT = 2_000
 const IMAGE_LIMIT_BYTES = 10 * 1_024 * 1_024
 const IMAGE_EXTENSION = /\.(png|jpe?g|gif|webp)$/i
@@ -72,6 +74,12 @@ export const ANNOUNCE_COMMAND = Object.freeze({
         { name: '@here', value: 'here' },
         { name: '@everyone', value: 'everyone' },
       ],
+    },
+    {
+      type: ApplicationCommandOptionType.Boolean,
+      name: 'claim_button',
+      description: 'Add a "Claim Prize" button for winners mentioned in this announcement.',
+      required: false,
     },
   ],
 })
@@ -263,13 +271,16 @@ export function createAnnounceWorkflow(options = {}) {
       return { status: 'rejected', reason: 'invalid_content' }
     }
 
+    const claimButton = interaction.options.getBoolean?.('claim_button') ?? false
     await interaction.deferReply({ flags: MessageFlags.Ephemeral })
     const files = photo ? [await downloadAnnouncementPhoto(photo, fetchImpl)] : []
     const target = await resolveTargetChannel(interaction, channel)
+    const components = claimButton ? [createClaimPrizeButton()] : []
     const posted = await target.send({
       content,
       allowedMentions: announcementMentions(mention),
       ...(files.length > 0 ? { files } : {}),
+      ...(components.length > 0 ? { components } : {}),
     })
     await interaction.editReply({
       content: `Announcement posted in <#${channel.id}>.${posted?.url ? `\n${posted.url}` : ''}`,

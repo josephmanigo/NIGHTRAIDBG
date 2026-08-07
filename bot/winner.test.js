@@ -3,6 +3,7 @@ import test from 'node:test'
 import {
   DEFAULT_WINNER_CHANNEL_ID,
   WINNER_COMMAND,
+  createClaimPrizeButton,
   createWinnerWorkflow,
   fetchChannelWinners,
   isSameDay,
@@ -189,4 +190,62 @@ test('createWinnerWorkflow handles interaction and defers reply', async () => {
   assert.equal(state.deferred, true)
   assert.equal(state.replies.length, 1)
   assert.match(state.replies[0].content, /No guessing game winners recorded today yet/)
+})
+
+test('claim prize button handles non-winner vs winner and modal submit', async () => {
+  const workflow = createWinnerWorkflow()
+
+  // Non-winner button click
+  const nonWinnerInteraction = {
+    isButton: () => true,
+    customId: 'claim_winner_prize',
+    user: { id: 'imposter-999' },
+    message: { content: '🎉 <@winner-111>' },
+    reply: async (payload) => {
+      nonWinnerInteraction.replyPayload = payload
+    },
+  }
+  const nonWinnerResult = await workflow.handleInteraction(nonWinnerInteraction)
+  assert.equal(nonWinnerResult.status, 'rejected')
+  assert.equal(nonWinnerResult.reason, 'not_winner')
+  assert.match(nonWinnerInteraction.replyPayload.content, /Only designated winners/)
+
+  // Winner button click
+  let modalShown = null
+  const winnerInteraction = {
+    isButton: () => true,
+    customId: 'claim_winner_prize',
+    user: { id: 'winner-111' },
+    message: { content: '🎉 <@winner-111>' },
+    showModal: async (modal) => {
+      modalShown = modal
+    },
+  }
+  const winnerResult = await workflow.handleInteraction(winnerInteraction)
+  assert.equal(winnerResult.status, 'modal_shown')
+  assert.notEqual(modalShown, null)
+
+  // Modal submit
+  let modalReply = null
+  const modalSubmitInteraction = {
+    isModalSubmit: () => true,
+    customId: 'claim_prize_modal:winner-111',
+    user: { id: 'winner-111', username: 'WinnerUser' },
+    fields: {
+      getTextInputValue: (field) => {
+        if (field === 'name') return 'John Doe'
+        if (field === 'gcash') return '09123456789'
+        if (field === 'uid') return 'UID12345'
+        return ''
+      },
+    },
+    reply: async (payload) => {
+      modalReply = payload
+    },
+  }
+
+  const modalResult = await workflow.handleInteraction(modalSubmitInteraction)
+  assert.equal(modalResult.status, 'success')
+  assert.equal(modalResult.name, 'John Doe')
+  assert.match(modalReply.content, /Prize claim submitted/)
 })

@@ -1,14 +1,17 @@
 /*
- * /winner — fetch today's guessing game winners in channel 1534862469367992321.
- *
- * Scans recent channel messages for win announcements (# Guessed It) posted
- * today, extracts the winner, game type, secret, tries, and prize, and formats
- * an updated daily report.
+ * /winner — fetch today's guessing game winners in channel 1534862469367992321
+ * and provide prize claiming support.
  */
 import {
+  ActionRowBuilder,
   ApplicationCommandOptionType,
+  ButtonBuilder,
+  ButtonStyle,
   Events,
   MessageFlags,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
 } from 'discord.js'
 
 export const DEFAULT_WINNER_CHANNEL_ID = '1534862469367992321'
@@ -25,6 +28,16 @@ export const WINNER_COMMAND = Object.freeze({
     },
   ],
 })
+
+export function createClaimPrizeButton() {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('claim_winner_prize')
+      .setLabel('Claim Prize')
+      .setStyle(ButtonStyle.Success)
+      .setEmoji('🎁')
+  )
+}
 
 export function isSameDay(timestamp, referenceDate = new Date()) {
   const date = new Date(timestamp)
@@ -88,7 +101,13 @@ export function parseWinnerFromMessage(message) {
   }
 }
 
-export function renderWinnersList({ winners = [], targetChannelId, date = new Date() }) {
+export function renderWinnersList({
+  winners = [],
+  targetChannelId,
+  date = new Date(),
+  title = "Night Grind Event – Today's Winners",
+  prize = '₱100 GCash Each',
+}) {
   const dateStr = new Date(date).toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
@@ -96,8 +115,8 @@ export function renderWinnersList({ winners = [], targetChannelId, date = new Da
   })
 
   const lines = [
-    `# Today's Winners (${dateStr})`,
-    `Channel: <#${targetChannelId}>`,
+    `🌙 **${title} (${dateStr})** 🏆`,
+    `💸 Prize: ${prize}`,
     '',
   ]
 
@@ -106,19 +125,26 @@ export function renderWinnersList({ winners = [], targetChannelId, date = new Da
     return lines.join('\n')
   }
 
-  winners.forEach((w, index) => {
+  lines.push('🥇 **Winners**')
+  winners.forEach((w) => {
     const timeStr = new Date(w.timestamp).toLocaleTimeString('en-US', {
       hour: '2-digit',
       minute: '2-digit',
     })
     const typeLabel = w.gameType === 'word' ? 'Word' : 'Number'
-    let entry = `${index + 1}. <@${w.userId}> won **${typeLabel}: ${w.secret}**`
+    let entry = `🎉 <@${w.userId}>`
+    if (w.secret) entry += ` won **${typeLabel}: ${w.secret}**`
     if (w.tries) entry += ` in ${w.tries}`
     if (w.prize) entry += ` (Prize: **${w.prize}**)`
     entry += ` — *${timeStr}*`
     lines.push(entry)
   })
 
+  lines.push('')
+  lines.push('Click to Claim Prize:')
+  lines.push('🎉 Congratulations to our winners!')
+  lines.push('')
+  lines.push('Stay tuned for more exciting events and giveaways. Good luck to everyone in the next one!🥳')
   lines.push('')
   lines.push(`Total winners today: **${winners.length}**`)
 
@@ -209,8 +235,11 @@ export function createWinnerWorkflow(options = {}) {
         date: new Date(),
       })
 
+      const components = winners.length > 0 ? [createClaimPrizeButton()] : []
+
       await interaction.editReply({
         content,
+        components,
         allowedMentions: { parse: [] },
       })
       return { status: 'success', winnerCount: winners.length, channelId: effectiveChannelId }
@@ -224,17 +253,115 @@ export function createWinnerWorkflow(options = {}) {
     }
   }
 
-  async function handleInteraction(interaction) {
-    if (
-      !interaction.isChatInputCommand?.() ||
-      interaction.commandName !== WINNER_COMMAND.name
-    ) {
+  async function handleButtonClick(interaction) {
+    const customId = interaction.customId ?? ''
+    if (!customId.startsWith('claim_winner_prize')) {
       return { status: 'ignored' }
     }
-    return handleCommand(interaction)
+
+    const content = interaction.message?.content ?? ''
+    const matches = [...content.matchAll(/<@!?([^\s>]+)>/g)]
+    const winnerIds = new Set(matches.map((m) => m[1]))
+
+    if (winnerIds.size > 0 && !winnerIds.has(interaction.user.id)) {
+      await interaction.reply({
+        content: '❌ Only designated winners on this list can claim this prize!',
+        flags: MessageFlags.Ephemeral,
+      }).catch(() => undefined)
+      return { status: 'rejected', reason: 'not_winner' }
+    }
+
+    const modal = new ModalBuilder()
+      .setCustomId(`claim_prize_modal:${interaction.user.id}`)
+      .setTitle('Claim Winner Prize')
+      .addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId('name')
+            .setLabel('Full Name')
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder('Enter your full name')
+            .setRequired(true),
+        ),
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId('gcash')
+            .setLabel('GCash Number (Optional)')
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder('09XXXXXXXXX (Optional)')
+            .setRequired(false),
+        ),
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId('uid')
+            .setLabel('In-Game UID (Optional)')
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder('Game UID (Optional)')
+            .setRequired(false),
+        ),
+      )
+
+    if (typeof interaction.showModal === 'function') {
+      await interaction.showModal(modal)
+    }
+    return { status: 'modal_shown', userId: interaction.user.id }
   }
 
-  return { handleInteraction, handleCommand }
+  async function handleModalSubmit(interaction) {
+    const customId = interaction.customId ?? ''
+    if (!customId.startsWith('claim_prize_modal')) {
+      return { status: 'ignored' }
+    }
+
+    const name = interaction.fields?.getTextInputValue?.('name')?.trim() || ''
+    const gcash = interaction.fields?.getTextInputValue?.('gcash')?.trim() || 'N/A'
+    const uid = interaction.fields?.getTextInputValue?.('uid')?.trim() || 'N/A'
+
+    await interaction.reply({
+      content: `✅ **Prize claim submitted!**\nThank you, **${name}**! Your claim details have been recorded by the admins.`,
+      flags: MessageFlags.Ephemeral,
+    }).catch(() => undefined)
+
+    const claimChannelId =
+      process.env.DISCORD_WINNER_CLAIM_CHANNEL_ID ||
+      process.env.DISCORD_LOG_CHANNEL_ID
+
+    if (claimChannelId && interaction.client?.channels?.fetch) {
+      const claimChannel = await interaction.client.channels.fetch(claimChannelId).catch(() => null)
+      if (claimChannel?.send) {
+        await claimChannel.send({
+          content: [
+            '📥 **NEW PRIZE CLAIM RECEIVED**',
+            `• **Winner**: <@${interaction.user.id}> (${interaction.user.tag || interaction.user.username || 'User'})`,
+            `• **Full Name**: ${name}`,
+            `• **GCash Number**: ${gcash}`,
+            `• **In-Game UID**: ${uid}`,
+            `• **Claimed At**: <t:${Math.floor(Date.now() / 1000)}:F>`,
+          ].join('\n'),
+        }).catch(() => undefined)
+      }
+    }
+
+    return { status: 'success', name, gcash, uid }
+  }
+
+  async function handleInteraction(interaction) {
+    if (interaction.isChatInputCommand?.() && interaction.commandName === WINNER_COMMAND.name) {
+      return handleCommand(interaction)
+    }
+
+    if (interaction.isButton?.() && (interaction.customId ?? '').startsWith('claim_winner_prize')) {
+      return handleButtonClick(interaction)
+    }
+
+    if (interaction.isModalSubmit?.() && (interaction.customId ?? '').startsWith('claim_prize_modal')) {
+      return handleModalSubmit(interaction)
+    }
+
+    return { status: 'ignored' }
+  }
+
+  return { handleInteraction, handleCommand, handleButtonClick, handleModalSubmit }
 }
 
 export function installWinnerWorkflow(client, options = {}) {
@@ -243,7 +370,7 @@ export function installWinnerWorkflow(client, options = {}) {
     workflow.handleInteraction(interaction).catch(async (reason) => {
       options.errorReporter?.report('winner_command', reason)
       console.error('/winner failed:', reason instanceof Error ? reason.message : reason)
-      await ephemeralMessage(interaction, 'Could not fetch winners at this time.')
+      await ephemeralMessage(interaction, 'Could not process winner action at this time.')
         .catch(() => undefined)
     })
   })

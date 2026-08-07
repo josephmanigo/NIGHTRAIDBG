@@ -62,11 +62,11 @@ function announceInteraction({
   }
 }
 
-test('the command takes a channel, a message, an optional photo, and an optional mention', () => {
+test('the command takes a channel, a message, an optional photo, an optional mention, and an optional claim button', () => {
   assert.equal(ANNOUNCE_COMMAND.name, 'announce')
   assert.deepEqual(
     ANNOUNCE_COMMAND.options.map((option) => [option.name, option.required === true]),
-    [['channel', true], ['message', true], ['photo', false], ['mention', false]],
+    [['channel', true], ['message', true], ['photo', false], ['mention', false], ['claim_button', false]],
   )
   assert.deepEqual(
     ANNOUNCE_COMMAND.options[3].choices.map((choice) => choice.value),
