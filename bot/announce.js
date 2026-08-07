@@ -59,6 +59,13 @@ export const ANNOUNCE_COMMAND = Object.freeze({
       maxLength: 1_900,
     },
     {
+      type: ApplicationCommandOptionType.String,
+      name: 'prize',
+      description: 'Optional prize for this announcement / event (e.g. ₱100 GCash, VIP Role).',
+      required: false,
+      maxLength: 100,
+    },
+    {
       type: ApplicationCommandOptionType.Attachment,
       name: 'photo',
       description: 'Photo posted with the announcement (PNG, JPG, GIF, or WEBP).',
@@ -129,13 +136,22 @@ export function announcementBody(value) {
 }
 
 /* Builds exactly what gets posted: the optional mention line, then the
- * announcement unchanged. Throws when it cannot fit in one Discord message. */
-export function buildAnnouncementContent({ message, mention = 'none' }) {
+ * announcement unchanged, then the optional prize line. Throws when it cannot fit in one Discord message. */
+export function buildAnnouncementContent({ message, mention = 'none', prize = null }) {
   const body = announcementBody(message)
   if (!body) throw new Error('The announcement is empty.')
 
+  const cleanPrize = String(prize ?? '').trim()
+  const prizeLine = cleanPrize ? `💸 **Prize**: ${cleanPrize}` : null
+
   const prefix = MENTIONS[mention] ?? null
-  const content = prefix ? `${prefix}\n\n${body}` : body
+
+  const parts = []
+  if (prefix) parts.push(prefix)
+  parts.push(body)
+  if (prizeLine) parts.push(prizeLine)
+
+  const content = parts.join('\n\n')
   if (content.length > DISCORD_MESSAGE_LIMIT) {
     throw new Error(
       `The announcement is ${content.length} characters; Discord allows ${DISCORD_MESSAGE_LIMIT}.`,
@@ -284,11 +300,13 @@ export function createAnnounceWorkflow(options = {}) {
       }
 
       const photo = interaction.options.getAttachment?.('photo') ?? null
+      const prize = interaction.options.getString?.('prize') ?? interaction.options.getString?.('price') ?? null
       let content
       try {
         content = buildAnnouncementContent({
           message: interaction.options.getString('message'),
           mention,
+          prize,
         })
         if (photo) assertAnnouncementPhoto(photo)
       } catch (reason) {

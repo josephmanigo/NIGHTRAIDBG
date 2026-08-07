@@ -20,6 +20,7 @@ function announceInteraction({
   administrator = false,
   channel = { id: CHANNEL_ID },
   message = 'Scrims start at 8 PM.',
+  prize = null,
   mention = null,
   photo = null,
   target = null,
@@ -48,7 +49,12 @@ function announceInteraction({
     },
     options: {
       getChannel: () => channel,
-      getString: (name) => (name === 'message' ? message : mention),
+      getString: (name) => {
+        if (name === 'message') return message
+        if (name === 'prize' || name === 'price') return prize
+        if (name === 'mention') return mention
+        return null
+      },
       getAttachment: () => photo,
     },
     client: { channels: { fetch: async () => destination } },
@@ -64,14 +70,14 @@ function announceInteraction({
   }
 }
 
-test('the command takes a channel, a message, an optional photo, an optional mention, and an optional claim button', () => {
+test('the command takes a channel, a message, an optional prize, an optional photo, an optional mention, and an optional claim button', () => {
   assert.equal(ANNOUNCE_COMMAND.name, 'announce')
   assert.deepEqual(
     ANNOUNCE_COMMAND.options.map((option) => [option.name, option.required === true]),
-    [['channel', true], ['message', true], ['photo', false], ['mention', false], ['claim_button', false]],
+    [['channel', true], ['message', true], ['prize', false], ['photo', false], ['mention', false], ['claim_button', false]],
   )
   assert.deepEqual(
-    ANNOUNCE_COMMAND.options[3].choices.map((choice) => choice.value),
+    ANNOUNCE_COMMAND.options[4].choices.map((choice) => choice.value),
     ['none', 'here', 'everyone'],
   )
 })
@@ -84,7 +90,7 @@ test('a typed \\n becomes a real line break', () => {
   assert.equal(announcementBody('Pasted\nline break.'), 'Pasted\nline break.')
 })
 
-test('the mention is added above the message', () => {
+test('the mention is added above the message and optional prize below', () => {
   assert.equal(
     buildAnnouncementContent({ message: 'Scrims at 8 PM.', mention: 'everyone' }),
     '@everyone\n\nScrims at 8 PM.',
@@ -92,6 +98,10 @@ test('the mention is added above the message', () => {
   assert.equal(
     buildAnnouncementContent({ message: 'Scrims at 8 PM.' }),
     'Scrims at 8 PM.',
+  )
+  assert.equal(
+    buildAnnouncementContent({ message: 'Scrims at 8 PM.', prize: '₱100 GCash', mention: 'everyone' }),
+    '@everyone\n\nScrims at 8 PM.\n\n💸 **Prize**: ₱100 GCash',
   )
 })
 
