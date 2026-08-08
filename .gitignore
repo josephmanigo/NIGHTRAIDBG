@@ -41,4 +41,4 @@ game_results.db.backups/
 # Social tracker runtime data
 data/platform-subscriptions.json
 data/webhook-events-inbox.json
-
+data/watch-parties.json
