@@ -21,6 +21,32 @@ import { WatchpartyStore } from './watchparty-store.js'
 const DEFAULT_TIME_ZONE = process.env.WATCHPARTY_TIME_ZONE?.trim() || 'Asia/Manila'
 const MAX_TIMER_DELAY = 2_147_000_000
 const BUTTON_PREFIX = 'nr-watchparty'
+const MONTH_NUMBERS = Object.freeze({
+  jan: 1,
+  january: 1,
+  feb: 2,
+  february: 2,
+  mar: 3,
+  march: 3,
+  apr: 4,
+  april: 4,
+  may: 5,
+  jun: 6,
+  june: 6,
+  jul: 7,
+  july: 7,
+  aug: 8,
+  august: 8,
+  sep: 9,
+  sept: 9,
+  september: 9,
+  oct: 10,
+  october: 10,
+  nov: 11,
+  november: 11,
+  dec: 12,
+  december: 12,
+})
 
 export const WATCHPARTY_COMMAND = Object.freeze({
   name: 'watchparty',
@@ -35,7 +61,7 @@ export const WATCHPARTY_COMMAND = Object.freeze({
     {
       type: ApplicationCommandOptionType.String,
       name: 'date',
-      description: 'Optional date in YYYY-MM-DD format.',
+      description: 'Optional date: YYYY-MM-DD, Aug 8 2026, or August 8 2026.',
       required: false,
     },
     {
@@ -125,6 +151,13 @@ function futureDate(date, now) {
   return Number.isFinite(date?.getTime()) && date.getTime() > now.getTime() + 30_000 ? date : null
 }
 
+function validCalendarDate(year, month, day) {
+  const candidate = new Date(Date.UTC(year, month - 1, day))
+  return candidate.getUTCFullYear() === year
+    && candidate.getUTCMonth() + 1 === month
+    && candidate.getUTCDate() === day
+}
+
 export function parseWatchpartyTime(rawInput, { now = new Date(), timeZone = DEFAULT_TIME_ZONE } = {}) {
   if (!rawInput || typeof rawInput !== 'string' || !rawInput.trim()) return null
   const value = rawInput.trim()
@@ -140,21 +173,39 @@ export function parseWatchpartyTime(rawInput, { now = new Date(), timeZone = DEF
     return futureDate(new Date(now.getTime() + amount * multiplier), now)
   }
 
-  const dated = value.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})(?:\s*([AP]M))?$/i)
+  const isoDate = value.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})(?:\s*([AP]M))?$/i)
+  const namedDate = value.match(/^([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})\s+(\d{1,2})(?::(\d{2}))?(?:\s*([AP]M))?$/i)
+  const dated = isoDate ? {
+    year: Number(isoDate[1]),
+    month: Number(isoDate[2]),
+    day: Number(isoDate[3]),
+    hour: Number(isoDate[4]),
+    minute: Number(isoDate[5]),
+    meridiem: isoDate[6]?.toUpperCase(),
+  } : namedDate ? {
+    year: Number(namedDate[3]),
+    month: MONTH_NUMBERS[namedDate[1].toLowerCase()],
+    day: Number(namedDate[2]),
+    hour: Number(namedDate[4]),
+    minute: Number(namedDate[5] || 0),
+    meridiem: namedDate[6]?.toUpperCase(),
+    missingClockContext: !namedDate[5] && !namedDate[6],
+  } : null
   if (dated) {
-    let hour = Number(dated[4])
-    const meridiem = dated[6]?.toUpperCase()
+    let hour = dated.hour
+    const meridiem = dated.meridiem
+    if (!dated.month || dated.missingClockContext) return null
     if (meridiem) {
       if (hour < 1 || hour > 12) return null
       hour = hour % 12 + (meridiem === 'PM' ? 12 : 0)
     }
-    if (hour > 23 || Number(dated[5]) > 59) return null
+    if (hour > 23 || dated.minute > 59 || !validCalendarDate(dated.year, dated.month, dated.day)) return null
     return futureDate(zonedDate({
-      year: Number(dated[1]),
-      month: Number(dated[2]),
-      day: Number(dated[3]),
+      year: dated.year,
+      month: dated.month,
+      day: dated.day,
       hour,
-      minute: Number(dated[5]),
+      minute: dated.minute,
     }, timeZone), now)
   }
 
@@ -334,7 +385,7 @@ export function createWatchpartyWorkflow(options = {}) {
     const scheduleInput = hasDate ? `${normalizedDate} ${normalizedTime}` : normalizedTime
     const scheduled = hasTime ? parseWatchpartyTime(scheduleInput, { now: now(), timeZone }) : null
     if (hasTime && !scheduled) {
-      await errorReply(`The date/time is invalid or already passed. Use \`YYYY-MM-DD\` with a time like \`8:30 PM\`, or use \`in 30m\` in the time field (${timeZone}).`)
+      await errorReply(`The date/time is invalid or already passed. Use \`YYYY-MM-DD\`, \`Aug 8 2026\`, or \`August 8 2026\` with a time like \`8:30 PM\` (${timeZone}).`)
       return { status: 'handled' }
     }
 

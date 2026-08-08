@@ -106,7 +106,7 @@ test('parseWatchpartyQuery uses the current MoviBox search route', () => {
   assert.equal(urlParsed.title, 'Avatar fire and ash 2025')
 })
 
-test('parseWatchpartyTime supports relative, Philippine clock, dated, and Discord times', () => {
+test('parseWatchpartyTime supports relative, Philippine clock, numeric and named dates, and Discord times', () => {
   assert.equal(
     parseWatchpartyTime('in 30m', { now: NOW, timeZone: 'Asia/Manila' }).toISOString(),
     '2026-08-08T10:30:00.000Z',
@@ -120,10 +120,21 @@ test('parseWatchpartyTime supports relative, Philippine clock, dated, and Discor
     '2026-08-09T12:30:00.000Z',
   )
   assert.equal(
+    parseWatchpartyTime('AUG 8 2026 8:30 PM', { now: NOW, timeZone: 'Asia/Manila' }).toISOString(),
+    '2026-08-08T12:30:00.000Z',
+  )
+  assert.equal(
+    parseWatchpartyTime('August 8, 2026 8 PM', { now: NOW, timeZone: 'Asia/Manila' }).toISOString(),
+    '2026-08-08T12:00:00.000Z',
+  )
+  assert.equal(
     parseWatchpartyTime('<t:1786278600:F>', { now: NOW, timeZone: 'Asia/Manila' }).toISOString(),
     '2026-08-09T12:30:00.000Z',
   )
   assert.equal(parseWatchpartyTime('not a time', { now: NOW }), null)
+  assert.equal(parseWatchpartyTime('August 32 2026 8:30 PM', { now: NOW }), null)
+  assert.equal(parseWatchpartyTime('Smarch 8 2026 8:30 PM', { now: NOW }), null)
+  assert.equal(parseWatchpartyTime('2026-02-30 20:30', { now: NOW }), null)
   assert.equal(parseWatchpartyTime('2026-08-07 20:30', { now: NOW, timeZone: 'Asia/Manila' }), null)
 })
 
@@ -162,7 +173,7 @@ test('/watchparty creates a scheduled party with a persistent public card', asyn
   const workflow = makeWorkflow()
   const interaction = mockInteraction({
     query: 'Inception',
-    date: '2026-08-09',
+    date: 'August 9 2026',
     time: '8:30 PM',
     voiceChannelId: 'voice-1',
   })
