@@ -57,6 +57,28 @@ import {
   spinNightySlots,
   validNightyBet,
 } from './nighty-games.js'
+import {
+  NIGHTY_MAX_MINES,
+  NIGHTY_MIN_MINES,
+  NIGHTY_MINES_CELLS,
+  NIGHTY_PARTY_EXPIRY_SECONDS,
+  advanceNightyCrash,
+  cashOutNightyCrash,
+  chooseShadowAction,
+  createNightyCrashState,
+  createNightyMinesState,
+  createShadowDuelState,
+  createShadowFighter,
+  finishPartyBlackjack,
+  nightyCrashMultiplier,
+  nightyMinesMultiplier,
+  nightyMinesPayout,
+  partyBlackjackActionCost,
+  pickNightyMine,
+  playPartyBlackjack,
+  startNightyCrash,
+  startPartyBlackjack,
+} from './nighty-interactive-games.js'
 
 const NIGHTY_COLOR = 0x7C3AED
 const NIGHTY_ART_PATH = fileURLToPath(new URL('../images/nighty/nighty-world.png', import.meta.url))
@@ -85,6 +107,10 @@ const COMMAND_ALIASES = Object.freeze({
   coin: 'coinflip',
   flip: 'coinflip',
   bj: 'blackjack',
+  mbj: 'blackjack_multi',
+  mines: 'mines',
+  mine: 'mines',
+  cr: 'crash',
   tr: 'trivia',
   quiz: 'trivia',
   f: 'fish',
@@ -101,6 +127,7 @@ const COMMAND_ALIASES = Object.freeze({
 
 const BUTTON_PATTERN = /^nighty:(pvp|trade):(accept|decline):([a-f0-9-]{8,64})$/i
 const GAME_BUTTON_PATTERN = /^nighty:(blackjack|trivia):(hit|stand|answer_[0-3]):([a-f0-9-]{8,64})$/i
+const PARTY_BUTTON_PATTERN = /^nighty:(duel|mines|crash|blackjack_multi):([a-z0-9_]{1,48}):([a-f0-9-]{8,64})$/i
 
 export function parseNightyCommand(content) {
   const match = String(content || '').trim().match(COMMAND_PATTERN)
@@ -125,6 +152,15 @@ export function parseNightyButtonId(customId) {
 
 export function parseNightyGameButtonId(customId) {
   const match = String(customId || '').match(GAME_BUTTON_PATTERN)
+  return match ? {
+    gameType: match[1].toLowerCase(),
+    action: match[2].toLowerCase(),
+    id: match[3].toLowerCase(),
+  } : null
+}
+
+export function parseNightyPartyButtonId(customId) {
+  const match = String(customId || '').match(PARTY_BUTTON_PATTERN)
   return match ? {
     gameType: match[1].toLowerCase(),
     action: match[2].toLowerCase(),
@@ -218,11 +254,12 @@ function helpPayload() {
   ).addFields(
     { name: 'Economy', value: '`nighty balance` · `night cash` · `nighty daily`' },
     { name: 'Adventure', value: '`nighty hunt` · `nighty battle` · `nighty collection` · `nighty profile`' },
-    { name: 'PvP', value: '`nighty pvp @player <wager>` · the challenged player must accept' },
+    { name: 'PvP', value: '`nighty duel @player <wager> [character_id]` · interactive Shadow Duel' },
     { name: 'Trading', value: '`nighty trade @player <character_id> <quantity> <total_price>`' },
     { name: 'Market', value: '`nighty market` · `nighty market sell <character_id> <quantity> <price>` · `nighty buy <listing_id>`' },
     { name: 'Missions', value: '`nighty missions` · `nighty claim <mission_id>` · `nighty claim all`' },
-    { name: 'Casino', value: '`nighty sl <bet>` · `nighty cf <heads|tails> <bet>` · `nighty bj <bet>`' },
+    { name: 'Casino', value: '`nighty sl <bet>` · `nighty cf <heads|tails> <bet>` · `nighty bj <bet>` · `nighty mines <bet> [mines]` · `nighty crash <bet>`' },
+    { name: 'Multiplayer table', value: '`nighty bj table <bet>` · up to four players with Hit, Stand, Double, and Split' },
     { name: 'Quick games', value: '`nighty tr` · `nighty f` · `nighty wg` · `nighty wg <answer>`' },
     { name: 'Raids', value: '`nighty dg` · `nighty bf`' },
     { name: 'Game records', value: '`nighty stats` · bets accept `100k`, `1m`, or `all`' },
@@ -232,9 +269,11 @@ function helpPayload() {
 }
 
 function gameHelpPayload() {
-  const embed = baseEmbed('Nighty Games', 'Eight persistent games share your Night Currency balance, missions, records, and duplicate-safe settlement.')
+  const embed = baseEmbed('Nighty Games', 'Eight persistent games plus interactive PvP and party tables share your Night Currency balance, missions, records, escrow, and duplicate-safe settlement.')
     .addFields(
       { name: 'Casino', value: '`nighty sl <bet>` (slots)\n`nighty cf <heads|tails> <bet>` (coin flip)\n`nighty bj <bet>` (blackjack)' },
+      { name: 'Interactive casino', value: '`nighty mines <bet> [1-10 mines]`\n`nighty crash <bet>` (shared lobby)\n`nighty bj table <bet>` (up to four players)' },
+      { name: 'Interactive PvP', value: '`nighty duel @player <bet> [character_id]`\nBoth players secretly choose Attack, Defend, or Skill.' },
       { name: 'Knowledge & collection', value: '`nighty tr` (trivia)\n`nighty wg` then `nighty wg <answer>` (word)\n`nighty f` (fishing)' },
       { name: 'Raids', value: '`nighty dg` (dungeon)\n`nighty bf` (boss)\nBoth use your strongest owned character.' },
       { name: 'Limits', value: `Numeric casino bets: ${formatNightCurrency(NIGHTY_MIN_BET)}–${formatNightCurrency(NIGHTY_MAX_BET)}. Use \`all\` to wager your full balance.` },
@@ -268,7 +307,7 @@ function collectionPayload(player, collection) {
   const lines = collection.map((item) => {
     const character = byId.get(item.characterId)
     return character
-      ? `**${character.name}** · ${character.rarity} · x${item.quantity}`
+      ? `**${character.name}** · \`${character.id}\` · ${character.rarity} · x${item.quantity}`
       : `**${item.characterId}** · x${item.quantity}`
   })
   const description = lines.length > 0
@@ -591,6 +630,213 @@ function blackjackPayload(session, resolved = null) {
   return { embeds: [embed], components: active ? blackjackButtons(session.id) : [] }
 }
 
+function joinedPartyPlayers(session) {
+  return session.players.filter((player) => player.status === 'joined')
+}
+
+function allInConfirmationPayload(session, buttonGameType) {
+  const wager = joinedPartyPlayers(session)[0]?.wager || session.state.baseWager || 0
+  return {
+    embeds: [baseEmbed('Confirm All-In Wager', `You are about to wager your complete balance: **${formatNightCurrency(wager)}**.`)
+      .addFields({ name: 'Protection', value: 'The wager is locked safely and will be refunded if you cancel or the confirmation expires.' })],
+    components: [new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`nighty:${buttonGameType}:confirm_allin:${session.id}`).setLabel('Confirm All-In').setStyle(ButtonStyle.Danger),
+      new ButtonBuilder().setCustomId(`nighty:${buttonGameType}:cancel_allin:${session.id}`).setLabel('Cancel').setStyle(ButtonStyle.Secondary),
+    )],
+  }
+}
+
+function strongestOwnedCharacters(collection, limit = 4) {
+  return collection
+    .filter((item) => item.quantity > 0)
+    .map((item) => NIGHTY_CHARACTER_BY_ID.get(item.characterId))
+    .filter(Boolean)
+    .sort((left, right) => right.power - left.power)
+    .slice(0, limit)
+}
+
+function shadowDuelChallengePayload(session) {
+  const choices = session.state.opponentChoices || []
+  const buttons = choices.map((character) => new ButtonBuilder()
+    .setCustomId(`nighty:duel:accept_${character.id}:${session.id}`)
+    .setLabel(character.name.slice(0, 80))
+    .setStyle(ButtonStyle.Success))
+  buttons.push(new ButtonBuilder()
+    .setCustomId(`nighty:duel:decline:${session.id}`)
+    .setLabel('Decline')
+    .setStyle(ButtonStyle.Danger))
+  return {
+    content: `<@${session.state.opponentId}>, choose a fighter to accept this Shadow Duel.`,
+    embeds: [baseEmbed('Nighty Shadow Duel', `<@${session.hostId}> challenged <@${session.state.opponentId}>.`)
+      .addFields(
+        { name: 'Challenger fighter', value: `${session.state.challengerCharacter.name} · ${session.state.challengerCharacter.power} power`, inline: true },
+        { name: 'Wager per player', value: formatNightCurrency(session.state.baseWager), inline: true },
+        { name: 'Rules', value: 'Five simultaneous rounds. Secretly choose Attack, Defend, or your one-use Skill.', inline: false },
+      )],
+    components: [new ActionRowBuilder().addComponents(...buttons.slice(0, 5))],
+    allowedMentions: { parse: [], users: [session.state.opponentId], repliedUser: false },
+  }
+}
+
+function shadowDuelPayload(session) {
+  const state = session.state
+  const fighters = (state.order || []).map((userId) => state.fighters?.[userId]).filter(Boolean)
+  const active = session.status === 'active' && state.phase === 'active'
+  const lines = fighters.map((fighter) => {
+    const hpBlocks = Math.max(0, Math.round((fighter.hp / fighter.maxHp) * 10))
+    const bar = `${'█'.repeat(hpBlocks)}${'░'.repeat(10 - hpBlocks)}`
+    return `<@${fighter.userId}> — **${fighter.characterName}**
+${bar} **${fighter.hp}/${fighter.maxHp} HP** · Skill ${fighter.skillReady ? 'ready' : 'used'} · ${fighter.action ? 'move locked' : 'choosing'}`
+  })
+  const title = state.tied ? 'Shadow Duel Draw' : state.winnerId ? 'Shadow Duel Victory' : `Shadow Duel · Round ${state.round}/${state.maxRounds}`
+  const embed = baseEmbed(title, `${lines.join('\n\n')}\n\n${state.log || ''}`)
+    .addFields({ name: 'Pot', value: formatNightCurrency(Number(state.wager || 0) * 2), inline: true })
+  if (state.winnerId) embed.addFields({ name: 'Winner', value: `<@${state.winnerId}>`, inline: true })
+  if (state.tied) embed.addFields({ name: 'Settlement', value: 'Draw · both wagers refunded', inline: true })
+  const components = active ? [new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`nighty:duel:attack:${session.id}`).setLabel('Attack').setEmoji('⚔️').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(`nighty:duel:defend:${session.id}`).setLabel('Defend').setEmoji('🛡️').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`nighty:duel:skill:${session.id}`).setLabel('Skill').setEmoji('🌑').setStyle(ButtonStyle.Danger),
+  )] : []
+  return { embeds: [embed], components }
+}
+
+function minesPayload(session) {
+  const state = session.state
+  const active = session.status === 'active' && state.phase === 'active'
+  const multiplier = nightyMinesMultiplier(state)
+  const participant = session.players[0]
+  const wager = participant?.wager || 0
+  const payout = state.revealed.length > 0 ? nightyMinesPayout(wager, state) : wager
+  const grid = []
+  for (let rowIndex = 0; rowIndex < 4; rowIndex += 1) {
+    const row = new ActionRowBuilder()
+    for (let column = 0; column < 4; column += 1) {
+      const cell = rowIndex * 4 + column
+      const revealed = state.revealed.includes(cell)
+      const exploded = state.lastPick === cell && state.mines.includes(cell)
+      const showMine = !active && state.mines.includes(cell)
+      const button = new ButtonBuilder()
+        .setCustomId(`nighty:mines:pick_${cell}:${session.id}`)
+        .setLabel(exploded || showMine ? '💣' : revealed ? '🌙' : String(cell + 1))
+        .setStyle(exploded || showMine ? ButtonStyle.Danger : revealed ? ButtonStyle.Success : ButtonStyle.Secondary)
+        .setDisabled(!active || revealed)
+      row.addComponents(button)
+    }
+    grid.push(row)
+  }
+  const status = state.phase === 'lost'
+    ? 'A mine ended the run.'
+    : state.phase === 'cleared'
+      ? 'Board cleared — maximum payout secured.'
+      : `Choose a tile or cash out for **${formatNightCurrency(payout)}**.`
+  const embed = baseEmbed(state.phase === 'lost' ? 'Nighty Abyss Mines · Detonated' : 'Nighty Abyss Mines', status)
+    .addFields(
+      { name: 'Bet', value: formatNightCurrency(wager), inline: true },
+      { name: 'Mines', value: `${state.mineCount}/${NIGHTY_MINES_CELLS}`, inline: true },
+      { name: 'Multiplier', value: `${multiplier.toFixed(2)}×`, inline: true },
+      { name: 'Safe tiles', value: String(state.revealed.length), inline: true },
+    )
+  if (!active && participant) embed.addFields({ name: 'Payout', value: formatNightCurrency(participant.payout), inline: true })
+  if (active) grid.push(new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`nighty:mines:cashout:${session.id}`)
+      .setLabel('Cash Out')
+      .setEmoji('💰')
+      .setStyle(ButtonStyle.Success)
+      .setDisabled(state.revealed.length === 0),
+  ))
+  return { embeds: [embed], components: grid }
+}
+
+function crashLobbyPayload(session) {
+  const players = joinedPartyPlayers(session)
+  const lines = players.map((player, index) => `${index + 1}. <@${player.userId}>${player.userId === session.hostId ? ' · host' : ''}`)
+  return {
+    embeds: [baseEmbed('Nighty Nightfall Crash · Lobby', lines.join('\n') || 'Waiting for players.')
+      .addFields(
+        { name: 'Bet per player', value: formatNightCurrency(session.state.baseWager), inline: true },
+        { name: 'Players', value: `${players.length}/10`, inline: true },
+        { name: 'How it works', value: 'After the host starts, any active rider can push the shared multiplier. Cash out before the hidden crash point.', inline: false },
+      )],
+    components: [new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`nighty:crash:join:${session.id}`).setLabel('Join').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId(`nighty:crash:leave:${session.id}`).setLabel('Leave').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(`nighty:crash:start:${session.id}`).setLabel('Start').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId(`nighty:crash:cancel:${session.id}`).setLabel('Cancel').setStyle(ButtonStyle.Danger),
+    )],
+  }
+}
+
+function crashPayload(session) {
+  const state = session.state
+  const active = session.status === 'active' && state.phase === 'active'
+  const multiplier = nightyCrashMultiplier(state)
+  const participants = joinedPartyPlayers(session)
+  const lines = participants.map((participant) => {
+    const player = state.players?.[participant.userId]
+    if (player?.status === 'cashed_out') return `<@${participant.userId}> · cashed at **${player.multiplier.toFixed(2)}×** · ${formatNightCurrency(player.payout)}`
+    return `<@${participant.userId}> · ${state.phase === 'crashed' ? 'crashed' : 'riding'}`
+  })
+  const title = state.phase === 'crashed' ? 'Nightfall Crash · CRASHED' : state.phase === 'completed' ? 'Nightfall Crash · Complete' : 'Nightfall Crash'
+  const embed = baseEmbed(title, `# ${multiplier.toFixed(2)}×\n\n${lines.join('\n')}`)
+    .addFields({ name: 'Shared decision', value: active ? 'Push raises the multiplier for everyone still riding.' : 'Round settled.', inline: false })
+  return {
+    embeds: [embed],
+    components: active ? [new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`nighty:crash:push:${session.id}`).setLabel('Push Multiplier').setEmoji('🚀').setStyle(ButtonStyle.Danger),
+      new ButtonBuilder().setCustomId(`nighty:crash:cashout:${session.id}`).setLabel('Cash Out').setEmoji('💰').setStyle(ButtonStyle.Success),
+    )] : [],
+  }
+}
+
+function partyBlackjackLobbyPayload(session) {
+  const players = joinedPartyPlayers(session)
+  return {
+    embeds: [baseEmbed('Nighty Blackjack Table · Lobby', players.map((player) => `<@${player.userId}>${player.userId === session.hostId ? ' · dealer host' : ''}`).join('\n'))
+      .addFields(
+        { name: 'Bet per player', value: formatNightCurrency(session.state.baseWager), inline: true },
+        { name: 'Seats', value: `${players.length}/4`, inline: true },
+        { name: 'Table actions', value: 'Hit · Stand · Double · Split', inline: false },
+      )],
+    components: [new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`nighty:blackjack_multi:join:${session.id}`).setLabel('Join Table').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId(`nighty:blackjack_multi:leave:${session.id}`).setLabel('Leave').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(`nighty:blackjack_multi:deal:${session.id}`).setLabel('Deal').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId(`nighty:blackjack_multi:cancel:${session.id}`).setLabel('Cancel').setStyle(ButtonStyle.Danger),
+    )],
+  }
+}
+
+function partyBlackjackPayload(session) {
+  const state = session.state
+  const active = session.status === 'active' && state.phase === 'active'
+  const resolved = session.status === 'completed' || state.phase === 'completed'
+  const visibleDealer = resolved ? state.dealer : [state.dealer[0]]
+  const dealerCards = `${blackjackCardRow(visibleDealer)}${resolved ? '' : '　🂠'}`
+  const playerSections = (state.order || []).map((userId) => {
+    const player = state.players[userId]
+    const hands = player.hands.map((hand, index) => {
+      const marker = state.currentUserId === userId && player.activeHand === index ? '▶ ' : ''
+      const outcome = hand.outcome ? ` · ${hand.outcome.toUpperCase()}` : ''
+      return `${marker}${blackjackCardRow(hand.cards)} **[${blackjackHandValue(hand.cards)}]** · ${formatNightCurrency(hand.wager)}${outcome}`
+    }).join('\n')
+    const settlement = session.players.find((entry) => entry.userId === userId)
+    return `**<@${userId}>**${resolved ? ` · payout ${formatNightCurrency(settlement?.payout || 0)}` : ''}\n${hands}`
+  })
+  const embed = baseEmbed(resolved ? 'Nighty Multiplayer Blackjack · Result' : 'Nighty Multiplayer Blackjack', `**Dealer**\n## ${dealerCards}\n\n${playerSections.join('\n\n')}`)
+  if (active) embed.addFields({ name: 'Current turn', value: `<@${state.currentUserId}>`, inline: true })
+  return {
+    embeds: [embed],
+    components: active ? [new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`nighty:blackjack_multi:hit:${session.id}`).setLabel('Hit').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId(`nighty:blackjack_multi:stand:${session.id}`).setLabel('Stand').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(`nighty:blackjack_multi:double:${session.id}`).setLabel('Double').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId(`nighty:blackjack_multi:split:${session.id}`).setLabel('Split').setStyle(ButtonStyle.Danger),
+    )] : [],
+  }
+}
+
 function triviaButtons(session) {
   return [new ActionRowBuilder().addComponents(
     ...session.state.choices.map((choice, index) => new ButtonBuilder()
@@ -770,6 +1016,10 @@ export function createNightyWorkflow(options = {}) {
 
   async function initialize() {
     await store.initialize()
+  }
+
+  async function refundExpiredPartySessions() {
+    return store.refundExpiredPartySessions?.({ now: now() }) || 0
   }
 
   async function handleMessage(message) {
@@ -986,13 +1236,97 @@ export function createNightyWorkflow(options = {}) {
       return { status: 'handled', command: 'coinflip', flip, result }
     }
 
-    if (parsed.command === 'blackjack') {
+    if (parsed.command === 'mines') {
+      const wagerInput = parseNightyWager(parsed.args[0], ensured.player.balance)
+      const mineCount = parsed.args[1] === undefined ? 3 : positiveQuantity(parsed.args[1])
+      if (!validCasinoWager(wagerInput) || !mineCount || mineCount < NIGHTY_MIN_MINES || mineCount > NIGHTY_MAX_MINES) {
+        await safeReply(message, marketResultPayload('Nighty Abyss Mines', `Usage: \`nighty mines <bet|all> [${NIGHTY_MIN_MINES}-${NIGHTY_MAX_MINES} mines]\`.`))
+        return { status: 'handled', command: 'mines', reason: 'invalid_arguments' }
+      }
+      const session = await store.createPartySession({
+        id: createGameId(),
+        guildId,
+        channelId: message.channelId || '',
+        hostId: userId,
+        gameType: 'mines',
+        wager: wagerInput.amount,
+        state: { ...createNightyMinesState(mineCount, random), allInPending: wagerInput.allIn },
+        status: 'active',
+        expiresAt: new Date(currentTime.getTime() + NIGHTY_PARTY_EXPIRY_SECONDS * 1000).toISOString(),
+        now: currentTime,
+      })
+      if (session.mutationStatus === 'insufficient_balance') {
+        await safeReply(message, marketResultPayload('Nighty Abyss Mines', `You do not have enough Night Currency. Balance: **${formatNightCurrency(session.balance)}**.`))
+        return { status: 'handled', command: 'mines', reason: 'insufficient_balance' }
+      }
+      await safeReply(message, session.state.allInPending
+        ? allInConfirmationPayload(session, 'mines')
+        : minesPayload(session))
+      return { status: 'handled', command: 'mines', session }
+    }
+
+    if (parsed.command === 'crash') {
       const wagerInput = parseNightyWager(parsed.args[0], ensured.player.balance)
       if (!validCasinoWager(wagerInput)) {
-        await safeReply(message, marketResultPayload('Nighty Blackjack', `Usage: \`nighty bj <bet|all>\`. Numeric bets must be between **${formatNightCurrency(NIGHTY_MIN_BET)}** and **${formatNightCurrency(NIGHTY_MAX_BET)}**.`))
+        await safeReply(message, marketResultPayload('Nighty Nightfall Crash', '`nighty crash <bet|all>` creates a shared lobby. Every player joins for the same wager.'))
+        return { status: 'handled', command: 'crash', reason: 'invalid_bet' }
+      }
+      const session = await store.createPartySession({
+        id: createGameId(),
+        guildId,
+        channelId: message.channelId || '',
+        hostId: userId,
+        gameType: 'crash',
+        wager: wagerInput.amount,
+        state: { ...createNightyCrashState(wagerInput.amount, random), allInPending: wagerInput.allIn },
+        status: 'lobby',
+        expiresAt: new Date(currentTime.getTime() + NIGHTY_PARTY_EXPIRY_SECONDS * 1000).toISOString(),
+        now: currentTime,
+      })
+      if (session.mutationStatus === 'insufficient_balance') {
+        await safeReply(message, marketResultPayload('Nighty Nightfall Crash', `You do not have enough Night Currency. Balance: **${formatNightCurrency(session.balance)}**.`))
+        return { status: 'handled', command: 'crash', reason: 'insufficient_balance' }
+      }
+      await safeReply(message, session.state.allInPending
+        ? allInConfirmationPayload(session, 'crash')
+        : session.status === 'lobby' ? crashLobbyPayload(session) : crashPayload(session))
+      return { status: 'handled', command: 'crash', session }
+    }
+
+    if (parsed.command === 'blackjack' || parsed.command === 'blackjack_multi') {
+      const tableKeyword = ['table', 'multi', 'multiplayer'].includes(String(parsed.args[0] || '').toLowerCase())
+      const multiplayer = parsed.command === 'blackjack_multi' || tableKeyword
+      const wagerToken = parsed.args[multiplayer && tableKeyword ? 1 : 0]
+      const wagerInput = parseNightyWager(wagerToken, ensured.player.balance)
+      if (!validCasinoWager(wagerInput)) {
+        await safeReply(message, marketResultPayload('Nighty Blackjack', multiplayer
+          ? '`nighty bj table <bet|all>` creates a table for up to four players.'
+          : `Usage: \`nighty bj <bet|all>\`. Numeric bets must be between **${formatNightCurrency(NIGHTY_MIN_BET)}** and **${formatNightCurrency(NIGHTY_MAX_BET)}**.`))
         return { status: 'handled', command: 'blackjack', reason: 'invalid_bet' }
       }
       const wager = wagerInput.amount
+      if (multiplayer) {
+        const session = await store.createPartySession({
+          id: createGameId(),
+          guildId,
+          channelId: message.channelId || '',
+          hostId: userId,
+          gameType: 'blackjack_multi',
+          wager,
+          state: { phase: 'lobby', baseWager: wager, maxPlayers: 4, allInPending: wagerInput.allIn },
+          status: 'lobby',
+          expiresAt: new Date(currentTime.getTime() + NIGHTY_PARTY_EXPIRY_SECONDS * 1000).toISOString(),
+          now: currentTime,
+        })
+        if (session.mutationStatus === 'insufficient_balance') {
+          await safeReply(message, marketResultPayload('Nighty Blackjack Table', `You do not have enough Night Currency. Balance: **${formatNightCurrency(session.balance)}**.`))
+          return { status: 'handled', command: 'blackjack_multi', reason: 'insufficient_balance' }
+        }
+        await safeReply(message, session.state.allInPending
+          ? allInConfirmationPayload(session, 'blackjack_multi')
+          : session.status === 'lobby' ? partyBlackjackLobbyPayload(session) : partyBlackjackPayload(session))
+        return { status: 'handled', command: 'blackjack_multi', session }
+      }
       const session = await store.startGameSession({
         id: createGameId(),
         guildId,
@@ -1124,7 +1458,7 @@ export function createNightyWorkflow(options = {}) {
       const wagerInput = parseNightyWager(parsed.args[1], ensured.player.balance)
       const wager = wagerInput?.amount || null
       if (!opponentId || !wager) {
-        await safeReply(message, marketResultPayload('Nighty PvP', 'Usage: `nighty pvp @player <wager|all>` — for example `nighty pvp @player 100k`.'))
+        await safeReply(message, marketResultPayload('Nighty Shadow Duel', 'Usage: `nighty duel @player <wager|all> [character_id]`. Omit the character ID to use your strongest fighter.'))
         return { status: 'handled', command: 'pvp', reason: 'invalid_arguments' }
       }
       if (opponentId === userId) {
@@ -1140,17 +1474,50 @@ export function createNightyWorkflow(options = {}) {
         await safeReply(message, marketResultPayload('Nighty PvP', 'That player must create a Nighty profile first by typing `nighty balance`.'))
         return { status: 'handled', command: 'pvp', reason: 'missing_opponent' }
       }
-      const challenge = await store.createPvpChallenge({
-        id: createId(),
-        guildId: String(guildId),
-        channelId: String(message.channelId || ''),
-        challengerId: String(userId),
-        opponentId,
+      const [challengerCollection, opponentCollection] = await Promise.all([
+        store.getCollection({ guildId, userId }),
+        store.getCollection({ guildId, userId: opponentId }),
+      ])
+      const challengerChoices = strongestOwnedCharacters(challengerCollection, NIGHTY_CHARACTERS.length)
+      const opponentChoices = strongestOwnedCharacters(opponentCollection, 4)
+      const requestedCharacterId = String(parsed.args[2] || '').toLowerCase()
+      const challengerCharacter = requestedCharacterId
+        ? challengerChoices.find((character) => character.id === requestedCharacterId)
+        : challengerChoices[0]
+      if (!challengerCharacter || opponentChoices.length === 0) {
+        const description = requestedCharacterId && challengerChoices.length > 0
+          ? 'You do not own that fighter. Check IDs with `nighty collection`.'
+          : 'Both players need at least one captured character before starting a Shadow Duel.'
+        await safeReply(message, marketResultPayload('Nighty Shadow Duel Locked', description))
+        return { status: 'handled', command: 'pvp', reason: 'missing_character' }
+      }
+      const session = await store.createPartySession({
+        id: createGameId(),
+        guildId,
+        channelId: message.channelId || '',
+        hostId: userId,
+        gameType: 'shadow_duel',
         wager,
+        state: {
+          phase: 'lobby',
+          baseWager: wager,
+          opponentId,
+          challengerCharacter,
+          opponentChoices,
+          allInPending: wagerInput.allIn,
+        },
+        status: 'lobby',
         expiresAt: new Date(currentTime.getTime() + NIGHTY_PVP_EXPIRY_SECONDS * 1000).toISOString(),
+        now: currentTime,
       })
-      await safeReply(message, pvpChallengePayload(challenge))
-      return { status: 'handled', command: 'pvp', challenge }
+      if (session.mutationStatus === 'insufficient_balance') {
+        await safeReply(message, marketResultPayload('Nighty Shadow Duel', `You do not have enough Night Currency. Balance: **${formatNightCurrency(session.balance)}**.`))
+        return { status: 'handled', command: 'pvp', reason: 'insufficient_balance' }
+      }
+      await safeReply(message, session.state.allInPending
+        ? allInConfirmationPayload(session, 'duel')
+        : session.status === 'lobby' ? shadowDuelChallengePayload(session) : shadowDuelPayload(session))
+      return { status: 'handled', command: 'pvp', session }
     }
 
     if (parsed.command === 'trade') {
@@ -1310,9 +1677,456 @@ export function createNightyWorkflow(options = {}) {
     if (!interaction.isButton?.()) return { status: 'ignored' }
     const parsed = parseNightyButtonId(interaction.customId)
     const gameButton = parseNightyGameButtonId(interaction.customId)
-    if (!parsed && !gameButton) return { status: 'ignored' }
+    const partyButton = parseNightyPartyButtonId(interaction.customId)
+    if (!parsed && !gameButton && !partyButton) return { status: 'ignored' }
     const actorId = interaction.user.id
     const currentTime = now()
+
+    if (partyButton) {
+      let session = await store.getPartySession(partyButton.id)
+      if (!session) {
+        await interaction.reply({ content: 'This Nighty game no longer exists.', flags: MessageFlags.Ephemeral })
+        return { status: 'handled', reason: 'missing' }
+      }
+      const expectedGameType = partyButton.gameType === 'duel' ? 'shadow_duel' : partyButton.gameType
+      if (session.gameType !== expectedGameType) {
+        await interaction.reply({ content: 'This button does not belong to that Nighty game.', flags: MessageFlags.Ephemeral })
+        return { status: 'handled', reason: 'invalid_game' }
+      }
+      if (session.status === 'expired') {
+        await interaction.update({
+          ...marketResultPayload('Nighty Game Expired', 'The session expired and every unsettled wager was refunded.'),
+          components: [],
+        })
+        return { status: 'handled', reason: 'expired', session }
+      }
+      if (!['lobby', 'active'].includes(session.status)) {
+        await interaction.reply({ content: 'This Nighty game was already closed.', flags: MessageFlags.Ephemeral })
+        return { status: 'handled', reason: 'already_resolved' }
+      }
+      const periods = nightyPeriodKeys(currentTime, timeZone)
+      if (new Date(session.expiresAt).getTime() <= currentTime.getTime()) {
+        const expired = await store.cancelPartySession({
+          sessionId: session.id,
+          actorId,
+          reason: 'expired',
+          now: currentTime,
+        })
+        await interaction.update({
+          ...marketResultPayload('Nighty Game Expired', 'The session expired and every unsettled wager was refunded.'),
+          components: [],
+        })
+        return { status: 'handled', reason: 'expired', session: expired }
+      }
+      if (session.state.allInPending) {
+        if (session.hostId !== actorId) {
+          await interaction.reply({ content: 'The host must confirm this all-in wager first.', flags: MessageFlags.Ephemeral })
+          return { status: 'handled', reason: 'awaiting_all_in_confirmation' }
+        }
+        if (partyButton.action === 'cancel_allin') {
+          const cancelled = await store.cancelPartySession({ sessionId: session.id, actorId, reason: 'all_in_cancelled', now: currentTime })
+          await interaction.update({ ...marketResultPayload('All-In Cancelled', 'Your complete wager was refunded.'), components: [] })
+          return { status: 'handled', reason: 'all_in_cancelled', session: cancelled }
+        }
+        if (partyButton.action !== 'confirm_allin') {
+          await interaction.reply({ content: 'Confirm or cancel the all-in wager before playing.', flags: MessageFlags.Ephemeral })
+          return { status: 'handled', reason: 'awaiting_all_in_confirmation' }
+        }
+        const confirmed = await store.updatePartySession({
+          sessionId: session.id,
+          actorId,
+          state: { ...session.state, allInPending: false },
+          status: session.status,
+          expectedVersion: session.version,
+          now: currentTime,
+        })
+        const payload = partyButton.gameType === 'duel'
+          ? shadowDuelChallengePayload(confirmed)
+          : partyButton.gameType === 'mines'
+            ? minesPayload(confirmed)
+            : partyButton.gameType === 'crash'
+              ? crashLobbyPayload(confirmed)
+              : partyBlackjackLobbyPayload(confirmed)
+        await interaction.update(payload)
+        if (partyButton.gameType === 'duel' && interaction.followUp) {
+          await interaction.followUp({
+            content: `<@${confirmed.state.opponentId}>, your Shadow Duel challenge is ready.`,
+            allowedMentions: { parse: [], users: [confirmed.state.opponentId] },
+          })
+        }
+        return { status: 'handled', reason: 'all_in_confirmed', session: confirmed }
+      }
+
+      if (partyButton.gameType === 'mines') {
+        if (session.hostId !== actorId) {
+          await interaction.reply({ content: 'Only the player who started this Mines board can use it.', flags: MessageFlags.Ephemeral })
+          return { status: 'handled', reason: 'forbidden' }
+        }
+        const participant = joinedPartyPlayers(session)[0]
+        let state = session.state
+        let payout = 0
+        let outcome = null
+        if (partyButton.action === 'cashout') {
+          if (state.revealed.length === 0) {
+            await interaction.reply({ content: 'Reveal at least one safe tile before cashing out.', flags: MessageFlags.Ephemeral })
+            return { status: 'handled', reason: 'nothing_to_cashout' }
+          }
+          payout = nightyMinesPayout(participant.wager, state)
+          state = { ...state, phase: 'cashed_out' }
+          outcome = 'cashed_out'
+        } else if (partyButton.action.startsWith('pick_')) {
+          const picked = pickNightyMine(state, Number(partyButton.action.slice(5)))
+          if (picked.outcome === 'invalid') {
+            await interaction.reply({ content: 'That Mines tile cannot be selected.', flags: MessageFlags.Ephemeral })
+            return { status: 'handled', reason: 'invalid_move' }
+          }
+          state = picked.state
+          if (picked.outcome === 'mine') outcome = 'mine'
+          if (picked.outcome === 'cleared') {
+            outcome = 'cleared'
+            payout = nightyMinesPayout(participant.wager, state)
+          }
+        } else {
+          await interaction.reply({ content: 'Unknown Mines action.', flags: MessageFlags.Ephemeral })
+          return { status: 'handled', reason: 'invalid_move' }
+        }
+        if (outcome) {
+          const completed = await store.completePartySession({
+            sessionId: session.id,
+            actorId,
+            state,
+            outcome,
+            payouts: [{ userId: actorId, payout, won: payout > participant.wager }],
+            ...periods,
+            now: currentTime,
+          })
+          await interaction.update(minesPayload(completed))
+          return { status: 'handled', type: 'mines', result: completed }
+        }
+        const updated = await store.updatePartySession({
+          sessionId: session.id,
+          actorId,
+          state,
+          status: 'active',
+          expectedVersion: session.version,
+          now: currentTime,
+        })
+        if (updated.mutationStatus === 'conflict') {
+          await interaction.reply({ content: 'Another tile was processed first. Use the updated board.', flags: MessageFlags.Ephemeral })
+          return { status: 'handled', reason: 'conflict' }
+        }
+        await interaction.update(minesPayload(updated))
+        return { status: 'handled', type: 'mines', result: updated }
+      }
+
+      if (partyButton.gameType === 'duel') {
+        if (session.status === 'lobby') {
+          if (String(session.state.opponentId) !== actorId) {
+            await interaction.reply({ content: 'Only the challenged player can answer this Shadow Duel.', flags: MessageFlags.Ephemeral })
+            return { status: 'handled', reason: 'forbidden' }
+          }
+          if (partyButton.action === 'decline') {
+            const cancelled = await store.cancelPartySession({ sessionId: session.id, actorId, reason: 'declined', now: currentTime })
+            await interaction.update({ ...marketResultPayload('Shadow Duel Declined', 'The challenger’s wager was refunded.'), components: [] })
+            return { status: 'handled', type: 'shadow_duel', result: cancelled }
+          }
+          const characterId = partyButton.action.startsWith('accept_') ? partyButton.action.slice(7) : ''
+          const character = (session.state.opponentChoices || []).find((entry) => entry.id === characterId)
+          if (!character) {
+            await interaction.reply({ content: 'Choose one of the available fighters on this challenge.', flags: MessageFlags.Ephemeral })
+            return { status: 'handled', reason: 'invalid_character' }
+          }
+          const joined = await store.joinPartySession({ sessionId: session.id, userId: actorId, now: currentTime })
+          if (joined.mutationStatus === 'insufficient_balance') {
+            await interaction.reply({ content: `You need ${formatNightCurrency(session.state.baseWager)} to accept.`, flags: MessageFlags.Ephemeral })
+            return { status: 'handled', reason: 'insufficient_balance' }
+          }
+          if (joined.mutationStatus !== 'joined') {
+            await interaction.reply({ content: 'This Shadow Duel could not be joined.', flags: MessageFlags.Ephemeral })
+            return { status: 'handled', reason: joined.mutationStatus }
+          }
+          const state = createShadowDuelState(
+            createShadowFighter(session.hostId, session.state.challengerCharacter),
+            createShadowFighter(actorId, character),
+            session.state.baseWager,
+          )
+          const active = await store.updatePartySession({
+            sessionId: session.id,
+            actorId,
+            state,
+            status: 'active',
+            expectedVersion: joined.version,
+            now: currentTime,
+          })
+          await interaction.update(shadowDuelPayload(active))
+          return { status: 'handled', type: 'shadow_duel', result: active }
+        }
+        if (!joinedPartyPlayers(session).some((player) => player.userId === actorId)) {
+          await interaction.reply({ content: 'Only the two duelists can choose a move.', flags: MessageFlags.Ephemeral })
+          return { status: 'handled', reason: 'forbidden' }
+        }
+        const move = chooseShadowAction(session.state, actorId, partyButton.action)
+        if (move.outcome === 'invalid' || move.outcome === 'skill_used') {
+          const content = move.outcome === 'skill_used' ? 'Your fighter already used their Skill.' : 'Your move is already locked for this round.'
+          await interaction.reply({ content, flags: MessageFlags.Ephemeral })
+          return { status: 'handled', reason: move.outcome }
+        }
+        if (move.state.phase === 'completed') {
+          const payouts = joinedPartyPlayers(session).map((player) => ({
+            userId: player.userId,
+            payout: move.state.tied ? player.wager : move.state.winnerId === player.userId ? player.wager * 2 : 0,
+            won: move.state.winnerId === player.userId,
+          }))
+          const completed = await store.completePartySession({
+            sessionId: session.id,
+            actorId,
+            state: move.state,
+            outcome: move.state.tied ? 'tie' : 'completed',
+            payouts,
+            ...periods,
+            now: currentTime,
+          })
+          await interaction.update(shadowDuelPayload(completed))
+          return { status: 'handled', type: 'shadow_duel', result: completed }
+        }
+        const updated = await store.updatePartySession({
+          sessionId: session.id,
+          actorId,
+          state: move.state,
+          status: 'active',
+          expectedVersion: session.version,
+          now: currentTime,
+        })
+        if (updated.mutationStatus === 'conflict') {
+          await interaction.reply({ content: 'The duel advanced before this click arrived. Choose again on the updated round.', flags: MessageFlags.Ephemeral })
+          return { status: 'handled', reason: 'conflict' }
+        }
+        await interaction.update(shadowDuelPayload(updated))
+        return { status: 'handled', type: 'shadow_duel', result: updated }
+      }
+
+      if (partyButton.gameType === 'crash') {
+        if (session.status === 'lobby') {
+          if (partyButton.action === 'join') {
+            const joined = await store.joinPartySession({ sessionId: session.id, userId: actorId, now: currentTime })
+            if (joined.mutationStatus === 'insufficient_balance') {
+              await interaction.reply({ content: `You need ${formatNightCurrency(session.state.baseWager)} to join.`, flags: MessageFlags.Ephemeral })
+              return { status: 'handled', reason: 'insufficient_balance' }
+            }
+            if (!['joined'].includes(joined.mutationStatus)) {
+              await interaction.reply({ content: `You cannot join this lobby (${joined.mutationStatus}).`, flags: MessageFlags.Ephemeral })
+              return { status: 'handled', reason: joined.mutationStatus }
+            }
+            await interaction.update(crashLobbyPayload(joined))
+            return { status: 'handled', type: 'crash', result: joined }
+          }
+          if (partyButton.action === 'leave') {
+            const left = await store.leavePartySession({ sessionId: session.id, userId: actorId, now: currentTime })
+            if (left.mutationStatus !== 'left') {
+              await interaction.reply({ content: 'The host must cancel the lobby; other joined players can leave.', flags: MessageFlags.Ephemeral })
+              return { status: 'handled', reason: left.mutationStatus }
+            }
+            await interaction.update(crashLobbyPayload(left))
+            return { status: 'handled', type: 'crash', result: left }
+          }
+          if (partyButton.action === 'cancel') {
+            if (session.hostId !== actorId) {
+              await interaction.reply({ content: 'Only the host can cancel this lobby.', flags: MessageFlags.Ephemeral })
+              return { status: 'handled', reason: 'forbidden' }
+            }
+            const cancelled = await store.cancelPartySession({ sessionId: session.id, actorId, reason: 'cancelled', now: currentTime })
+            await interaction.update({ ...marketResultPayload('Nightfall Crash Cancelled', 'Every joined player was refunded.'), components: [] })
+            return { status: 'handled', type: 'crash', result: cancelled }
+          }
+          if (partyButton.action === 'start') {
+            if (session.hostId !== actorId) {
+              await interaction.reply({ content: 'Only the host can start this round.', flags: MessageFlags.Ephemeral })
+              return { status: 'handled', reason: 'forbidden' }
+            }
+            const state = startNightyCrash(session.state, joinedPartyPlayers(session).map((player) => player.userId))
+            const active = await store.updatePartySession({
+              sessionId: session.id,
+              actorId,
+              state,
+              status: 'active',
+              expectedVersion: session.version,
+              now: currentTime,
+            })
+            await interaction.update(crashPayload(active))
+            return { status: 'handled', type: 'crash', result: active }
+          }
+        }
+        const participant = joinedPartyPlayers(session).find((player) => player.userId === actorId)
+        if (!participant || session.state.players?.[actorId]?.status !== 'riding') {
+          await interaction.reply({ content: 'Only a player still riding can use this action.', flags: MessageFlags.Ephemeral })
+          return { status: 'handled', reason: 'forbidden' }
+        }
+        const result = partyButton.action === 'push'
+          ? advanceNightyCrash(session.state)
+          : partyButton.action === 'cashout'
+            ? cashOutNightyCrash(session.state, actorId, participant.wager)
+            : { state: session.state, outcome: 'invalid' }
+        if (result.outcome === 'invalid') {
+          await interaction.reply({ content: 'That Crash action is unavailable.', flags: MessageFlags.Ephemeral })
+          return { status: 'handled', reason: 'invalid_move' }
+        }
+        if (result.state.phase === 'crashed' || result.state.phase === 'completed') {
+          const payouts = joinedPartyPlayers(session).map((player) => {
+            const gamePlayer = result.state.players[player.userId]
+            const payout = gamePlayer?.status === 'cashed_out' ? gamePlayer.payout : 0
+            return { userId: player.userId, payout, won: payout > player.wager }
+          })
+          const completed = await store.completePartySession({
+            sessionId: session.id,
+            actorId,
+            state: result.state,
+            outcome: result.state.phase,
+            payouts,
+            ...periods,
+            now: currentTime,
+          })
+          await interaction.update(crashPayload(completed))
+          return { status: 'handled', type: 'crash', result: completed }
+        }
+        const updated = await store.updatePartySession({
+          sessionId: session.id,
+          actorId,
+          state: result.state,
+          status: 'active',
+          expectedVersion: session.version,
+          now: currentTime,
+        })
+        if (updated.mutationStatus === 'conflict') {
+          await interaction.reply({ content: 'Another Crash action landed first. Use the updated round.', flags: MessageFlags.Ephemeral })
+          return { status: 'handled', reason: 'conflict' }
+        }
+        await interaction.update(crashPayload(updated))
+        return { status: 'handled', type: 'crash', result: updated }
+      }
+
+      if (partyButton.gameType === 'blackjack_multi') {
+        if (session.status === 'lobby') {
+          if (partyButton.action === 'join') {
+            const joined = await store.joinPartySession({ sessionId: session.id, userId: actorId, now: currentTime })
+            if (joined.mutationStatus === 'insufficient_balance') {
+              await interaction.reply({ content: `You need ${formatNightCurrency(session.state.baseWager)} to join.`, flags: MessageFlags.Ephemeral })
+              return { status: 'handled', reason: 'insufficient_balance' }
+            }
+            if (joined.mutationStatus !== 'joined') {
+              await interaction.reply({ content: `You cannot join this table (${joined.mutationStatus}).`, flags: MessageFlags.Ephemeral })
+              return { status: 'handled', reason: joined.mutationStatus }
+            }
+            await interaction.update(partyBlackjackLobbyPayload(joined))
+            return { status: 'handled', type: 'blackjack_multi', result: joined }
+          }
+          if (partyButton.action === 'leave') {
+            const left = await store.leavePartySession({ sessionId: session.id, userId: actorId, now: currentTime })
+            if (left.mutationStatus !== 'left') {
+              await interaction.reply({ content: 'The host must cancel the table; other joined players can leave.', flags: MessageFlags.Ephemeral })
+              return { status: 'handled', reason: left.mutationStatus }
+            }
+            await interaction.update(partyBlackjackLobbyPayload(left))
+            return { status: 'handled', type: 'blackjack_multi', result: left }
+          }
+          if (partyButton.action === 'cancel') {
+            if (session.hostId !== actorId) {
+              await interaction.reply({ content: 'Only the host can cancel this table.', flags: MessageFlags.Ephemeral })
+              return { status: 'handled', reason: 'forbidden' }
+            }
+            const cancelled = await store.cancelPartySession({ sessionId: session.id, actorId, reason: 'cancelled', now: currentTime })
+            await interaction.update({ ...marketResultPayload('Blackjack Table Cancelled', 'Every joined player was refunded.'), components: [] })
+            return { status: 'handled', type: 'blackjack_multi', result: cancelled }
+          }
+          if (partyButton.action === 'deal') {
+            if (session.hostId !== actorId) {
+              await interaction.reply({ content: 'Only the host can deal the cards.', flags: MessageFlags.Ephemeral })
+              return { status: 'handled', reason: 'forbidden' }
+            }
+            const state = startPartyBlackjack(session.state.baseWager, joinedPartyPlayers(session), random)
+            if (state.phase === 'dealer') {
+              const finished = finishPartyBlackjack(state)
+              const completed = await store.completePartySession({
+                sessionId: session.id,
+                actorId,
+                state: finished.state,
+                outcome: 'completed',
+                payouts: finished.payouts,
+                ...periods,
+                now: currentTime,
+              })
+              await interaction.update(partyBlackjackPayload(completed))
+              return { status: 'handled', type: 'blackjack_multi', result: completed }
+            }
+            const active = await store.updatePartySession({
+              sessionId: session.id,
+              actorId,
+              state,
+              status: 'active',
+              expectedVersion: session.version,
+              now: currentTime,
+            })
+            await interaction.update(partyBlackjackPayload(active))
+            return { status: 'handled', type: 'blackjack_multi', result: active }
+          }
+        }
+        if (session.state.currentUserId !== actorId) {
+          await interaction.reply({ content: `It is <@${session.state.currentUserId}>’s turn.`, flags: MessageFlags.Ephemeral })
+          return { status: 'handled', reason: 'wrong_turn' }
+        }
+        const cost = partyBlackjackActionCost(session.state, actorId, partyButton.action)
+        if (cost === null) {
+          await interaction.reply({ content: 'That Blackjack action is not available for this hand.', flags: MessageFlags.Ephemeral })
+          return { status: 'handled', reason: 'invalid_move' }
+        }
+        if (cost > 0) {
+          const wagered = await store.addPartyWager({
+            sessionId: session.id,
+            userId: actorId,
+            amount: cost,
+            actionId: interaction.id || `${session.id}:${actorId}:${currentTime.getTime()}`,
+            now: currentTime,
+          })
+          if (wagered.mutationStatus === 'insufficient_balance') {
+            await interaction.reply({ content: `You need another ${formatNightCurrency(cost)} for that action.`, flags: MessageFlags.Ephemeral })
+            return { status: 'handled', reason: 'insufficient_balance' }
+          }
+          if (!['added', 'duplicate'].includes(wagered.mutationStatus)) {
+            await interaction.reply({ content: 'The additional Blackjack wager could not be locked.', flags: MessageFlags.Ephemeral })
+            return { status: 'handled', reason: wagered.mutationStatus }
+          }
+          session = wagered
+        }
+        const played = playPartyBlackjack(session.state, actorId, partyButton.action)
+        if (played.state.phase === 'dealer') {
+          const finished = finishPartyBlackjack(played.state)
+          const completed = await store.completePartySession({
+            sessionId: session.id,
+            actorId,
+            state: finished.state,
+            outcome: 'completed',
+            payouts: finished.payouts,
+            ...periods,
+            now: currentTime,
+          })
+          await interaction.update(partyBlackjackPayload(completed))
+          return { status: 'handled', type: 'blackjack_multi', result: completed }
+        }
+        const updated = await store.updatePartySession({
+          sessionId: session.id,
+          actorId,
+          state: played.state,
+          status: 'active',
+          expectedVersion: session.version,
+          now: currentTime,
+        })
+        if (updated.mutationStatus === 'conflict') {
+          await interaction.reply({ content: 'The table advanced before this click arrived. Use the updated hand.', flags: MessageFlags.Ephemeral })
+          return { status: 'handled', reason: 'conflict' }
+        }
+        await interaction.update(partyBlackjackPayload(updated))
+        return { status: 'handled', type: 'blackjack_multi', result: updated }
+      }
+    }
 
     if (gameButton) {
       const session = await store.getGameSession(gameButton.id)
@@ -1433,11 +2247,12 @@ export function createNightyWorkflow(options = {}) {
     return { status: 'handled', type: 'trade', result }
   }
 
-  return { initialize, handleMessage, handleInteraction, store }
+  return { initialize, refundExpiredPartySessions, handleMessage, handleInteraction, store }
 }
 
 export function installNightyWorkflow(client, options = {}) {
   const workflow = createNightyWorkflow(options)
+  let expirationSweep = null
   client.on(Events.MessageCreate, (message) => {
     workflow.handleMessage(message).catch(async (reason) => {
       options.errorReporter?.report('nighty_message_command', reason)
@@ -1463,6 +2278,17 @@ export function installNightyWorkflow(client, options = {}) {
       options.errorReporter?.report('nighty_initialize', reason)
       console.error('Nighty storage failed to initialize:', reason instanceof Error ? reason.message : reason)
     })
+    expirationSweep = setInterval(() => {
+      workflow.refundExpiredPartySessions().catch((reason) => {
+        options.errorReporter?.report('nighty_party_expiration_sweep', reason)
+        console.error('Nighty expiration sweep failed:', reason instanceof Error ? reason.message : reason)
+      })
+    }, options.partySweepIntervalMs || 60_000)
+    expirationSweep.unref?.()
   })
+  workflow.stopExpirationSweep = () => {
+    if (expirationSweep) clearInterval(expirationSweep)
+    expirationSweep = null
+  }
   return workflow
 }

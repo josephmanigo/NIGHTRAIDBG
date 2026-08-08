@@ -5,7 +5,7 @@ import {
   NIGHTY_STARTING_BALANCE,
 } from './nighty-data.js'
 
-const MIGRATION_FILES = 'database/phase19.sql through database/phase23.sql'
+const MIGRATION_FILES = 'database/phase19.sql through database/phase24.sql'
 
 function requiredEnvironment(name) {
   const value = process.env[name]?.trim()
@@ -132,6 +132,38 @@ function normalizeGameStats(row = {}) {
   }
 }
 
+function normalizePartyPlayer(row = {}) {
+  return {
+    sessionId: String(row.session_id || row.sessionId || ''),
+    userId: String(row.user_id || row.userId || ''),
+    wager: Number(row.wager) || 0,
+    payout: Number(row.payout) || 0,
+    status: row.status || 'joined',
+    joinedAt: row.joined_at || row.joinedAt || null,
+    settledAt: row.settled_at || row.settledAt || null,
+  }
+}
+
+function normalizePartySession(row = {}) {
+  return {
+    id: String(row.id || ''),
+    guildId: String(row.guild_id || row.guildId || ''),
+    channelId: String(row.channel_id || row.channelId || ''),
+    hostId: String(row.host_id || row.hostId || ''),
+    gameType: row.game_type || row.gameType || '',
+    state: row.state || {},
+    status: row.status || 'missing',
+    outcome: row.outcome || null,
+    version: Number(row.version) || 0,
+    expiresAt: row.expires_at || row.expiresAt || null,
+    createdAt: row.created_at || row.createdAt || null,
+    resolvedAt: row.resolved_at || row.resolvedAt || null,
+    players: (row.players || []).map(normalizePartyPlayer),
+    mutationStatus: row.mutation_status || row.mutationStatus || null,
+    balance: Number(row.balance) || 0,
+  }
+}
+
 function normalizeAdminAction(row = {}) {
   return {
     id: Number(row.id) || 0,
@@ -167,12 +199,24 @@ export class SupabaseNightyStore {
       'nighty_game_cooldowns',
       'nighty_game_stats',
       'nighty_admin_actions',
+      'nighty_party_sessions',
+      'nighty_party_players',
     ]) {
       const { error } = await this.client.from(table).select('*', { head: true, count: 'exact' }).limit(1)
       if (error) {
         throw new Error(databaseError(error, `Nighty storage is unavailable. Apply ${MIGRATION_FILES}.`))
       }
     }
+    await this.refundExpiredPartySessions()
+  }
+
+  async refundExpiredPartySessions({ guildId = null, userId = null } = {}) {
+    const { data, error } = await this.client.rpc('nighty_refund_expired_party_sessions', {
+      p_guild_id: guildId === null ? null : String(guildId),
+      p_user_id: userId === null ? null : String(userId),
+    })
+    if (error) throw new Error(databaseError(error, 'Could not refund expired Nighty party sessions.'))
+    return Number(data) || 0
   }
 
   async ensurePlayer({ guildId, userId }) {
@@ -518,6 +562,93 @@ export class SupabaseNightyStore {
     return normalizeGameSession(data)
   }
 
+  async createPartySession(session) {
+    const { data, error } = await this.client.rpc('nighty_create_party_session', {
+      p_id: session.id,
+      p_guild_id: String(session.guildId),
+      p_channel_id: String(session.channelId),
+      p_host_id: String(session.hostId),
+      p_game_type: session.gameType,
+      p_wager: session.wager,
+      p_state: session.state,
+      p_status: session.status,
+      p_expires_at: session.expiresAt,
+    })
+    if (error) throw new Error(databaseError(error, `Could not create the Nighty ${session.gameType} session.`))
+    return normalizePartySession(data)
+  }
+
+  async getPartySession(id) {
+    const { data, error } = await this.client.rpc('nighty_party_snapshot', { p_session_id: id })
+    if (error) throw new Error(databaseError(error, 'Could not load the Nighty party session.'))
+    return data ? normalizePartySession(data) : null
+  }
+
+  async joinPartySession({ sessionId, userId }) {
+    const { data, error } = await this.client.rpc('nighty_join_party_session', {
+      p_session_id: sessionId,
+      p_user_id: String(userId),
+    })
+    if (error) throw new Error(databaseError(error, 'Could not join the Nighty party session.'))
+    return normalizePartySession(data)
+  }
+
+  async leavePartySession({ sessionId, userId }) {
+    const { data, error } = await this.client.rpc('nighty_leave_party_session', {
+      p_session_id: sessionId,
+      p_user_id: String(userId),
+    })
+    if (error) throw new Error(databaseError(error, 'Could not leave the Nighty party session.'))
+    return normalizePartySession(data)
+  }
+
+  async addPartyWager({ sessionId, userId, amount, actionId }) {
+    const { data, error } = await this.client.rpc('nighty_add_party_wager', {
+      p_session_id: sessionId,
+      p_user_id: String(userId),
+      p_amount: amount,
+      p_action_id: String(actionId),
+    })
+    if (error) throw new Error(databaseError(error, 'Could not add the Nighty Blackjack wager.'))
+    return normalizePartySession(data)
+  }
+
+  async updatePartySession({ sessionId, actorId, state, status, expectedVersion }) {
+    const { data, error } = await this.client.rpc('nighty_update_party_session', {
+      p_session_id: sessionId,
+      p_actor_id: String(actorId),
+      p_state: state,
+      p_status: status,
+      p_expected_version: expectedVersion,
+    })
+    if (error) throw new Error(databaseError(error, 'Could not update the Nighty party session.'))
+    return normalizePartySession(data)
+  }
+
+  async completePartySession({ sessionId, actorId, state, outcome, payouts, dailyKey, weeklyKey }) {
+    const { data, error } = await this.client.rpc('nighty_complete_party_session', {
+      p_session_id: sessionId,
+      p_actor_id: String(actorId),
+      p_state: state,
+      p_outcome: outcome,
+      p_payouts: payouts,
+      p_daily_key: dailyKey,
+      p_weekly_key: weeklyKey,
+    })
+    if (error) throw new Error(databaseError(error, 'Could not settle the Nighty party session.'))
+    return normalizePartySession(data)
+  }
+
+  async cancelPartySession({ sessionId, actorId, reason }) {
+    const { data, error } = await this.client.rpc('nighty_cancel_party_session', {
+      p_session_id: sessionId,
+      p_actor_id: String(actorId),
+      p_reason: reason,
+    })
+    if (error) throw new Error(databaseError(error, 'Could not cancel the Nighty party session.'))
+    return normalizePartySession(data)
+  }
+
   async getGameStats({ guildId, userId }) {
     const { data, error } = await this.client
       .from('nighty_game_stats')
@@ -588,8 +719,16 @@ export class SupabaseNightyStore {
   }
 
   async getEconomySummary({ guildId }) {
-    const { data, error } = await this.client.rpc('nighty_economy_summary', { p_guild_id: String(guildId) })
+    const [{ data, error }, { count: partyCount, error: partyError }] = await Promise.all([
+      this.client.rpc('nighty_economy_summary', { p_guild_id: String(guildId) }),
+      this.client
+        .from('nighty_party_sessions')
+        .select('*', { head: true, count: 'exact' })
+        .eq('guild_id', String(guildId))
+        .in('status', ['lobby', 'active']),
+    ])
     if (error) throw new Error(databaseError(error, 'Could not load the Nighty economy summary.'))
+    if (partyError) throw new Error(databaseError(partyError, 'Could not count active Nighty party sessions.'))
     return {
       players: Number(data?.players) || 0,
       totalCurrency: Number(data?.total_currency) || 0,
@@ -597,7 +736,7 @@ export class SupabaseNightyStore {
       activeListings: Number(data?.active_listings) || 0,
       activeChallenges: Number(data?.active_challenges) || 0,
       activeTrades: Number(data?.active_trades) || 0,
-      activeSessions: Number(data?.active_sessions) || 0,
+      activeSessions: (Number(data?.active_sessions) || 0) + (Number(partyCount) || 0),
       ledgerEntries: Number(data?.ledger_entries) || 0,
     }
   }
@@ -644,11 +783,14 @@ export class MemoryNightyStore {
     this.gameSessions = new Map()
     this.gameCooldowns = new Map()
     this.gameStats = new Map()
+    this.partySessions = new Map()
     this.adminActions = []
     this.adminActionCounter = 0
   }
 
-  async initialize() {}
+  async initialize() {
+    return this.refundExpiredPartySessions()
+  }
 
   async ensurePlayer({ guildId, userId }) {
     const key = playerKey(guildId, userId)
@@ -1166,6 +1308,250 @@ export class MemoryNightyStore {
     return { ...session, state: structuredClone(session.state) }
   }
 
+  partySnapshot(session) {
+    if (!session) return null
+    return structuredClone({
+      ...session,
+      players: session.players,
+    })
+  }
+
+  refundExpiredPartySessions({ guildId = null, userId = null, now = new Date() } = {}) {
+    const currentTime = new Date(now).getTime()
+    let refunded = 0
+    for (const session of this.partySessions.values()) {
+      const participant = userId === null || session.players.some((player) => player.userId === String(userId) && player.status === 'joined')
+      if ((guildId !== null && session.guildId !== String(guildId)) || !participant
+        || !['lobby', 'active'].includes(session.status)
+        || new Date(session.expiresAt).getTime() > currentTime) continue
+      this.cancelPartyRecord(session, 'expired', now)
+      refunded += 1
+    }
+    return refunded
+  }
+
+  cancelPartyRecord(session, reason, now = new Date()) {
+    for (const participant of session.players.filter((player) => player.status === 'joined')) {
+      const player = this.players.get(playerKey(session.guildId, participant.userId))
+      player.balance += participant.wager
+      player.updatedAt = new Date(now).toISOString()
+      participant.payout = participant.wager
+      participant.status = 'refunded'
+      participant.settledAt = new Date(now).toISOString()
+    }
+    session.status = reason === 'expired' ? 'expired' : 'cancelled'
+    session.outcome = reason
+    session.resolvedAt = new Date(now).toISOString()
+    session.version += 1
+    session.mutationStatus = session.status
+    return this.partySnapshot(session)
+  }
+
+  async createPartySession(input) {
+    const now = new Date(input.now || new Date())
+    this.refundExpiredPartySessions({ guildId: input.guildId, userId: input.hostId, now })
+    await this.ensurePlayer({ guildId: input.guildId, userId: input.hostId })
+    const existing = [...this.partySessions.values()].find((session) =>
+      session.guildId === String(input.guildId)
+      && session.gameType === input.gameType
+      && ['lobby', 'active'].includes(session.status)
+      && new Date(session.expiresAt).getTime() > now.getTime()
+      && session.players.some((player) => player.userId === String(input.hostId) && player.status === 'joined'))
+    if (existing) return { ...this.partySnapshot(existing), mutationStatus: 'existing' }
+    const host = this.players.get(playerKey(input.guildId, input.hostId))
+    if (host.balance < input.wager) {
+      return {
+        ...structuredClone(input),
+        status: 'rejected',
+        mutationStatus: 'insufficient_balance',
+        balance: host.balance,
+        players: [],
+      }
+    }
+    host.balance -= input.wager
+    host.updatedAt = now.toISOString()
+    const record = {
+      id: input.id,
+      guildId: String(input.guildId),
+      channelId: String(input.channelId),
+      hostId: String(input.hostId),
+      gameType: input.gameType,
+      state: structuredClone(input.state),
+      status: input.status,
+      outcome: null,
+      version: 1,
+      expiresAt: input.expiresAt,
+      createdAt: now.toISOString(),
+      resolvedAt: null,
+      players: [{
+        sessionId: input.id,
+        userId: String(input.hostId),
+        wager: input.wager,
+        payout: 0,
+        status: 'joined',
+        joinedAt: now.toISOString(),
+        settledAt: null,
+      }],
+      mutationStatus: 'created',
+      balance: host.balance,
+    }
+    this.partySessions.set(record.id, record)
+    return this.partySnapshot(record)
+  }
+
+  async getPartySession(id) {
+    return this.partySnapshot(this.partySessions.get(id))
+  }
+
+  async joinPartySession({ sessionId, userId, now = new Date() }) {
+    const session = this.partySessions.get(sessionId)
+    if (!session) return { status: 'missing', mutationStatus: 'missing', players: [] }
+    this.refundExpiredPartySessions({ guildId: session.guildId, userId, now })
+    if (session.status !== 'lobby' || new Date(session.expiresAt).getTime() <= new Date(now).getTime()) {
+      return { ...this.partySnapshot(session), mutationStatus: 'closed' }
+    }
+    if (session.gameType === 'mines'
+      || (session.gameType === 'shadow_duel' && String(session.state.opponentId) !== String(userId))) {
+      return { ...this.partySnapshot(session), mutationStatus: 'forbidden' }
+    }
+    const prior = session.players.find((player) => player.userId === String(userId))
+    if (prior) return { ...this.partySnapshot(session), mutationStatus: prior.status === 'joined' ? 'joined' : 'left' }
+    const limit = session.gameType === 'blackjack_multi' ? 4 : session.gameType === 'shadow_duel' ? 2 : 10
+    if (session.players.filter((player) => player.status === 'joined').length >= limit) {
+      return { ...this.partySnapshot(session), mutationStatus: 'full' }
+    }
+    const busy = [...this.partySessions.values()].some((other) =>
+      other.id !== session.id && other.guildId === session.guildId && other.gameType === session.gameType
+      && ['lobby', 'active'].includes(other.status) && new Date(other.expiresAt).getTime() > new Date(now).getTime()
+      && other.players.some((player) => player.userId === String(userId) && player.status === 'joined'))
+    if (busy) return { ...this.partySnapshot(session), mutationStatus: 'busy' }
+    const { player } = await this.ensurePlayer({ guildId: session.guildId, userId })
+    const wager = Number(session.state.baseWager)
+    if (player.balance < wager) return { ...this.partySnapshot(session), mutationStatus: 'insufficient_balance', balance: player.balance }
+    const stored = this.players.get(playerKey(session.guildId, userId))
+    stored.balance -= wager
+    stored.updatedAt = new Date(now).toISOString()
+    session.players.push({
+      sessionId,
+      userId: String(userId),
+      wager,
+      payout: 0,
+      status: 'joined',
+      joinedAt: new Date(now).toISOString(),
+      settledAt: null,
+    })
+    session.mutationStatus = 'joined'
+    session.balance = stored.balance
+    return this.partySnapshot(session)
+  }
+
+  async leavePartySession({ sessionId, userId, now = new Date() }) {
+    const session = this.partySessions.get(sessionId)
+    if (!session) return { status: 'missing', mutationStatus: 'missing', players: [] }
+    const participant = session.players.find((player) => player.userId === String(userId))
+    if (session.status !== 'lobby' || session.hostId === String(userId)) {
+      return { ...this.partySnapshot(session), mutationStatus: 'forbidden' }
+    }
+    if (!participant || participant.status !== 'joined') return { ...this.partySnapshot(session), mutationStatus: 'not_joined' }
+    const player = this.players.get(playerKey(session.guildId, userId))
+    player.balance += participant.wager
+    player.updatedAt = new Date(now).toISOString()
+    participant.payout = participant.wager
+    participant.status = 'left'
+    participant.settledAt = new Date(now).toISOString()
+    session.mutationStatus = 'left'
+    return this.partySnapshot(session)
+  }
+
+  async addPartyWager({ sessionId, userId, amount, actionId, now = new Date() }) {
+    const session = this.partySessions.get(sessionId)
+    if (!session) return { status: 'missing', mutationStatus: 'missing', players: [] }
+    if (session.status !== 'active' || session.gameType !== 'blackjack_multi') {
+      return { ...this.partySnapshot(session), mutationStatus: 'closed' }
+    }
+    const participant = session.players.find((player) => player.userId === String(userId) && player.status === 'joined')
+    if (!participant) return { ...this.partySnapshot(session), mutationStatus: 'forbidden' }
+    const actionKey = `${session.guildId}:${userId}:party-wager:${actionId}`
+    if (this.actions.has(actionKey)) return { ...this.partySnapshot(session), mutationStatus: 'duplicate' }
+    const player = this.players.get(playerKey(session.guildId, userId))
+    if (player.balance < amount) return { ...this.partySnapshot(session), mutationStatus: 'insufficient_balance', balance: player.balance }
+    this.actions.add(actionKey)
+    player.balance -= amount
+    player.updatedAt = new Date(now).toISOString()
+    participant.wager += amount
+    session.mutationStatus = 'added'
+    session.balance = player.balance
+    return this.partySnapshot(session)
+  }
+
+  async updatePartySession({ sessionId, actorId, state, status, expectedVersion }) {
+    const session = this.partySessions.get(sessionId)
+    if (!session) return { status: 'missing', mutationStatus: 'missing', players: [] }
+    if (!['lobby', 'active'].includes(session.status)) return { ...this.partySnapshot(session), mutationStatus: 'closed' }
+    if (session.version !== expectedVersion) return { ...this.partySnapshot(session), mutationStatus: 'conflict' }
+    if (!session.players.some((player) => player.userId === String(actorId) && player.status === 'joined')) {
+      return { ...this.partySnapshot(session), mutationStatus: 'forbidden' }
+    }
+    session.state = structuredClone(state)
+    session.status = status
+    session.version += 1
+    session.mutationStatus = 'updated'
+    return this.partySnapshot(session)
+  }
+
+  async completePartySession({ sessionId, actorId, state, outcome, payouts, dailyKey, weeklyKey, now = new Date() }) {
+    const session = this.partySessions.get(sessionId)
+    if (!session) return { status: 'missing', mutationStatus: 'missing', players: [] }
+    if (session.status === 'completed') return { ...this.partySnapshot(session), mutationStatus: 'duplicate' }
+    if (!['lobby', 'active'].includes(session.status)) return { ...this.partySnapshot(session), mutationStatus: 'closed' }
+    if (!session.players.some((player) => player.userId === String(actorId) && player.status === 'joined')) {
+      return { ...this.partySnapshot(session), mutationStatus: 'forbidden' }
+    }
+    for (const participant of session.players.filter((player) => player.status === 'joined')) {
+      const settlement = payouts.find((entry) => String(entry.userId) === participant.userId)
+      if (!settlement) throw new Error('Missing party payout.')
+      const player = this.players.get(playerKey(session.guildId, participant.userId))
+      player.balance += settlement.payout
+      player.updatedAt = new Date(now).toISOString()
+      participant.payout = settlement.payout
+      participant.status = 'settled'
+      participant.settledAt = new Date(now).toISOString()
+      this.incrementGameStats({
+        guildId: session.guildId,
+        userId: participant.userId,
+        gameType: session.gameType,
+        wager: participant.wager,
+        payout: settlement.payout,
+        won: Boolean(settlement.won),
+      })
+      this.recordGameMissionProgress({
+        guildId: session.guildId,
+        userId: participant.userId,
+        dailyKey,
+        weeklyKey,
+        net: settlement.payout - participant.wager,
+      })
+    }
+    session.state = structuredClone(state)
+    session.status = 'completed'
+    session.outcome = outcome
+    session.resolvedAt = new Date(now).toISOString()
+    session.version += 1
+    session.mutationStatus = 'completed'
+    return this.partySnapshot(session)
+  }
+
+  async cancelPartySession({ sessionId, actorId, reason, now = new Date() }) {
+    const session = this.partySessions.get(sessionId)
+    if (!session) return { status: 'missing', mutationStatus: 'missing', players: [] }
+    if (!['lobby', 'active'].includes(session.status)) return { ...this.partySnapshot(session), mutationStatus: 'duplicate' }
+    const invitedDuelist = session.gameType === 'shadow_duel' && String(session.state.opponentId) === String(actorId)
+    if (!invitedDuelist && !session.players.some((player) => player.userId === String(actorId) && player.status === 'joined')) {
+      return { ...this.partySnapshot(session), mutationStatus: 'forbidden' }
+    }
+    return this.cancelPartyRecord(session, reason, now)
+  }
+
   async getGameStats({ guildId, userId }) {
     const prefix = `${playerKey(guildId, userId)}:`
     return [...this.gameStats.entries()]
@@ -1273,7 +1659,8 @@ export class MemoryNightyStore {
       activeListings: [...this.marketListings.values()].filter((item) => item.guildId === String(guildId) && item.status === 'active').length,
       activeChallenges: [...this.pvpChallenges.values()].filter((item) => item.guildId === String(guildId) && item.status === 'pending').length,
       activeTrades: [...this.tradeOffers.values()].filter((item) => item.guildId === String(guildId) && item.status === 'pending').length,
-      activeSessions: [...this.gameSessions.values()].filter((item) => item.guildId === String(guildId) && item.status === 'active').length,
+      activeSessions: [...this.gameSessions.values()].filter((item) => item.guildId === String(guildId) && item.status === 'active').length
+        + [...this.partySessions.values()].filter((item) => item.guildId === String(guildId) && ['lobby', 'active'].includes(item.status)).length,
       ledgerEntries: this.actions.size + this.adminActions.length,
     }
   }

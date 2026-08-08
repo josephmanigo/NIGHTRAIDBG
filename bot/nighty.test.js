@@ -18,8 +18,13 @@ import {
   parseNightyButtonId,
   parseNightyCommand,
   parseNightyGameButtonId,
+  parseNightyPartyButtonId,
 } from './nighty.js'
 import { spinNightySlots } from './nighty-games.js'
+import {
+  partyBlackjackActionCost,
+  playPartyBlackjack,
+} from './nighty-interactive-games.js'
 
 function mockMessage(content, {
   id = `msg-${Math.random()}`,
@@ -99,6 +104,8 @@ test('Nighty uses text prefixes and command aliases without slash commands', () 
   assert.deepEqual(parseNightyCommand('nighty inventory'), { prefix: 'nighty', command: 'collection', args: [] })
   assert.deepEqual(parseNightyCommand('nighty cf heads all'), { prefix: 'nighty', command: 'coinflip', args: ['heads', 'all'] })
   assert.deepEqual(parseNightyCommand('nighty bj all'), { prefix: 'nighty', command: 'blackjack', args: ['all'] })
+  assert.deepEqual(parseNightyCommand('nighty mbj all'), { prefix: 'nighty', command: 'blackjack_multi', args: ['all'] })
+  assert.equal(parseNightyCommand('nighty cr 10k').command, 'crash')
   assert.equal(parseNightyCommand('nighty sl 10k').command, 'slots')
   assert.equal(parseNightyCommand('nighty tr').command, 'trivia')
   assert.equal(parseNightyCommand('nighty f').command, 'fish')
@@ -231,6 +238,10 @@ test('Night Currency amounts and challenge buttons parse safely', () => {
     parseNightyGameButtonId('nighty:trivia:answer_2:33333333-3333-4333-8333-333333333333'),
     { gameType: 'trivia', action: 'answer_2', id: '33333333-3333-4333-8333-333333333333' },
   )
+  assert.deepEqual(
+    parseNightyPartyButtonId('nighty:mines:pick_12:33333333-3333-4333-8333-333333333333'),
+    { gameType: 'mines', action: 'pick_12', id: '33333333-3333-4333-8333-333333333333' },
+  )
   assert.equal(parseNightyButtonId('other:pvp:accept:11111111'), null)
 })
 
@@ -255,28 +266,40 @@ test('PvE battles use the strongest character, reward wins, and enforce cooldown
   assert.equal(embedData(profile).fields.find((field) => field.name === 'PvE record').value, '1 wins / 1 battles')
 })
 
-test('PvP requires the selected opponent to accept and transfers only the chosen wager', async () => {
+test('Shadow Duel escrows both wagers and resolves five rounds of hidden character actions', async () => {
   const challengerId = '11111111111111111'
   const opponentId = '22222222222222222'
   const { workflow, store } = makeWorkflow({ random: () => 0 })
-  await workflow.handleMessage(mockMessage('nighty balance', { id: 'pvp-profile-1', userId: challengerId }))
-  await workflow.handleMessage(mockMessage('nighty balance', { id: 'pvp-profile-2', userId: opponentId }))
+  await workflow.handleMessage(mockMessage('nighty hunt', { id: 'pvp-profile-1', userId: challengerId }))
+  await workflow.handleMessage(mockMessage('nighty hunt', { id: 'pvp-profile-2', userId: opponentId }))
+  const challengerBefore = (await store.getPlayer({ guildId: 'guild-1', userId: challengerId })).balance
+  const opponentBefore = (await store.getPlayer({ guildId: 'guild-1', userId: opponentId })).balance
 
   const command = mockMessage(`nighty pvp <@${opponentId}> 100k`, { id: 'pvp-command', userId: challengerId })
   await workflow.handleMessage(command)
-  assert.equal(command.state.replies[0].components[0].components[0].data.label, 'Accept')
+  assert.equal(command.state.replies[0].components[0].components[0].data.label, 'Night Scout')
+  assert.equal((await store.getPlayer({ guildId: 'guild-1', userId: challengerId })).balance, challengerBefore - 100_000)
 
-  const forbidden = mockButton('nighty:pvp:accept:11111111-1111-4111-8111-111111111111', challengerId)
+  const forbidden = mockButton('nighty:duel:accept_night_scout:33333333-3333-4333-8333-333333333333', challengerId)
   await workflow.handleInteraction(forbidden)
   assert.match(forbidden.state.replies[0].content, /only the challenged player/i)
 
-  const accepted = mockButton('nighty:pvp:accept:11111111-1111-4111-8111-111111111111', opponentId)
+  const accepted = mockButton('nighty:duel:accept_night_scout:33333333-3333-4333-8333-333333333333', opponentId)
   await workflow.handleInteraction(accepted)
-  assert.match(accepted.state.updates[0].embeds[0].data.description, /100,000 Night Currency/)
+  assert.match(accepted.state.updates[0].embeds[0].data.title, /Round 1/)
+  assert.equal((await store.getPlayer({ guildId: 'guild-1', userId: opponentId })).balance, opponentBefore - 100_000)
+
+  let finalMove = null
+  for (let round = 0; round < 5; round += 1) {
+    await workflow.handleInteraction(mockButton('nighty:duel:attack:33333333-3333-4333-8333-333333333333', challengerId))
+    finalMove = mockButton('nighty:duel:defend:33333333-3333-4333-8333-333333333333', opponentId)
+    await workflow.handleInteraction(finalMove)
+  }
+  assert.match(finalMove.state.updates[0].embeds[0].data.title, /Victory/)
   const challenger = await store.getPlayer({ guildId: 'guild-1', userId: challengerId })
   const opponent = await store.getPlayer({ guildId: 'guild-1', userId: opponentId })
-  assert.equal(challenger.balance, 1_100_000)
-  assert.equal(opponent.balance, 900_000)
+  assert.equal(challenger.balance, challengerBefore + 100_000)
+  assert.equal(opponent.balance, opponentBefore - 100_000)
 })
 
 test('private trades require buyer acceptance and atomically exchange character and currency', async () => {
@@ -416,17 +439,159 @@ test('blackjack displays card faces and keeps Hit and Stand after drawing', asyn
   assert.deepEqual(updated.components[0].components.map((button) => button.data.label), ['Hit', 'Stand'])
 })
 
-test('PvP accepts all as the challenger wager and still requires acceptance', async () => {
+test('Shadow Duel accepts all and escrows both complete balances on acceptance', async () => {
   const challengerId = '11111111111111111'
   const opponentId = '22222222222222222'
   const { workflow, store } = makeWorkflow({ random: () => 0 })
-  await workflow.handleMessage(mockMessage('nighty balance', { id: 'pvp-all-profile-1', userId: challengerId }))
-  await workflow.handleMessage(mockMessage('nighty balance', { id: 'pvp-all-profile-2', userId: opponentId }))
+  await workflow.handleMessage(mockMessage('nighty hunt', { id: 'pvp-all-profile-1', userId: challengerId }))
+  await workflow.handleMessage(mockMessage('nighty hunt', { id: 'pvp-all-profile-2', userId: opponentId }))
   await workflow.handleMessage(mockMessage(`nighty pvp <@${opponentId}> all`, { id: 'pvp-all', userId: challengerId }))
-  const accept = mockButton('nighty:pvp:accept:11111111-1111-4111-8111-111111111111', opponentId)
+  assert.equal((await store.getPlayer({ guildId: 'guild-1', userId: challengerId })).balance, 0)
+  const confirm = mockButton('nighty:duel:confirm_allin:33333333-3333-4333-8333-333333333333', challengerId)
+  await workflow.handleInteraction(confirm)
+  assert.match(confirm.state.updates[0].embeds[0].data.title, /Shadow Duel/)
+  const accept = mockButton('nighty:duel:accept_night_scout:33333333-3333-4333-8333-333333333333', opponentId)
   await workflow.handleInteraction(accept)
-  assert.equal((await store.getPlayer({ guildId: 'guild-1', userId: challengerId })).balance, 2_000_000)
+  assert.match(accept.state.updates[0].embeds[0].data.title, /Round 1/)
+  assert.equal((await store.getPlayer({ guildId: 'guild-1', userId: challengerId })).balance, 0)
   assert.equal((await store.getPlayer({ guildId: 'guild-1', userId: opponentId })).balance, 0)
+})
+
+test('Abyss Mines uses a 4x4 button grid and settles a cash-out only once', async () => {
+  const playerId = '11111111111111111'
+  const { workflow, store } = makeWorkflow({ random: () => 0 })
+  const start = mockMessage('nighty mines 100k 3', { id: 'mines-start', userId: playerId })
+  await workflow.handleMessage(start)
+  assert.equal(start.state.replies[0].components.length, 5)
+  assert.equal((await store.getPlayer({ guildId: 'guild-1', userId: playerId })).balance, 900_000)
+
+  const session = await store.getPartySession('33333333-3333-4333-8333-333333333333')
+  const safeCell = Array.from({ length: 16 }, (_, index) => index).find((index) => !session.state.mines.includes(index))
+  const pick = mockButton(`nighty:mines:pick_${safeCell}:33333333-3333-4333-8333-333333333333`, playerId)
+  await workflow.handleInteraction(pick)
+  assert.match(pick.state.updates[0].embeds[0].data.description, /cash out/i)
+
+  const cashout = mockButton('nighty:mines:cashout:33333333-3333-4333-8333-333333333333', playerId)
+  await workflow.handleInteraction(cashout)
+  const balance = (await store.getPlayer({ guildId: 'guild-1', userId: playerId })).balance
+  assert.ok(balance > 1_000_000)
+  const repeated = mockButton('nighty:mines:cashout:33333333-3333-4333-8333-333333333333', playerId)
+  await workflow.handleInteraction(repeated)
+  assert.match(repeated.state.replies[0].content, /already closed/i)
+  assert.equal((await store.getPlayer({ guildId: 'guild-1', userId: playerId })).balance, balance)
+})
+
+test('interactive all-in wagers require confirmation and cancellation refunds the escrow', async () => {
+  const playerId = '11111111111111111'
+  const { workflow, store } = makeWorkflow()
+  const start = mockMessage('nighty mines all', { id: 'mines-all', userId: playerId })
+  await workflow.handleMessage(start)
+  assert.equal(start.state.replies[0].components[0].components[0].data.label, 'Confirm All-In')
+  assert.equal((await store.getPlayer({ guildId: 'guild-1', userId: playerId })).balance, 0)
+  const cancel = mockButton('nighty:mines:cancel_allin:33333333-3333-4333-8333-333333333333', playerId)
+  await workflow.handleInteraction(cancel)
+  assert.match(cancel.state.updates[0].embeds[0].data.title, /All-In Cancelled/)
+  assert.equal((await store.getPlayer({ guildId: 'guild-1', userId: playerId })).balance, 1_000_000)
+})
+
+test('Nightfall Crash supports a shared lobby, individual cash-out, and one final settlement', async () => {
+  const hostId = '11111111111111111'
+  const guestId = '22222222222222222'
+  const { workflow, store } = makeWorkflow({ random: () => 0 })
+  const start = mockMessage('nighty crash 100k', { id: 'crash-start', userId: hostId })
+  await workflow.handleMessage(start)
+  const join = mockButton('nighty:crash:join:33333333-3333-4333-8333-333333333333', guestId)
+  await workflow.handleInteraction(join)
+  assert.match(join.state.updates[0].embeds[0].data.fields.find((field) => field.name === 'Players').value, /2\/10/)
+
+  await workflow.handleInteraction(mockButton('nighty:crash:start:33333333-3333-4333-8333-333333333333', hostId))
+  const hostCashout = mockButton('nighty:crash:cashout:33333333-3333-4333-8333-333333333333', hostId)
+  await workflow.handleInteraction(hostCashout)
+  assert.match(hostCashout.state.updates[0].embeds[0].data.description, /cashed at/i)
+  const crash = mockButton('nighty:crash:push:33333333-3333-4333-8333-333333333333', guestId)
+  await workflow.handleInteraction(crash)
+  assert.match(crash.state.updates[0].embeds[0].data.title, /CRASHED/)
+  assert.equal((await store.getPlayer({ guildId: 'guild-1', userId: hostId })).balance, 1_000_000)
+  assert.equal((await store.getPlayer({ guildId: 'guild-1', userId: guestId })).balance, 900_000)
+})
+
+test('the party expiration sweep automatically refunds every unsettled player', async () => {
+  const hostId = '11111111111111111'
+  const guestId = '22222222222222222'
+  const { workflow, store, advance } = makeWorkflow()
+  await workflow.handleMessage(mockMessage('nighty crash 100k', { id: 'crash-expire', userId: hostId }))
+  await workflow.handleInteraction(mockButton('nighty:crash:join:33333333-3333-4333-8333-333333333333', guestId))
+  assert.equal((await store.getPlayer({ guildId: 'guild-1', userId: hostId })).balance, 900_000)
+  assert.equal((await store.getPlayer({ guildId: 'guild-1', userId: guestId })).balance, 900_000)
+  advance(301_000)
+  assert.equal(await workflow.refundExpiredPartySessions(), 1)
+  assert.equal((await store.getPlayer({ guildId: 'guild-1', userId: hostId })).balance, 1_000_000)
+  assert.equal((await store.getPlayer({ guildId: 'guild-1', userId: guestId })).balance, 1_000_000)
+  assert.equal((await store.getPartySession('33333333-3333-4333-8333-333333333333')).status, 'expired')
+})
+
+test('multiplayer Blackjack seats four players safely and settles each hand through shared buttons', async () => {
+  const hostId = '11111111111111111'
+  const guestId = '22222222222222222'
+  const { workflow, store } = makeWorkflow({ random: () => 0.25 })
+  const command = mockMessage('nighty bj table 100k', { id: 'multi-bj-start', userId: hostId })
+  await workflow.handleMessage(command)
+  assert.match(command.state.replies[0].embeds[0].data.title, /Lobby/)
+  await workflow.handleInteraction(mockButton('nighty:blackjack_multi:join:33333333-3333-4333-8333-333333333333', guestId))
+  const deal = mockButton('nighty:blackjack_multi:deal:33333333-3333-4333-8333-333333333333', hostId)
+  await workflow.handleInteraction(deal)
+  assert.match(deal.state.updates[0].embeds[0].data.title, /Multiplayer Blackjack/)
+
+  let session = await store.getPartySession('33333333-3333-4333-8333-333333333333')
+  let guard = 0
+  while (session.status === 'active' && guard < 6) {
+    const stand = mockButton('nighty:blackjack_multi:stand:33333333-3333-4333-8333-333333333333', session.state.currentUserId)
+    await workflow.handleInteraction(stand)
+    session = await store.getPartySession(session.id)
+    guard += 1
+  }
+  assert.equal(session.status, 'completed')
+  assert.equal(session.players.filter((player) => player.status === 'settled').length, 2)
+  const hostStats = await store.getGameStats({ guildId: 'guild-1', userId: hostId })
+  const guestStats = await store.getGameStats({ guildId: 'guild-1', userId: guestId })
+  assert.equal(hostStats.find((entry) => entry.gameType === 'blackjack_multi').plays, 1)
+  assert.equal(guestStats.find((entry) => entry.gameType === 'blackjack_multi').plays, 1)
+})
+
+test('multiplayer Blackjack Double and Split require exactly one additional hand wager', () => {
+  const splitState = {
+    phase: 'active',
+    baseWager: 100_000,
+    deck: ['5♣', '6♣', '7♣'],
+    dealer: ['10♠', '7♥'],
+    order: ['player-1'],
+    currentUserId: 'player-1',
+    players: {
+      'player-1': {
+        activeHand: 0,
+        hands: [{ cards: ['8♠', '8♥'], wager: 100_000, status: 'playing', fromSplit: false }],
+      },
+    },
+  }
+  assert.equal(partyBlackjackActionCost(splitState, 'player-1', 'split'), 100_000)
+  const split = playPartyBlackjack(splitState, 'player-1', 'split')
+  assert.equal(split.additionalWager, 100_000)
+  assert.equal(split.state.players['player-1'].hands.length, 2)
+  assert.equal(split.state.players['player-1'].hands[0].wager, 100_000)
+  assert.equal(split.state.players['player-1'].hands[1].wager, 100_000)
+
+  const doubled = playPartyBlackjack({
+    ...splitState,
+    players: {
+      'player-1': {
+        activeHand: 0,
+        hands: [{ cards: ['5♠', '6♥'], wager: 100_000, status: 'playing', fromSplit: false }],
+      },
+    },
+  }, 'player-1', 'double')
+  assert.equal(doubled.additionalWager, 100_000)
+  assert.equal(doubled.state.players['player-1'].hands[0].wager, 200_000)
+  assert.equal(doubled.state.players['player-1'].hands[0].cards.length, 3)
 })
 
 test('blackjack escrows the wager and pays a completed button-controlled hand once', async () => {
@@ -699,4 +864,24 @@ test('Phase 23 migration enables explicit all-in game wagers for existing instal
   assert.match(sql, /p_game_type in \('slots', 'coinflip'\) and p_wager < 1000/)
   assert.doesNotMatch(sql, /p_wager > 1000000/)
   assert.match(sql, /grant execute on function public\.nighty_record_game_result/)
+})
+
+test('Phase 24 migration protects interactive party escrow and idempotent settlement', () => {
+  const sql = fs.readFileSync(path.join(process.cwd(), 'database', 'phase24.sql'), 'utf8')
+  for (const table of ['nighty_party_sessions', 'nighty_party_players']) {
+    assert.match(sql, new RegExp(`create table if not exists public\\.${table}`))
+    assert.match(sql, new RegExp(`alter table public\\.${table} enable row level security`))
+  }
+  for (const rpc of [
+    'nighty_create_party_session',
+    'nighty_join_party_session',
+    'nighty_add_party_wager',
+    'nighty_update_party_session',
+    'nighty_complete_party_session',
+    'nighty_cancel_party_session',
+  ]) assert.match(sql, new RegExp(`create or replace function public\\.${rpc}`))
+  for (const game of ['shadow_duel', 'mines', 'crash', 'blackjack_multi']) assert.match(sql, new RegExp(`'${game}'`))
+  assert.match(sql, /set balance = balance - p_wager/)
+  assert.match(sql, /game_refund_party/)
+  assert.match(sql, /mutation_status', 'duplicate'/)
 })
