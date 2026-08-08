@@ -23,7 +23,11 @@ import {
   PermissionFlagsBits,
 } from 'discord.js'
 
-import { createClaimPrizeButton } from './winner.js'
+import {
+  CLAIM_PRIZE_TTL_MS,
+  createClaimPrizeButton,
+  scheduleClaimButtonExpiration,
+} from './winner.js'
 
 const DISCORD_MESSAGE_LIMIT = 2_000
 const IMAGE_LIMIT_BYTES = 10 * 1_024 * 1_024
@@ -318,18 +322,20 @@ export function createAnnounceWorkflow(options = {}) {
       }
 
       const claimButton = interaction.options.getBoolean?.('claim_button') ?? false
+      const claimExpiresAt = Date.now() + CLAIM_PRIZE_TTL_MS
       if (!interaction.deferred && !interaction.replied) {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral })
       }
       const files = photo ? [await downloadAnnouncementPhoto(photo, fetchImpl)] : []
       const target = await resolveTargetChannel(interaction, channel)
-      const components = claimButton ? [createClaimPrizeButton()] : []
+      const components = claimButton ? [createClaimPrizeButton({ expiresAt: claimExpiresAt })] : []
       const posted = await target.send({
         content,
         allowedMentions: announcementMentions(mention),
         ...(files.length > 0 ? { files } : {}),
         ...(components.length > 0 ? { components } : {}),
       })
+      if (claimButton) scheduleClaimButtonExpiration(posted, claimExpiresAt)
       await interaction.editReply({
         content: `Announcement posted in <#${channel.id}>.${posted?.url ? `\n${posted.url}` : ''}`,
         allowedMentions: { parse: [] },

@@ -16,6 +16,7 @@ import {
   TextInputBuilder,
   TextInputStyle,
 } from 'discord.js'
+import { WinnerClaimStore } from './winner-claim-store.js'
 
 export const DEFAULT_WINNER_CHANNEL_ID = '1534862469367992321'
 export const DEFAULT_ADMIN_CLAIM_CHANNEL_ID = '1345711473476898896'
@@ -24,6 +25,41 @@ export const DEFAULT_PUBLIC_CLAIM_MESSAGE_ID = '1535223055914246185'
 export const DEFAULT_PUBLIC_CLAIM_EMOJI_ID = '1535222637545001082'
 export const DEFAULT_PUBLIC_CLAIM_EMOJI = `<:nr_status:${DEFAULT_PUBLIC_CLAIM_EMOJI_ID}>`
 export const DEFAULT_WINNER_CLAIM_CHANNEL_ID = DEFAULT_PUBLIC_CLAIM_CHANNEL_ID
+export const CLAIM_PRIZE_TTL_MS = 24 * 60 * 60 * 1000
+
+const CLAIM_BUTTON_PREFIX = 'claim_winner_prize'
+const CLAIM_MODAL_PREFIX = 'claim_prize_modal'
+const claimExpirationTimers = new Map()
+
+function snowflakeTimestamp(messageId) {
+  try {
+    if (!/^\d{16,22}$/.test(String(messageId || ''))) return null
+    return Number((BigInt(messageId) >> 22n) + 1_420_070_400_000n)
+  } catch {
+    return null
+  }
+}
+
+function claimSourceContext(customId, message, nowMs) {
+  const encodedExpiry = String(customId || '').match(/^claim_winner_prize:(\d{10,13})$/)?.[1]
+  const createdAt = message?.createdTimestamp || message?.createdAt?.getTime?.() || snowflakeTimestamp(message?.id)
+  return {
+    sourceMessageId: String(message?.id || `legacy-${createdAt || nowMs}`),
+    expiresAt: encodedExpiry ? Number(encodedExpiry) : Number(createdAt || nowMs) + CLAIM_PRIZE_TTL_MS,
+  }
+}
+
+function modalClaimContext(customId, userId, nowMs) {
+  const match = String(customId || '').match(/^claim_prize_modal:([^:]+):([^:]+):(\d{10,13})$/)
+  if (match) {
+    return { winnerId: match[1], sourceMessageId: match[2], expiresAt: Number(match[3]) }
+  }
+  return {
+    winnerId: userId,
+    sourceMessageId: `legacy-${userId}`,
+    expiresAt: nowMs + CLAIM_PRIZE_TTL_MS,
+  }
+}
 
 export const WINNER_COMMAND = Object.freeze({
   name: 'winner',
@@ -38,13 +74,49 @@ export const WINNER_COMMAND = Object.freeze({
   ],
 })
 
-export function createClaimPrizeButton() {
+export function createClaimPrizeButton({ expiresAt = Date.now() + CLAIM_PRIZE_TTL_MS, state = 'active' } = {}) {
+  const disabled = state !== 'active'
+  const label = state === 'claimed' ? 'Prize Claimed' : state === 'expired' ? 'Claim Expired' : 'Claim Prize (24h)'
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder()
-      .setCustomId('claim_winner_prize')
-      .setLabel('Claim Prize')
-      .setStyle(ButtonStyle.Danger),
+      .setCustomId(`${CLAIM_BUTTON_PREFIX}:${Math.floor(Number(expiresAt))}`)
+      .setLabel(label)
+      .setStyle(ButtonStyle.Danger)
+      .setDisabled(disabled),
   )
+}
+
+export function scheduleClaimButtonExpiration(message, expiresAt, options = {}) {
+  if (!message?.edit) return null
+  const now = options.now || (() => Date.now())
+  const setTimer = options.setTimer || setTimeout
+  const timerKey = message.id ? String(message.id) : null
+  if (timerKey && claimExpirationTimers.has(timerKey)) {
+    clearTimeout(claimExpirationTimers.get(timerKey))
+    claimExpirationTimers.delete(timerKey)
+  }
+  const expire = () => {
+    if (timerKey) claimExpirationTimers.delete(timerKey)
+    return message.edit({
+      components: [createClaimPrizeButton({ expiresAt, state: 'expired' })],
+    }).catch(() => null)
+  }
+  const delay = Number(expiresAt) - now()
+  if (delay <= 0) {
+    void expire()
+    return null
+  }
+  const timer = setTimer(() => void expire(), delay)
+  if (timerKey) claimExpirationTimers.set(timerKey, timer)
+  timer?.unref?.()
+  return timer
+}
+
+function clearClaimButtonExpiration(messageId) {
+  const key = messageId ? String(messageId) : null
+  if (!key || !claimExpirationTimers.has(key)) return
+  clearTimeout(claimExpirationTimers.get(key))
+  claimExpirationTimers.delete(key)
 }
 
 export function createClaimStatusSelectMenu(currentStatus = 'pending') {
@@ -529,6 +601,23 @@ export function createWinnerWorkflow(options = {}) {
   const defaultChannelId = options.defaultChannelId ?? DEFAULT_WINNER_CHANNEL_ID
   const handledInteractions = options.handledInteractions ?? globalHandledWinnerInteractions
   const inFlightInteractions = options.inFlightInteractions ?? globalInFlightWinnerInteractions
+  const claimStore = options.claimStore || new WinnerClaimStore()
+  const now = options.now || (() => Date.now())
+  const claimTtlMs = options.claimTtlMs || CLAIM_PRIZE_TTL_MS
+
+  async function updateSourceClaimButton(interaction, context, state) {
+    if (state === 'claimed' && Number(context.winnerCount) > 1) return
+    let sourceMessage = interaction.message?.id === context.sourceMessageId ? interaction.message : null
+    if (!sourceMessage && interaction.channel?.messages?.fetch) {
+      sourceMessage = await interaction.channel.messages.fetch(context.sourceMessageId).catch(() => null)
+    }
+    if (sourceMessage?.edit) {
+      clearClaimButtonExpiration(sourceMessage.id)
+      await sourceMessage.edit({
+        components: [createClaimPrizeButton({ expiresAt: context.expiresAt, state })],
+      }).catch(() => null)
+    }
+  }
 
   async function handleCommand(interaction) {
     if (!interaction.guildId) {
@@ -571,13 +660,17 @@ export function createWinnerWorkflow(options = {}) {
         date: new Date(),
       })
 
-      const components = winners.length > 0 ? [createClaimPrizeButton()] : []
+      const claimExpiresAt = now() + claimTtlMs
+      const components = winners.length > 0
+        ? [createClaimPrizeButton({ expiresAt: claimExpiresAt })]
+        : []
 
-      await interaction.editReply({
+      const replyMessage = await interaction.editReply({
         content,
         components,
         allowedMentions: { parse: [] },
       })
+      if (winners.length > 0) scheduleClaimButtonExpiration(replyMessage, claimExpiresAt, { now })
       return { status: 'success', winnerCount: winners.length, channelId: effectiveChannelId }
     } catch (error) {
       console.error('/winner command failed:', error)
@@ -591,8 +684,19 @@ export function createWinnerWorkflow(options = {}) {
 
   async function handleButtonClick(interaction) {
     const customId = interaction.customId ?? ''
-    if (!customId.startsWith('claim_winner_prize')) {
+    if (!customId.startsWith(CLAIM_BUTTON_PREFIX)) {
       return { status: 'ignored' }
+    }
+
+    const currentTime = now()
+    const sourceContext = claimSourceContext(customId, interaction.message, currentTime)
+    if (currentTime >= sourceContext.expiresAt) {
+      await updateSourceClaimButton(interaction, sourceContext, 'expired')
+      await interaction.reply({
+        content: 'This prize claim expired after 24 hours.',
+        flags: MessageFlags.Ephemeral,
+      }).catch(() => undefined)
+      return { status: 'rejected', reason: 'expired' }
     }
 
     const content = interaction.message?.content ?? ''
@@ -612,9 +716,24 @@ export function createWinnerWorkflow(options = {}) {
       return { status: 'rejected', reason: 'not_winner' }
     }
 
-    const encodedPrize = extractedPrize ? encodeURIComponent(extractedPrize) : ''
+    const existingClaim = claimStore.get(sourceContext.sourceMessageId, interaction.user.id)
+    if (existingClaim?.status === 'claimed') {
+      await updateSourceClaimButton(interaction, existingClaim, 'claimed')
+      await interaction.reply({
+        content: 'You already claimed this prize. It cannot be claimed again.',
+        flags: MessageFlags.Ephemeral,
+      }).catch(() => undefined)
+      return { status: 'rejected', reason: 'already_claimed' }
+    }
+
+    const claimContext = claimStore.open({
+      ...sourceContext,
+      winnerId: interaction.user.id,
+      winnerCount: winnerIds.size,
+      prize: extractedPrize,
+    })
     const modal = new ModalBuilder()
-      .setCustomId(`claim_prize_modal:${interaction.user.id}:${encodedPrize}`)
+      .setCustomId(`${CLAIM_MODAL_PREFIX}:${interaction.user.id}:${claimContext.sourceMessageId}:${claimContext.expiresAt}`)
       .setTitle('Claim Winner Prize')
       .addComponents(
         new ActionRowBuilder().addComponents(
@@ -646,26 +765,72 @@ export function createWinnerWorkflow(options = {}) {
     if (typeof interaction.showModal === 'function') {
       await interaction.showModal(modal)
     }
-    return { status: 'modal_shown', userId: interaction.user.id }
+    return {
+      status: 'modal_shown',
+      userId: interaction.user.id,
+      sourceMessageId: claimContext.sourceMessageId,
+      expiresAt: claimContext.expiresAt,
+    }
   }
 
   async function handleModalSubmit(interaction) {
     const customId = interaction.customId ?? ''
-    if (!customId.startsWith('claim_prize_modal')) {
+    if (!customId.startsWith(CLAIM_MODAL_PREFIX)) {
       return { status: 'ignored' }
     }
 
-    const customIdParts = customId.split(':')
-    const prizeFromModal = customIdParts[2] ? decodeURIComponent(customIdParts[2]) : null
-    const prize = prizeFromModal || activeWinnerPrizes.get(interaction.user.id) || null
-
-    if (prize) {
-      activeWinnerPrizes.set(interaction.user.id, prize)
+    const currentTime = now()
+    const modalContext = modalClaimContext(customId, interaction.user.id, currentTime)
+    if (modalContext.winnerId !== interaction.user.id) {
+      await interaction.reply({
+        content: 'This claim form belongs to a different winner.',
+        flags: MessageFlags.Ephemeral,
+      }).catch(() => undefined)
+      return { status: 'rejected', reason: 'wrong_winner' }
     }
 
     const name = interaction.fields?.getTextInputValue?.('name')?.trim() || ''
     const gcash = interaction.fields?.getTextInputValue?.('gcash')?.trim() || 'N/A'
     const uid = interaction.fields?.getTextInputValue?.('uid')?.trim() || 'N/A'
+
+    let storedContext = claimStore.get(modalContext.sourceMessageId, interaction.user.id)
+    if (!storedContext) {
+      storedContext = claimStore.open({
+        ...modalContext,
+        winnerId: interaction.user.id,
+        winnerCount: 1,
+        prize: activeWinnerPrizes.get(interaction.user.id) || null,
+      })
+    }
+    const claimResult = claimStore.claim({
+      ...storedContext,
+      ...modalContext,
+      winnerId: interaction.user.id,
+      now: currentTime,
+      name,
+      gcash,
+      uid,
+    })
+
+    if (claimResult.status === 'expired') {
+      await updateSourceClaimButton(interaction, storedContext, 'expired')
+      await interaction.reply({
+        content: 'This prize claim expired after 24 hours.',
+        flags: MessageFlags.Ephemeral,
+      }).catch(() => undefined)
+      return { status: 'rejected', reason: 'expired' }
+    }
+    if (claimResult.status === 'already_claimed') {
+      await updateSourceClaimButton(interaction, claimResult.claim, 'claimed')
+      await interaction.reply({
+        content: 'You already claimed this prize. It cannot be claimed again.',
+        flags: MessageFlags.Ephemeral,
+      }).catch(() => undefined)
+      return { status: 'rejected', reason: 'already_claimed' }
+    }
+
+    const prize = claimResult.claim.prize || activeWinnerPrizes.get(interaction.user.id) || null
+    if (prize) activeWinnerPrizes.set(interaction.user.id, prize)
 
     await interaction.reply({
       content: `✅ **Prize claim submitted!**\nThank you, **${name}**! Your claim details have been recorded by the admins.`,
@@ -688,7 +853,7 @@ export function createWinnerWorkflow(options = {}) {
       adminChannel = interaction.channel
     }
 
-    const claimedAt = Math.floor(Date.now() / 1000)
+    const claimedAt = Math.floor(currentTime / 1000)
     const claimCardContent = renderClaimCard({
       winnerId: interaction.user.id,
       name,
@@ -713,6 +878,8 @@ export function createWinnerWorkflow(options = {}) {
       status: 'pending',
       prize,
     })
+
+    await updateSourceClaimButton(interaction, claimResult.claim, 'claimed')
 
     return { status: 'success', name, gcash, uid }
   }
@@ -813,11 +980,11 @@ export function createWinnerWorkflow(options = {}) {
         return await handleCommand(interaction)
       }
 
-      if (interaction.isButton?.() && (interaction.customId ?? '').startsWith('claim_winner_prize')) {
+      if (interaction.isButton?.() && (interaction.customId ?? '').startsWith(CLAIM_BUTTON_PREFIX)) {
         return await handleButtonClick(interaction)
       }
 
-      if (interaction.isModalSubmit?.() && (interaction.customId ?? '').startsWith('claim_prize_modal')) {
+      if (interaction.isModalSubmit?.() && (interaction.customId ?? '').startsWith(CLAIM_MODAL_PREFIX)) {
         const winnerId = interaction.user?.id
         if (winnerId && inFlightUserClaims.has(winnerId)) {
           return { status: 'duplicate' }
@@ -842,7 +1009,7 @@ export function createWinnerWorkflow(options = {}) {
     }
   }
 
-  return { handleInteraction, handleCommand, handleButtonClick, handleModalSubmit, handleStatusSelect }
+  return { handleInteraction, handleCommand, handleButtonClick, handleModalSubmit, handleStatusSelect, claimStore }
 }
 
 export function installWinnerWorkflow(client, options = {}) {

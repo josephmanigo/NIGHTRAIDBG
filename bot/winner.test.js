@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  CLAIM_PRIZE_TTL_MS,
   DEFAULT_ADMIN_CLAIM_CHANNEL_ID,
   DEFAULT_PUBLIC_CLAIM_CHANNEL_ID,
   DEFAULT_PUBLIC_CLAIM_EMOJI_ID,
@@ -18,7 +19,16 @@ import {
   renderClaimCard,
   renderPublicClaimNotice,
   renderWinnersList,
+  scheduleClaimButtonExpiration,
 } from './winner.js'
+import { WinnerClaimStore } from './winner-claim-store.js'
+
+function createTestWinnerWorkflow(options = {}) {
+  return createWinnerWorkflow({
+    ...options,
+    claimStore: options.claimStore || new WinnerClaimStore(null),
+  })
+}
 
 test('WINNER_COMMAND has the correct command structure and default channel IDs', () => {
   assert.equal(WINNER_COMMAND.name, 'winner')
@@ -29,6 +39,64 @@ test('WINNER_COMMAND has the correct command structure and default channel IDs',
   assert.equal(DEFAULT_PUBLIC_CLAIM_EMOJI_ID, '1535222637545001082')
   assert.equal(WINNER_COMMAND.options.length, 1)
   assert.equal(WINNER_COMMAND.options[0].name, 'channel')
+})
+
+test('claim button carries a 24-hour deadline and automatically becomes expired', async () => {
+  const now = 1_800_000_000_000
+  const expiresAt = now + CLAIM_PRIZE_TTL_MS
+  const active = createClaimPrizeButton({ expiresAt })
+  const activeButton = active.components[0].data
+
+  assert.equal(activeButton.custom_id, `claim_winner_prize:${expiresAt}`)
+  assert.equal(activeButton.label, 'Claim Prize (24h)')
+  assert.equal(activeButton.disabled, false)
+
+  let timerCallback = null
+  let editedPayload = null
+  const message = {
+    id: 'claim-message-timer',
+    edit: async (payload) => { editedPayload = payload },
+  }
+  scheduleClaimButtonExpiration(message, expiresAt, {
+    now: () => now,
+    setTimer: (callback, delay) => {
+      assert.equal(delay, CLAIM_PRIZE_TTL_MS)
+      timerCallback = callback
+      return { unref: () => {} }
+    },
+  })
+  timerCallback()
+  await new Promise((resolve) => setImmediate(resolve))
+
+  const expiredButton = editedPayload.components[0].components[0].data
+  assert.equal(expiredButton.label, 'Claim Expired')
+  assert.equal(expiredButton.disabled, true)
+})
+
+test('expired prize button refuses the claim and disables itself', async () => {
+  const now = 1_800_000_000_000
+  const workflow = createTestWinnerWorkflow({ now: () => now })
+  let replyPayload = null
+  let editedPayload = null
+  const interaction = {
+    id: 'expired-button-interaction',
+    isButton: () => true,
+    customId: `claim_winner_prize:${now - 1}`,
+    user: { id: 'winner-expired' },
+    message: {
+      id: 'expired-source-message',
+      content: '<@winner-expired>',
+      edit: async (payload) => { editedPayload = payload },
+    },
+    reply: async (payload) => { replyPayload = payload },
+  }
+
+  const result = await workflow.handleInteraction(interaction)
+
+  assert.equal(result.status, 'rejected')
+  assert.equal(result.reason, 'expired')
+  assert.match(replyPayload.content, /expired after 24 hours/i)
+  assert.equal(editedPayload.components[0].components[0].data.disabled, true)
 })
 
 test('isSameDay correctly identifies dates on the same day', () => {
@@ -234,7 +302,7 @@ test('fetchChannelWinners filters messages by today and sorts chronologically', 
 })
 
 test('createWinnerWorkflow handles interaction and defers reply', async () => {
-  const workflow = createWinnerWorkflow({ defaultChannelId: DEFAULT_WINNER_CHANNEL_ID })
+  const workflow = createTestWinnerWorkflow({ defaultChannelId: DEFAULT_WINNER_CHANNEL_ID })
   const state = { replies: [], deferred: false }
 
   const channel = {
@@ -272,14 +340,14 @@ test('createWinnerWorkflow handles interaction and defers reply', async () => {
 })
 
 test('claim prize button handles non-winner vs winner and modal submit with dual-channel sync', async () => {
-  const workflow = createWinnerWorkflow()
+  const workflow = createTestWinnerWorkflow()
 
   // Non-winner button click
   const nonWinnerInteraction = {
     isButton: () => true,
     customId: 'claim_winner_prize',
     user: { id: 'imposter-999' },
-    message: { content: '🎉 <@winner-111>' },
+    message: { id: 'winner-source-111', content: '🎉 <@winner-111>' },
     reply: async (payload) => {
       nonWinnerInteraction.replyPayload = payload
     },
@@ -347,7 +415,7 @@ test('claim prize button handles non-winner vs winner and modal submit with dual
   let modalReply = null
   const modalSubmitInteraction = {
     isModalSubmit: () => true,
-    customId: 'claim_prize_modal:winner-111',
+    customId: modalShown.data.custom_id,
     user: { id: 'winner-111', username: 'WinnerUser' },
     client: clientMock,
     fields: {
@@ -378,6 +446,59 @@ test('claim prize button handles non-winner vs winner and modal submit with dual
   assert.match(publicEditedPayload.content, /congratulations nightraid!/)
   assert.match(publicEditedPayload.content, /<@winner-111>/)
   assert.match(publicEditedPayload.content, /__Please wait while an admin processes your reward.__/)
+})
+
+test('a winner can submit each prize claim only once', async () => {
+  const now = 1_800_000_000_000
+  const claimStore = new WinnerClaimStore(null)
+  const workflow = createTestWinnerWorkflow({ claimStore, now: () => now })
+  const expiresAt = now + CLAIM_PRIZE_TTL_MS
+  let modal = null
+  let sourceEdit = null
+  const sourceMessage = {
+    id: 'single-use-source',
+    content: '<@winner-single>\nPrize: 100 GCash',
+    edit: async (payload) => { sourceEdit = payload },
+  }
+  const buttonResult = await workflow.handleInteraction({
+    id: 'single-use-button',
+    isButton: () => true,
+    customId: `claim_winner_prize:${expiresAt}`,
+    user: { id: 'winner-single' },
+    message: sourceMessage,
+    showModal: async (shown) => { modal = shown },
+  })
+  assert.equal(buttonResult.status, 'modal_shown')
+
+  const adminMessages = []
+  const replies = []
+  const channel = {
+    messages: { fetch: async (messageId) => messageId === sourceMessage.id ? sourceMessage : null },
+    send: async (payload) => { adminMessages.push(payload) },
+  }
+  const submission = (id) => ({
+    id,
+    isModalSubmit: () => true,
+    customId: modal.data.custom_id,
+    user: { id: 'winner-single' },
+    fields: {
+      getTextInputValue: (field) => field === 'name' ? 'Single Winner' : 'N/A',
+    },
+    channel,
+    reply: async (payload) => { replies.push(payload) },
+  })
+
+  const first = await workflow.handleInteraction(submission('single-use-submit-1'))
+  const second = await workflow.handleInteraction(submission('single-use-submit-2'))
+
+  assert.equal(first.status, 'success')
+  assert.equal(second.status, 'rejected')
+  assert.equal(second.reason, 'already_claimed')
+  assert.equal(adminMessages.length, 1)
+  assert.match(replies[1].content, /already claimed/i)
+  assert.equal(sourceEdit.components[0].components[0].data.label, 'Prize Claimed')
+  assert.equal(sourceEdit.components[0].components[0].data.disabled, true)
+  assert.equal(claimStore.get(sourceMessage.id, 'winner-single').status, 'claimed')
 })
 
 test('claim status select menu updates claim status for admins and syncs public channel', async () => {
@@ -411,7 +532,7 @@ test('claim status select menu updates claim status for admins and syncs public 
     },
   }
 
-  const workflow = createWinnerWorkflow({
+  const workflow = createTestWinnerWorkflow({
     administratorIds: new Set(['admin-100']),
   })
 
@@ -490,7 +611,7 @@ test('claim status select menu updates claim status for admins and syncs public 
 })
 
 test('duplicate claim interaction with same ID or already replied is ignored as duplicate', async () => {
-  const workflow = createWinnerWorkflow({ administratorIds: new Set(['admin-1']) })
+  const workflow = createTestWinnerWorkflow({ administratorIds: new Set(['admin-1']) })
 
   const interaction1 = {
     id: 'dup-claim-1',
@@ -519,4 +640,3 @@ test('duplicate claim interaction with same ID or already replied is ignored as 
   const result3 = await workflow.handleInteraction(interaction2)
   assert.equal(result3.status, 'duplicate')
 })
-
