@@ -139,7 +139,10 @@ export function parseTikTokPageData(html, username) {
       TIKTOK_ROOM_ID_PATTERN,
     )
     const status = room.status ?? room.liveRoomStatus ?? room.live_room_status
-    if (status !== undefined || rawRoomId !== undefined) sawExplicitLiveState = true
+    // TikTok can retain an old room ID on the profile after a stream starts
+    // or while its hydration data is incomplete. A room ID by itself cannot
+    // prove the creator is offline; only an explicit status can do that.
+    if (status !== undefined) sawExplicitLiveState = true
     if (!roomId) return
 
     const normalizedStatus = typeof status === 'string' ? status.toLowerCase() : status
@@ -475,6 +478,10 @@ export class TikTokProvider {
   }
 
   normalizeProviderResponse(data, username) {
+    const rawIsLive = data.isLive
+    const statusAvailable = rawIsLive !== undefined && rawIsLive !== null
+    const normalizedIsLive = rawIsLive === true || rawIsLive === 1 || ['1', 'true', 'live'].includes(String(rawIsLive).toLowerCase())
+
     return {
       platform: 'tiktok',
       username,
@@ -482,7 +489,8 @@ export class TikTokProvider {
       avatar: data.avatar || null,
       profileUrl: `https://www.tiktok.com/@${username}`,
       live: {
-        isLive: Boolean(data.isLive),
+        isLive: normalizedIsLive,
+        statusAvailable,
         liveId: data.liveId || null,
         title: data.liveTitle || `${username} is live on TikTok!`,
         viewers: data.viewers || 0,

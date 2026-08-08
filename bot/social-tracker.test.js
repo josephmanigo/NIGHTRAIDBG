@@ -34,15 +34,34 @@ function makeStore() {
 
 function makeMockClient(opts = {}) {
   const sentMessages = []
-  const mockChannel = {
-    isTextBased: () => true,
-    send: async (payload) => {
-      const msg = { id: `msg-${Date.now()}-${Math.random()}`, payload, edit: async (p) => { msg.payload = p } }
-      sentMessages.push(msg)
-      return msg
-    },
-    messages: { fetch: async (id) => sentMessages.find((m) => m.id === id) || null },
+  const channels = new Map()
+  const getChannel = (channelId) => {
+    if (channels.has(channelId)) return channels.get(channelId)
+    const mockChannel = {
+      id: channelId,
+      isTextBased: () => true,
+      send: async (payload) => {
+        const msg = {
+          id: `msg-${Date.now()}-${Math.random()}`,
+          channelId,
+          payload,
+          edit: async (p) => { msg.payload = p },
+        }
+        sentMessages.push(msg)
+        return msg
+      },
+      messages: {
+        fetch: async (idOrOptions) => {
+          const channelMessages = sentMessages.filter((message) => message.channelId === channelId)
+          if (typeof idOrOptions === 'string') return channelMessages.find((message) => message.id === idOrOptions) || null
+          return new Map(channelMessages.map((message) => [message.id, message]))
+        },
+      },
+    }
+    channels.set(channelId, mockChannel)
+    return mockChannel
   }
+  const mockChannel = getChannel('channel-1')
   const failChannel = opts.failSend ? {
     isTextBased: () => true,
     send: async () => { throw new Error('Discord API Error') },
@@ -53,7 +72,7 @@ function makeMockClient(opts = {}) {
       channels: {
         fetch: async (channelId) => {
           if (opts.deletedChannelId && channelId === opts.deletedChannelId) return null
-          return failChannel || mockChannel
+          return failChannel || getChannel(channelId)
         },
       },
     },
@@ -175,9 +194,25 @@ test('SocialTrackerService handles state transitions: OFFLINE -> LIVE, STILL LIV
   store.updateRecord(updatedRecord.id, { live_started_at: new Date(Date.now() - 12 * 60_000).toISOString() })
   updatedRecord = store.findRecord('guild-1', 'tiktok', 'testuser')
   mockProfile.live.isLive = false
+
+  // TikTok occasionally emits one incomplete/incorrect offline snapshot while
+  // the creator is still live. Keep the existing card until three reliable,
+  // consecutive offline observations agree.
+  await service._pollSingleCreator(updatedRecord, client)
+  updatedRecord = store.findRecord('guild-1', 'tiktok', 'testuser')
+  assert.equal(updatedRecord.is_live, true)
+  assert.equal(updatedRecord.offline_observations, 1)
+  assert.equal(sentMessages[0].payload.content, '**testuser** is live!')
+
+  await service._pollSingleCreator(updatedRecord, client)
+  updatedRecord = store.findRecord('guild-1', 'tiktok', 'testuser')
+  assert.equal(updatedRecord.is_live, true)
+  assert.equal(updatedRecord.offline_observations, 2)
+
   await service._pollSingleCreator(updatedRecord, client)
   updatedRecord = store.findRecord('guild-1', 'tiktok', 'testuser')
   assert.equal(updatedRecord.is_live, false)
+  assert.equal(updatedRecord.offline_observations, 0)
   assert.equal(updatedRecord.live_started_at, null)
   assert.equal(updatedRecord.peak_viewers, 0)
   assert.equal(updatedRecord.live_title, null)
@@ -274,6 +309,79 @@ test('TikTok command checks and background polls share one in-flight request and
 
   assert.equal(await service.checkCreatorStatus(record), snapshot)
   assert.equal(fetchCount, 1)
+  cleanupTestStore()
+})
+
+test('concurrent TikTok live transitions create only one Discord card', async () => {
+  const store = makeStore()
+  const service = makeService(store)
+  const { client, sentMessages } = makeMockClient()
+  const { record } = store.addTrackedCreator({
+    guildId: 'guild-1',
+    discordChannelId: 'channel-1',
+    platform: 'tiktok',
+    profileUrl: 'https://www.tiktok.com/@concurrent',
+    username: 'concurrent',
+  })
+  service.adapters.tiktok.getProfile = async () => ({
+    success: true,
+    platform: 'tiktok',
+    username: 'concurrent',
+    displayName: 'Concurrent',
+    profileUrl: 'https://www.tiktok.com/@concurrent',
+    live: {
+      isLive: true,
+      statusAvailable: true,
+      liveId: '7481234567890123456',
+      title: 'One live session',
+      url: 'https://www.tiktok.com/@concurrent/live',
+    },
+    latestContent: null,
+  })
+
+  await Promise.all([
+    service._pollSingleCreator(record, client),
+    service._pollSingleCreator(record, client),
+  ])
+
+  assert.equal(sentMessages.length, 1)
+  assert.equal(store.findRecord('guild-1', 'tiktok', 'concurrent').is_live, true)
+  cleanupTestStore()
+})
+
+test('TikTok polling adopts a recent active Discord card after process restart', async () => {
+  const store = makeStore()
+  const service = makeService(store)
+  const { client, channel, sentMessages } = makeMockClient()
+  const { record } = store.addTrackedCreator({
+    guildId: 'guild-1',
+    discordChannelId: 'channel-1',
+    platform: 'tiktok',
+    profileUrl: 'https://www.tiktok.com/@restartlive',
+    username: 'restartlive',
+  })
+  const snapshot = {
+    success: true,
+    platform: 'tiktok',
+    username: 'restartlive',
+    displayName: 'Restart Live',
+    profileUrl: 'https://www.tiktok.com/@restartlive',
+    live: {
+      isLive: true,
+      statusAvailable: true,
+      liveId: '7481234567890123456',
+      title: 'Still the same live',
+      url: 'https://www.tiktok.com/@restartlive/live',
+    },
+    latestContent: null,
+  }
+  const existing = await channel.send(service.notificationService.createLiveEmbed(snapshot))
+  service.adapters.tiktok.getProfile = async () => snapshot
+
+  await service._pollSingleCreator(record, client)
+
+  assert.equal(sentMessages.length, 1)
+  assert.equal(store.findRecord('guild-1', 'tiktok', 'restartlive').live_message_id, existing.id)
   cleanupTestStore()
 })
 
@@ -879,6 +987,37 @@ test('TikTok parser never treats unrelated numeric IDs as uploads', () => {
   assert.equal(parsed.profileVerified, true)
   assert.equal(parsed.liveStatusReliable, false)
   assert.equal(parsed.latestContent, null)
+})
+
+test('TikTok parser does not treat a stale room ID as reliable offline proof', () => {
+  const hydration = {
+    __DEFAULT_SCOPE__: {
+      'webapp.user-detail': {
+        userInfo: {
+          user: {
+            uniqueId: 'testuser',
+            roomId: '7481234567890123456',
+          },
+        },
+      },
+    },
+  }
+  const html = `<script id="SIGI_STATE">${JSON.stringify(hydration)}</script>`
+  const parsed = parseTikTokPageData(html, 'testuser')
+
+  assert.equal(parsed.isLive, false)
+  assert.equal(parsed.liveStatusReliable, false)
+})
+
+test('third-party TikTok response without a live flag cannot report reliable offline state', () => {
+  const provider = new TikTokProvider({ TIKTOK_PROVIDER: 'third-party' })
+  const missing = provider.normalizeProviderResponse({}, 'testuser')
+  const explicit = provider.normalizeProviderResponse({ isLive: false }, 'testuser')
+
+  assert.equal(missing.live.isLive, false)
+  assert.equal(missing.live.statusAvailable, false)
+  assert.equal(explicit.live.isLive, false)
+  assert.equal(explicit.live.statusAvailable, true)
 })
 
 test('TikTok self-hosted provider rejects challenge pages instead of reporting a false offline state', async () => {

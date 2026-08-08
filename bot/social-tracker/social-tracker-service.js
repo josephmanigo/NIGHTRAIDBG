@@ -28,6 +28,27 @@ function isNewerContent(record, latestContent) {
   return true
 }
 
+function uniqueCreatorDestinations(records) {
+  const unique = new Map()
+  for (const record of records) {
+    const key = record.discord_channel_id
+    const existing = unique.get(key)
+    const score = (record.is_live ? 4 : 0) + (record.live_message_id ? 2 : 0)
+    const existingScore = existing
+      ? (existing.is_live ? 4 : 0) + (existing.live_message_id ? 2 : 0)
+      : -1
+    if (!existing || score > existingScore) unique.set(key, record)
+  }
+  return [...unique.values()]
+}
+
+function componentLabels(message) {
+  const rows = message?.components || message?.payload?.components || []
+  return rows.flatMap((row) => row?.components || row?.data?.components || [])
+    .map((component) => component?.label || component?.data?.label)
+    .filter(Boolean)
+}
+
 export class SocialTrackerService {
   constructor(config = {}, store = null, notificationService = null) {
     this.config = config
@@ -59,6 +80,18 @@ export class SocialTrackerService {
       0,
       30000,
     )
+    this.tiktokOfflineConfirmations = boundedIntervalSeconds(
+      config.TIKTOK_OFFLINE_CONFIRMATIONS || process.env.TIKTOK_OFFLINE_CONFIRMATIONS || '3',
+      3,
+      2,
+      6,
+    )
+    this.tiktokLiveCardLookbackSeconds = boundedIntervalSeconds(
+      config.TIKTOK_LIVE_CARD_LOOKBACK_SECONDS || process.env.TIKTOK_LIVE_CARD_LOOKBACK_SECONDS || '180',
+      180,
+      30,
+      900,
+    )
 
     this.publicBaseUrl = config.PUBLIC_BASE_URL || process.env.PUBLIC_BASE_URL || ''
 
@@ -68,6 +101,7 @@ export class SocialTrackerService {
     this.isTikTokPolling = false
     this._statusRequests = new Map()
     this._statusCache = new Map()
+    this._creatorTransitions = new Map()
 
     // Runtime stats
     this._startedAt = null
@@ -115,6 +149,39 @@ export class SocialTrackerService {
 
     this._statusRequests.set(requestKey, request)
     return request
+  }
+
+  async _withCreatorTransition(recordId, task) {
+    const previous = this._creatorTransitions.get(recordId)
+    let release
+    const current = new Promise((resolve) => { release = resolve })
+    this._creatorTransitions.set(recordId, current)
+    if (previous) await previous
+
+    try {
+      return await task()
+    } finally {
+      release()
+      if (this._creatorTransitions.get(recordId) === current) this._creatorTransitions.delete(recordId)
+    }
+  }
+
+  async _findRecentLiveMessage(channel, client, expectedPayload) {
+    if (!channel?.messages?.fetch) return null
+    const fetched = await channel.messages.fetch({ limit: 25, cache: false }).catch(() => null)
+    const messages = Array.isArray(fetched)
+      ? fetched
+      : fetched?.values
+        ? [...fetched.values()]
+        : []
+    const earliest = Date.now() - this.tiktokLiveCardLookbackSeconds * 1000
+
+    return messages.find((message) => {
+      if (message?.author?.id && client?.user?.id && message.author.id !== client.user.id) return false
+      if (message?.createdTimestamp && message.createdTimestamp < earliest) return false
+      const content = message?.content || message?.payload?.content
+      return content === expectedPayload.content && componentLabels(message).includes('Watch Stream')
+    }) || null
   }
 
   // ══════════════════════════════════════════════════════════
@@ -684,42 +751,51 @@ export class SocialTrackerService {
     const client = this._client
     if (!client) return
 
-    const records = this.store.findAllByPlatformAndUser('tiktok', event.username)
+    const records = uniqueCreatorDestinations(this.store.findAllByPlatformAndUser('tiktok', event.username))
     if (records.length === 0) return
 
     if (event.isLive) {
-      for (const record of records) {
-        if (!record.live_notifications || record.is_live) continue
+      for (const candidate of records) {
+        await this._withCreatorTransition(candidate.id, async () => {
+          const record = this.store.loadAll().find((item) => item.id === candidate.id) || candidate
+          if (!record.live_notifications || record.is_live) return
 
-        const liveData = {
-          platform: 'tiktok',
-          username: event.username,
-          displayName: event.username,
-          avatar: null,
-          profileUrl: `https://www.tiktok.com/@${event.username}`,
-          live: {
-            isLive: true,
-            liveId: event.eventId,
-            title: event.liveTitle || `${event.username} is live on TikTok!`,
-            viewers: event.viewers || 0,
-            thumbnail: null,
-            url: `https://www.tiktok.com/@${event.username}/live`,
-          },
-        }
-
-        try {
-          const channel = await client.channels.fetch(record.discord_channel_id).catch(() => null)
-          if (channel && channel.isTextBased?.()) {
-            const payload = this.notificationService.createLiveEmbed(liveData)
-            const sentMsg = await channel.send(payload).catch(() => null)
-            this.store.updateRecord(record.id, {
-              is_live: true,
-              last_live_id: event.eventId,
-              live_message_id: sentMsg?.id || null,
-              last_event_at: new Date().toISOString(),
-            })
+          const liveData = {
+            platform: 'tiktok',
+            username: event.username,
+            displayName: event.username,
+            avatar: null,
+            profileUrl: `https://www.tiktok.com/@${event.username}`,
+            live: {
+              isLive: true,
+              liveId: event.eventId,
+              title: event.liveTitle || `${event.username} is live on TikTok!`,
+              viewers: event.viewers || 0,
+              thumbnail: null,
+              url: `https://www.tiktok.com/@${event.username}/live`,
+            },
           }
-        } catch {}
+
+          try {
+            const channel = await client.channels.fetch(record.discord_channel_id).catch(() => null)
+            if (channel && channel.isTextBased?.()) {
+              const payload = this.notificationService.createLiveEmbed(liveData)
+              let sentMsg = await this._findRecentLiveMessage(channel, client, payload)
+              if (sentMsg) await sentMsg.edit(payload).catch(() => null)
+              else sentMsg = await channel.send(payload).catch(() => null)
+              this.store.updateRecord(record.id, {
+                is_live: true,
+                last_live_id: event.eventId,
+                live_message_id: sentMsg?.id || null,
+                live_started_at: event.startedAt || new Date().toISOString(),
+                live_title: liveData.live.title,
+                offline_observations: 0,
+                offline_first_seen_at: null,
+                last_event_at: new Date().toISOString(),
+              })
+            }
+          } catch {}
+        })
       }
     }
 
@@ -802,7 +878,7 @@ export class SocialTrackerService {
           continue
         }
 
-        for (const record of creatorRecords) {
+        for (const record of uniqueCreatorDestinations(creatorRecords)) {
           await this._pollSingleCreator(record, client, fetchImpl, currentData)
         }
         await new Promise((resolve) => setTimeout(resolve, 500))
@@ -818,6 +894,13 @@ export class SocialTrackerService {
   // ══════════════════════════════════════════════════════════
 
   async _pollSingleCreator(record, client, fetchImpl = fetch, prefetchedData = undefined) {
+    return this._withCreatorTransition(record.id, async () => {
+      const latestRecord = this.store.loadAll().find((item) => item.id === record.id) || record
+      return this._pollSingleCreatorUnlocked(latestRecord, client, fetchImpl, prefetchedData)
+    })
+  }
+
+  async _pollSingleCreatorUnlocked(record, client, fetchImpl = fetch, prefetchedData = undefined) {
     try {
       const currentData = prefetchedData === undefined
         ? await this.checkCreatorStatus(record, fetchImpl)
@@ -837,6 +920,13 @@ export class SocialTrackerService {
       const wasLive = Boolean(record.is_live)
       const liveStatusAvailable = currentData.live?.statusAvailable !== false
 
+      if (!liveStatusAvailable && record.offline_observations) {
+        this.store.updateRecord(record.id, {
+          offline_observations: 0,
+          offline_first_seen_at: null,
+        })
+      }
+
       // 1. OFFLINE -> LIVE. A changed room ID alone must never create another
       // card while the creator is still marked live; only a confirmed offline
       // transition can close the current card and allow the next one.
@@ -853,10 +943,14 @@ export class SocialTrackerService {
               startedAt: liveStartedAt,
               peakViewers,
             })
-            sentMsg = await channel.send(payload).catch((e) => {
-              console.error(`[SocialTracker] Failed to send live alert to ${record.discord_channel_id}:`, e.message)
-              return null
-            })
+            sentMsg = await this._findRecentLiveMessage(channel, client, payload)
+            if (sentMsg) await sentMsg.edit(payload).catch(() => null)
+            else {
+              sentMsg = await channel.send(payload).catch((e) => {
+                console.error(`[SocialTracker] Failed to send live alert to ${record.discord_channel_id}:`, e.message)
+                return null
+              })
+            }
           }
         }
 
@@ -867,6 +961,8 @@ export class SocialTrackerService {
           live_started_at: liveStartedAt,
           peak_viewers: peakViewers,
           live_title: liveTitle,
+          offline_observations: 0,
+          offline_first_seen_at: null,
           last_event_at: new Date().toISOString(),
         })
         this._lastTikTokEventAt = new Date().toISOString()
@@ -898,45 +994,63 @@ export class SocialTrackerService {
           live_started_at: liveStartedAt,
           peak_viewers: peakViewers,
           live_title: liveTitle,
+          offline_observations: 0,
+          offline_first_seen_at: null,
           ...(currentLiveId && currentLiveId !== record.last_live_id ? { last_live_id: currentLiveId } : {}),
         })
       }
 
       // 3. LIVE -> OFFLINE (Stream Ended)
       else if (liveStatusAvailable && !isCurrentlyLive && wasLive) {
-        console.log(`[SocialTracker] Creator ${record.username} (${record.platform}) went OFFLINE.`)
-        const endedAt = new Date().toISOString()
-        const liveStartedAt = record.live_started_at || record.last_event_at || endedAt
-        const peakViewers = Math.max(
-          0,
-          Number(record.peak_viewers) || 0,
-          Number(currentData.live?.viewers) || 0,
-        )
-        const liveTitle = record.live_title || `${currentData.displayName || record.username} was live`
-        if (record.live_message_id && record.live_notifications) {
-          const channel = await client.channels.fetch(record.discord_channel_id).catch(() => null)
-          if (channel && channel.isTextBased?.()) {
-            const targetMsg = await channel.messages.fetch(record.live_message_id).catch(() => null)
-            if (targetMsg) {
-              const endedPayload = this.notificationService.createLiveEndedEmbed(currentData, {
-                startedAt: liveStartedAt,
-                endedAt,
-                peakViewers,
-                streamTitle: liveTitle,
-              })
-              await targetMsg.edit(endedPayload).catch(() => null)
+        const requiredChecks = record.platform === 'tiktok' ? this.tiktokOfflineConfirmations : 1
+        const offlineObservations = (Number(record.offline_observations) || 0) + 1
+        const offlineFirstSeenAt = record.offline_first_seen_at || new Date().toISOString()
+
+        if (offlineObservations < requiredChecks) {
+          this.store.updateRecord(record.id, {
+            offline_observations: offlineObservations,
+            offline_first_seen_at: offlineFirstSeenAt,
+          })
+          console.warn(
+            `[SocialTracker] Offline check ${offlineObservations}/${requiredChecks} for ${record.username}; preserving the live card until confirmed.`,
+          )
+        } else {
+          console.log(`[SocialTracker] Creator ${record.username} (${record.platform}) went OFFLINE after ${offlineObservations} confirmations.`)
+          const endedAt = new Date().toISOString()
+          const liveStartedAt = record.live_started_at || record.last_event_at || endedAt
+          const peakViewers = Math.max(
+            0,
+            Number(record.peak_viewers) || 0,
+            Number(currentData.live?.viewers) || 0,
+          )
+          const liveTitle = record.live_title || `${currentData.displayName || record.username} was live`
+          if (record.live_message_id && record.live_notifications) {
+            const channel = await client.channels.fetch(record.discord_channel_id).catch(() => null)
+            if (channel && channel.isTextBased?.()) {
+              const targetMsg = await channel.messages.fetch(record.live_message_id).catch(() => null)
+              if (targetMsg) {
+                const endedPayload = this.notificationService.createLiveEndedEmbed(currentData, {
+                  startedAt: liveStartedAt,
+                  endedAt,
+                  peakViewers,
+                  streamTitle: liveTitle,
+                })
+                await targetMsg.edit(endedPayload).catch(() => null)
+              }
             }
           }
+          this.store.updateRecord(record.id, {
+            is_live: false,
+            live_message_id: null,
+            live_started_at: null,
+            peak_viewers: 0,
+            live_title: null,
+            offline_observations: 0,
+            offline_first_seen_at: null,
+            last_event_at: endedAt,
+          })
+          this._lastTikTokEventAt = new Date().toISOString()
         }
-        this.store.updateRecord(record.id, {
-          is_live: false,
-          live_message_id: null,
-          live_started_at: null,
-          peak_viewers: 0,
-          live_title: null,
-          last_event_at: endedAt,
-        })
-        this._lastTikTokEventAt = new Date().toISOString()
       }
 
       // 4. NEW CONTENT Notifications

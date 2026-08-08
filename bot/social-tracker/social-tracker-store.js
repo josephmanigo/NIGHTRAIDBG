@@ -66,6 +66,8 @@ export class SocialTrackerStore {
       live_started_at: item.live_started_at || item.liveStartedAt || null,
       peak_viewers: Math.max(0, Number(item.peak_viewers ?? item.peakViewers ?? 0) || 0),
       live_title: item.live_title || item.liveTitle || null,
+      offline_observations: Math.max(0, Number(item.offline_observations ?? item.offlineObservations ?? 0) || 0),
+      offline_first_seen_at: item.offline_first_seen_at || item.offlineFirstSeenAt || null,
       last_event_at: item.last_event_at || item.lastEventAt || null,
       subscription_status: item.subscription_status || item.subscriptionStatus || 'active',
       created_by: item.created_by || item.createdBy || null,
@@ -114,9 +116,12 @@ export class SocialTrackerStore {
     initialLiveId = null,
   }) {
     const records = this.loadAll()
-    const cleanUser = username.replace(/^@/, '')
+    const cleanUser = username.toLowerCase().replace(/^@/, '')
     const existingIndex = records.findIndex(
-      (r) => r.guild_id === guildId && r.platform === platform && r.username.replace(/^@/, '') === cleanUser,
+      (r) =>
+        r.guild_id === guildId &&
+        r.platform.toLowerCase() === platform.toLowerCase() &&
+        r.username.toLowerCase().replace(/^@/, '') === cleanUser,
     )
 
     const now = new Date().toISOString()
