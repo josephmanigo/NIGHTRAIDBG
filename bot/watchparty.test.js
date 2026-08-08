@@ -46,7 +46,14 @@ test('parseWatchpartyQuery handles movie names and direct URLs', () => {
   const searchParsed = parseWatchpartyQuery('Avatar')
   assert.equal(searchParsed.type, 'search')
   assert.equal(searchParsed.title, 'Avatar')
-  assert.equal(searchParsed.url, 'https://movibox.net/search?keyword=Avatar')
+  assert.equal(searchParsed.url, 'https://movibox.net/searchResult?keyword=Avatar')
+
+  const multiWordSearch = parseWatchpartyQuery('Avatar Fire and Ash')
+  assert.equal(
+    multiWordSearch.url,
+    'https://movibox.net/searchResult?keyword=Avatar%20Fire%20and%20Ash',
+  )
+  assert.doesNotMatch(multiWordSearch.url, /movibox\.net\/search\?/)
 
   const urlParsed = parseWatchpartyQuery('https://movibox.net/movie/avatar-fire-and-ash-2025')
   assert.equal(urlParsed.type, 'url')

@@ -54,7 +54,7 @@ export function parseWatchpartyQuery(rawInput) {
   }
 
   const encodedQuery = encodeURIComponent(query)
-  const moviboxUrl = `https://movibox.net/search?keyword=${encodedQuery}`
+  const moviboxUrl = `https://movibox.net/searchResult?keyword=${encodedQuery}`
 
   return {
     type: 'search',
