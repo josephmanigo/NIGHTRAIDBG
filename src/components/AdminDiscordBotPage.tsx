@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   Bot,
   Check,
+  ChevronDown,
   Command,
   ExternalLink,
   Gauge,
@@ -119,7 +120,7 @@ function Toggle({ checked, onChange, label, disabled = false }: {
           : 'border-bone/15 bg-[#151515]'
       }`}
     >
-      <span className={`absolute left-1 top-1 h-4 w-4 rounded-full bg-bone transition-transform duration-200 ${checked ? 'translate-x-5' : 'translate-x-0'}`} />
+      <span className={`absolute left-1 top-1/2 h-4 w-4 -translate-y-1/2 rounded-full bg-bone transition-transform duration-200 ${checked ? 'translate-x-5' : 'translate-x-0'}`} />
     </button>
   )
 }
@@ -366,37 +367,37 @@ export default function AdminDiscordBotPage() {
       ) : error && !dashboard ? (
         <div className="rounded-[2rem] border border-red-400/25 bg-red-400/5 p-7 text-sm leading-relaxed text-red-200">{error}</div>
       ) : dashboard ? (
-        <div className="space-y-7">
+        <div className="min-w-0 space-y-7">
           {error && <div className="rounded-2xl border border-red-400/25 bg-red-400/5 p-4 text-sm text-red-200">{error}</div>}
           {notice && <div className="flex items-center gap-2 rounded-2xl border border-emerald-400/25 bg-emerald-400/5 p-4 text-sm text-emerald-200"><Check className="h-4 w-4" />{notice}</div>}
 
-          <section className="relative overflow-hidden rounded-[2.25rem] border border-white/10 bg-[radial-gradient(circle_at_12%_15%,rgba(227,38,46,0.18),transparent_28%),linear-gradient(135deg,rgba(28,9,12,0.92),rgba(8,8,8,0.96)_52%,rgba(16,16,16,0.92))] p-6 shadow-[0_35px_120px_rgba(0,0,0,0.38)] backdrop-blur-2xl sm:p-8 lg:p-10">
+          <section className="relative overflow-hidden rounded-[1.75rem] border border-white/10 bg-[radial-gradient(circle_at_12%_15%,rgba(227,38,46,0.18),transparent_28%),linear-gradient(135deg,rgba(28,9,12,0.92),rgba(8,8,8,0.96)_52%,rgba(16,16,16,0.92))] p-5 shadow-[0_35px_120px_rgba(0,0,0,0.38)] backdrop-blur-2xl sm:rounded-[2.25rem] sm:p-8 lg:p-10">
             <div className="pointer-events-none absolute -right-28 -top-32 h-80 w-80 rounded-full border border-blood/15" />
             <div className="pointer-events-none absolute -right-12 -top-16 h-52 w-52 rounded-full border border-blood/10" />
             <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-blood/70 to-transparent" />
             <div className="relative grid gap-8 lg:grid-cols-[minmax(0,1.35fr)_minmax(22rem,0.65fr)] lg:items-center">
-              <div className="flex items-start gap-5 sm:gap-6">
-                <span className="relative flex h-16 w-16 shrink-0 items-center justify-center rounded-[1.35rem] border border-[#7d87ff]/35 bg-[linear-gradient(145deg,rgba(88,101,242,0.28),rgba(88,101,242,0.08))] text-[#aeb4ff] shadow-[0_18px_50px_rgba(88,101,242,0.16)]">
-                  <Bot className="h-7 w-7" />
+              <div className="flex min-w-0 flex-col items-start gap-5 sm:flex-row sm:gap-6">
+                <span className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-[1.15rem] border border-[#7d87ff]/35 bg-[linear-gradient(145deg,rgba(88,101,242,0.28),rgba(88,101,242,0.08))] text-[#aeb4ff] shadow-[0_18px_50px_rgba(88,101,242,0.16)] sm:h-16 sm:w-16 sm:rounded-[1.35rem]">
+                  <Bot className="h-6 w-6 sm:h-7 sm:w-7" />
                   <span className={`absolute -right-1 -top-1 h-3.5 w-3.5 rounded-full border-[3px] border-[#110b0c] ${status?.online ? 'bg-emerald-400' : 'bg-red-400'}`} />
                 </span>
-                <div className="min-w-0">
+                <div className="min-w-0 max-w-full">
                   <div className="flex flex-wrap items-center gap-3">
                     <p className="ln-label text-[0.5rem] text-blood">NR // Bot control</p>
                     <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[0.5rem] font-extrabold uppercase tracking-[0.12em] ${status?.online ? 'border-emerald-300/20 bg-emerald-300/5 text-emerald-300' : 'border-red-300/20 bg-red-300/5 text-red-300'}`}>{status?.online ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}{status?.online ? 'Live' : 'Offline'}</span>
                   </div>
-                  <h2 className="mt-3 truncate font-display text-[clamp(2.2rem,5vw,4.25rem)] uppercase leading-none text-bone">{status?.bot_tag || 'NIGHTRAID Bot'}</h2>
+                  <h2 className="mt-3 max-w-full font-display text-[clamp(1.85rem,9vw,4.25rem)] uppercase leading-[0.98] text-bone [overflow-wrap:anywhere]">{status?.bot_tag || 'NIGHTRAID Bot'}</h2>
                   <p className="mt-4 max-w-xl text-xs leading-relaxed text-bone/45 sm:text-sm">A live command center for every NIGHTRAID automation. Changes are secured, versioned, and synchronized with Discord every three seconds.</p>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-[1.4rem] border border-white/10 bg-black/25 p-5 shadow-inner shadow-black/20">
+              <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="min-w-0 rounded-[1.4rem] border border-white/10 bg-black/25 p-5 shadow-inner shadow-black/20">
                   <div className="flex items-center justify-between"><Command className="h-4 w-4 text-blood" /><span className="text-[0.52rem] font-bold uppercase tracking-[0.12em] text-bone/25">Live</span></div>
                   <p className="mt-6 font-display text-4xl text-bone">{status?.command_count ?? enabledCommandCount}</p>
                   <p className="mt-1 text-[0.58rem] font-bold uppercase tracking-[0.12em] text-bone/35">Commands</p>
                 </div>
-                <div className="rounded-[1.4rem] border border-white/10 bg-black/25 p-5 shadow-inner shadow-black/20">
+                <div className="min-w-0 rounded-[1.4rem] border border-white/10 bg-black/25 p-5 shadow-inner shadow-black/20">
                   <div className="flex items-center justify-between"><Video className="h-4 w-4 text-blood" /><span className="text-[0.52rem] font-bold uppercase tracking-[0.12em] text-bone/25">Capacity</span></div>
                   <p className="mt-6 font-display text-4xl text-bone">{dashboard.trackers.length}<span className="ml-1 text-base text-bone/25">/100</span></p>
                   <p className="mt-1 text-[0.58rem] font-bold uppercase tracking-[0.12em] text-bone/35">TikTok profiles</p>
@@ -414,8 +415,8 @@ export default function AdminDiscordBotPage() {
               </div>
               <div className="mt-7 grid gap-4 sm:grid-cols-2">
                 <label className="sm:col-span-2"><FieldLabel>Activity text</FieldLabel><input value={dashboard.settings.presenceText} maxLength={128} onChange={(event) => setDashboard((current) => current ? { ...current, settings: { ...current.settings, presenceText: event.target.value } } : current)} className="mt-2 h-11 w-full rounded-xl border border-white/10 bg-black/25 px-4 text-sm text-bone outline-none focus:border-blood/60" /></label>
-                <label><FieldLabel>Status</FieldLabel><select value={dashboard.settings.presenceStatus} onChange={(event) => setDashboard((current) => current ? { ...current, settings: { ...current.settings, presenceStatus: event.target.value as DashboardSettings['presenceStatus'] } } : current)} className="mt-2 h-11 w-full rounded-xl border border-white/10 bg-[#111] px-3 text-xs text-bone outline-none"><option value="online">Online</option><option value="idle">Idle</option><option value="dnd">Do not disturb</option><option value="invisible">Invisible</option></select></label>
-                <label><FieldLabel>Activity</FieldLabel><select value={dashboard.settings.presenceActivityType} onChange={(event) => setDashboard((current) => current ? { ...current, settings: { ...current.settings, presenceActivityType: event.target.value as DashboardSettings['presenceActivityType'] } } : current)} className="mt-2 h-11 w-full rounded-xl border border-white/10 bg-[#111] px-3 text-xs text-bone outline-none"><option value="WATCHING">Watching</option><option value="PLAYING">Playing</option><option value="LISTENING">Listening</option><option value="COMPETING">Competing</option></select></label>
+                <label><FieldLabel>Status</FieldLabel><span className="relative mt-2 block"><select value={dashboard.settings.presenceStatus} onChange={(event) => setDashboard((current) => current ? { ...current, settings: { ...current.settings, presenceStatus: event.target.value as DashboardSettings['presenceStatus'] } } : current)} className="h-11 w-full appearance-none rounded-xl border border-white/10 bg-[#111] pl-4 pr-12 text-xs text-bone outline-none focus:border-blood/60"><option value="online">Online</option><option value="idle">Idle</option><option value="dnd">Do not disturb</option><option value="invisible">Invisible</option></select><ChevronDown aria-hidden="true" className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-bone/45" /></span></label>
+                <label><FieldLabel>Activity</FieldLabel><span className="relative mt-2 block"><select value={dashboard.settings.presenceActivityType} onChange={(event) => setDashboard((current) => current ? { ...current, settings: { ...current.settings, presenceActivityType: event.target.value as DashboardSettings['presenceActivityType'] } } : current)} className="h-11 w-full appearance-none rounded-xl border border-white/10 bg-[#111] pl-4 pr-12 text-xs text-bone outline-none focus:border-blood/60"><option value="WATCHING">Watching</option><option value="PLAYING">Playing</option><option value="LISTENING">Listening</option><option value="COMPETING">Competing</option></select><ChevronDown aria-hidden="true" className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-bone/45" /></span></label>
               </div>
             </div>
 
@@ -440,15 +441,15 @@ export default function AdminDiscordBotPage() {
             <div className="pointer-events-none absolute -left-32 top-24 h-72 w-72 rounded-full bg-blood/[0.035] blur-3xl" />
             <div className="relative border-b border-white/10 p-6 sm:p-8 lg:p-10">
               <div className="flex flex-wrap items-end justify-between gap-6">
-                <div className="flex items-start gap-4">
+                <div className="flex min-w-0 flex-col items-start gap-4 sm:flex-row">
                   <span className="mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-blood/25 bg-blood/10 text-blood"><Gauge className="h-5 w-5" /></span>
-                  <div>
+                  <div className="min-w-0">
                     <p className="ln-label text-[0.5rem] text-blood">Command matrix</p>
-                    <h2 className="mt-2 font-display text-4xl uppercase text-bone sm:text-5xl">Built-in controls</h2>
+                    <h2 className="mt-2 font-display text-[2rem] uppercase leading-none text-bone sm:text-5xl">Built-in controls</h2>
                     <p className="mt-3 max-w-xl text-xs leading-relaxed text-bone/35">Fine-tune what appears in Discord. Disabled commands remain safely installed in code and can be restored instantly.</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-6 rounded-2xl border border-white/10 bg-black/25 px-5 py-3">
+                <div className="flex w-full items-center justify-around gap-4 rounded-2xl border border-white/10 bg-black/25 px-5 py-3 sm:w-auto sm:justify-start sm:gap-6">
                   <div><p className="font-display text-2xl text-bone">{enabledCommandCount}</p><p className="text-[0.48rem] font-bold uppercase tracking-[0.12em] text-bone/30">Enabled</p></div>
                   <span className="h-8 w-px bg-white/10" />
                   <div><p className="font-display text-2xl text-bone/45">{dashboard.commands.length - enabledCommandCount}</p><p className="text-[0.48rem] font-bold uppercase tracking-[0.12em] text-bone/30">Disabled</p></div>
@@ -456,7 +457,7 @@ export default function AdminDiscordBotPage() {
               </div>
 
               <div className="mt-8 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-                <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1">
+                <div className="flex flex-wrap gap-2 pb-1 sm:no-scrollbar sm:flex-nowrap sm:overflow-x-auto">
                   <button type="button" onClick={() => setModuleFilter('all')} className={`h-9 shrink-0 rounded-full border px-4 text-[0.54rem] font-extrabold uppercase tracking-[0.11em] transition-all ${moduleFilter === 'all' ? 'border-blood bg-blood text-white shadow-[0_8px_24px_rgba(227,38,46,0.2)]' : 'border-white/10 bg-white/[0.025] text-bone/40 hover:border-white/25 hover:text-bone'}`}>All {dashboard.commands.length}</button>
                   {dashboard.modules.map((module) => {
                     const count = dashboard.commands.filter((command) => command.module === module.id).length
