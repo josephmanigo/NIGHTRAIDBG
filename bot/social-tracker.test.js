@@ -158,9 +158,7 @@ test('SocialTrackerService handles state transitions: OFFLINE -> LIVE, STILL LIV
   mockProfile.live.title = 'Final ranked title'
   await service._pollSingleCreator(updatedRecord, client)
   assert.equal(sentMessages.length, 1) // No duplicate!
-  assert.equal(sentMessages[0].payload.embeds[0].data.fields[0].name, 'Live for')
-  assert.equal(sentMessages[0].payload.embeds[0].data.fields[1].name, 'Peak viewers')
-  assert.equal(sentMessages[0].payload.embeds[0].data.fields[1].value, '150')
+  assert.equal(sentMessages[0].payload.embeds[0].data.fields?.length || 0, 0)
   assert.equal(sentMessages[0].payload.embeds[0].data.title, 'Final ranked title')
 
   // LIVE -> OFFLINE

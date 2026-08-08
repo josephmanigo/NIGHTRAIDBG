@@ -23,12 +23,11 @@ function embedTitle(value, fallback) {
 }
 
 export class NotificationService {
-  createLiveEmbed(normalizedData, session = {}) {
+  createLiveEmbed(normalizedData) {
     const { username, displayName, avatar, profileUrl, live } = normalizedData
     const streamTitle = embedTitle(live?.title, `${displayName || username} is live!`)
     const streamUrl = live?.url || profileUrl
     const mainImage = live?.thumbnail || avatar
-    const metrics = liveMetrics(normalizedData, session)
 
     const embed = new EmbedBuilder()
       .setAuthor({
@@ -38,10 +37,6 @@ export class NotificationService {
       .setTitle(streamTitle)
       .setURL(streamUrl)
       .setColor(0xFE2C55)
-      .addFields(
-        { name: 'Live for', value: formatLiveMinutes(metrics.startedAt), inline: true },
-        { name: 'Peak viewers', value: String(metrics.peakViewers), inline: true },
-      )
 
     if (mainImage) embed.setImage(mainImage)
 
