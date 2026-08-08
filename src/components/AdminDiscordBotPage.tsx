@@ -15,7 +15,6 @@ import {
   Save,
   Search,
   ShieldCheck,
-  Sparkles,
   Trash2,
   Video,
   Wifi,
@@ -520,7 +519,7 @@ export default function AdminDiscordBotPage() {
           <section className="grid gap-5 xl:grid-cols-2">
             <div className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-[linear-gradient(145deg,rgba(255,255,255,0.05),rgba(255,255,255,0.015))] p-6 shadow-[0_28px_90px_rgba(0,0,0,0.22)] backdrop-blur-2xl sm:p-8">
               <div className="pointer-events-none absolute -right-20 -top-20 h-48 w-48 rounded-full border border-blood/10" />
-              <div className="relative flex items-start justify-between gap-4"><div><p className="ln-label text-[0.5rem] text-blood">Command builder</p><h2 className="mt-2 font-display text-3xl uppercase text-bone">Custom commands</h2><p className="mt-2 text-xs leading-relaxed text-bone/35">Add safe text-response slash commands without redeploying the bot.</p></div><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-blood/20 bg-blood/10 text-blood"><Sparkles className="h-4 w-4" /></span></div>
+              <div className="relative"><p className="ln-label text-[0.5rem] text-blood">Command builder</p><h2 className="mt-2 font-display text-3xl uppercase text-bone">Custom commands</h2><p className="mt-2 text-xs leading-relaxed text-bone/35">Add safe text-response slash commands without redeploying the bot.</p></div>
               <div className="relative mt-7 grid gap-3 rounded-[1.35rem] border border-blood/15 bg-[linear-gradient(145deg,rgba(227,38,46,0.06),rgba(0,0,0,0.18))] p-5">
                 <div className="grid gap-3 sm:grid-cols-2"><input value={newCommand.name} maxLength={32} onChange={(event) => setNewCommand((current) => ({ ...current, name: event.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, '') }))} placeholder="command-name" className="h-10 rounded-xl border border-white/10 bg-black/25 px-3 font-mono text-xs text-bone outline-none focus:border-blood/60" /><input value={newCommand.description} maxLength={100} onChange={(event) => setNewCommand((current) => ({ ...current, description: event.target.value }))} placeholder="Short description" className="h-10 rounded-xl border border-white/10 bg-black/25 px-3 text-xs text-bone outline-none focus:border-blood/60" /></div>
                 <textarea value={newCommand.response} maxLength={2000} rows={4} onChange={(event) => setNewCommand((current) => ({ ...current, response: event.target.value }))} placeholder="Bot response" className="resize-y rounded-xl border border-white/10 bg-black/25 p-3 text-xs leading-relaxed text-bone outline-none focus:border-blood/60" />
@@ -534,7 +533,7 @@ export default function AdminDiscordBotPage() {
 
             <div className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-[linear-gradient(145deg,rgba(255,255,255,0.05),rgba(255,255,255,0.015))] p-6 shadow-[0_28px_90px_rgba(0,0,0,0.22)] backdrop-blur-2xl sm:p-8">
               <div className="pointer-events-none absolute -right-20 -top-20 h-48 w-48 rounded-full border border-blood/10" />
-              <div className="relative flex items-start justify-between gap-4"><div><p className="ln-label text-[0.5rem] text-blood">Social tracker</p><h2 className="mt-2 font-display text-3xl uppercase text-bone">TikTok profiles</h2><p className="mt-2 text-xs leading-relaxed text-bone/35">Add up to 100 creators. New profiles are baseline-seeded so an old upload is never announced as new.</p></div><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-blood/20 bg-blood/10 text-blood"><Video className="h-4 w-4" /></span></div>
+              <div className="relative"><p className="ln-label text-[0.5rem] text-blood">Social tracker</p><h2 className="mt-2 font-display text-3xl uppercase text-bone">TikTok profiles</h2><p className="mt-2 text-xs leading-relaxed text-bone/35">Add up to 100 creators. New profiles are baseline-seeded so an old upload is never announced as new.</p></div>
               <div className="relative mt-7 grid gap-3 rounded-[1.35rem] border border-blood/15 bg-[linear-gradient(145deg,rgba(227,38,46,0.06),rgba(0,0,0,0.18))] p-5">
                 <input value={newTracker.profileUrl} onChange={(event) => setNewTracker((current) => ({ ...current, profileUrl: event.target.value }))} placeholder="https://www.tiktok.com/@username" className="h-10 rounded-xl border border-white/10 bg-black/25 px-3 text-xs text-bone outline-none focus:border-blood/60" />
                 <input value={newTracker.channelId} inputMode="numeric" onChange={(event) => setNewTracker((current) => ({ ...current, channelId: event.target.value.replace(/\D/g, '') }))} placeholder="Discord notification channel ID" className="h-10 rounded-xl border border-white/10 bg-black/25 px-3 font-mono text-xs text-bone outline-none focus:border-blood/60" />
