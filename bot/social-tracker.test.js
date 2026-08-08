@@ -5,7 +5,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { parseSocialUrl } from './social-tracker/url-parser.js'
 import { SocialTrackerStore } from './social-tracker/social-tracker-store.js'
-import { NotificationService, formatLiveMinutes } from './social-tracker/notification-service.js'
+import { NotificationService } from './social-tracker/notification-service.js'
 import { SocialTrackerService } from './social-tracker/social-tracker-service.js'
 import { TwitchAdapter } from './social-tracker/adapters/twitch-adapter.js'
 import { YouTubeAdapter } from './social-tracker/adapters/youtube-adapter.js'
@@ -184,9 +184,7 @@ test('SocialTrackerService handles state transitions: OFFLINE -> LIVE, STILL LIV
   assert.equal(sentMessages.length, 1) // Ending edits the original card.
   assert.equal(sentMessages[0].payload.content, '**testuser** stream ended')
   assert.equal(sentMessages[0].payload.embeds[0].data.title, 'Same live, refreshed room data')
-  assert.equal(sentMessages[0].payload.embeds[0].data.fields[0].name, 'Live duration')
-  assert.equal(sentMessages[0].payload.embeds[0].data.fields[0].value, '12 minutes')
-  assert.equal(sentMessages[0].payload.embeds[0].data.fields[1].value, '150')
+  assert.equal(sentMessages[0].payload.embeds[0].data.fields, undefined)
   assert.equal(sentMessages[0].payload.components[0].components[0].data.label, 'View Profile')
 
   // A later OFFLINE -> LIVE transition starts a genuinely new card.
@@ -222,8 +220,6 @@ test('notification cards use plain text without emoji decorations', () => {
   assert.equal(upload.content, '**Creator** uploaded a new video!')
   assert.equal(upload.components[0].components[0].data.label, 'Watch Video')
   assert.equal(upload.embeds[0].data.fields, undefined)
-  assert.equal(formatLiveMinutes('2026-08-08T00:00:00.000Z', '2026-08-08T00:01:00.000Z'), '1 minute')
-  assert.equal(formatLiveMinutes('2026-08-08T00:00:00.000Z', '2026-08-08T00:42:59.000Z'), '42 minutes')
 })
 
 test('TikTok command checks and background polls share one in-flight request and short cache', async () => {
