@@ -63,6 +63,7 @@ import {
   installGuessTheEmojiWorkflow,
 } from './guess-the-emoji.js'
 import { MUSIC_COMMANDS, installMusicWorkflow } from './music-player.js'
+import { installNightyWorkflow } from './nighty.js'
 import { WATCHPARTY_COMMAND, installWatchpartyWorkflow } from './watchparty.js'
 import { LIVE_COMMAND, installLiveWorkflow } from './live-notifier.js'
 import { STREAMER_MANAGEMENT_COMMANDS, installCreatorTracker } from './creator-tracker.js'
@@ -516,6 +517,9 @@ installLeaderboardWorkflow(client, {
   errorReporter: gameResultsErrorReporter,
 })
 installMusicWorkflow(client, {
+  errorReporter: gameResultsErrorReporter,
+})
+installNightyWorkflow(client, {
   errorReporter: gameResultsErrorReporter,
 })
 installWatchpartyWorkflow(client, {
