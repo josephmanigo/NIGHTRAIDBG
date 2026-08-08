@@ -154,9 +154,16 @@ test('SocialTrackerService handles state transitions: OFFLINE -> LIVE, STILL LIV
   service._client = client
 
   let mockProfile = {
-    platform: 'tiktok', username: 'testuser', displayName: 'testuser', avatar: null,
+    platform: 'tiktok', username: 'testuser', displayName: 'testuser', avatar: 'https://cdn.example/avatar.jpg',
     profileUrl: 'https://www.tiktok.com/@testuser',
-    live: { isLive: true, liveId: 'room-999', title: 'Gaming Stream', viewers: 50, url: 'https://www.tiktok.com/@testuser/live' },
+    live: {
+      isLive: true,
+      liveId: 'room-999',
+      title: 'Gaming Stream',
+      viewers: 50,
+      thumbnail: 'https://cdn.example/live-photo.jpg',
+      url: 'https://www.tiktok.com/@testuser/live',
+    },
     latestContent: null,
   }
   service.adapters.tiktok.getProfile = async () => mockProfile
@@ -194,6 +201,8 @@ test('SocialTrackerService handles state transitions: OFFLINE -> LIVE, STILL LIV
   store.updateRecord(updatedRecord.id, { live_started_at: new Date(Date.now() - 12 * 60_000).toISOString() })
   updatedRecord = store.findRecord('guild-1', 'tiktok', 'testuser')
   mockProfile.live.isLive = false
+  mockProfile.avatar = null
+  mockProfile.live.thumbnail = null
 
   // TikTok occasionally emits one incomplete/incorrect offline snapshot while
   // the creator is still live. Keep the existing card until three reliable,
@@ -220,6 +229,8 @@ test('SocialTrackerService handles state transitions: OFFLINE -> LIVE, STILL LIV
   assert.equal(sentMessages[0].payload.content, '**testuser** stream ended')
   assert.equal(sentMessages[0].payload.embeds[0].data.title, 'Same live, refreshed room data')
   assert.equal(sentMessages[0].payload.embeds[0].data.fields, undefined)
+  assert.equal(sentMessages[0].payload.embeds[0].data.author.icon_url, 'https://cdn.example/avatar.jpg')
+  assert.equal(sentMessages[0].payload.embeds[0].data.image.url, 'https://cdn.example/live-photo.jpg')
   assert.equal(sentMessages[0].payload.components[0].components[0].data.label, 'View Profile')
 
   // A later OFFLINE -> LIVE transition starts a genuinely new card.
@@ -263,13 +274,14 @@ test('notification cards use plain text without emoji decorations', () => {
     profileUrl: 'https://www.tiktok.com/@creator',
   }, {
     streamTitle: 'creator is live on TikTok!',
+    imageUrl: 'https://cdn.example/live-photo.jpg',
   })
 
   assert.equal(ended.content, '**Creator** stream ended')
   assert.equal(ended.embeds[0].data.title, 'creator was live on TikTok')
   assert.doesNotMatch(ended.embeds[0].data.title, /\bis live\b/i)
-  assert.equal(ended.embeds[0].data.author.icon_url, undefined)
-  assert.equal(ended.embeds[0].data.image, undefined)
+  assert.equal(ended.embeds[0].data.author.icon_url, 'https://cdn.example/avatar.jpg')
+  assert.equal(ended.embeds[0].data.image.url, 'https://cdn.example/live-photo.jpg')
 })
 
 test('TikTok command checks and background polls share one in-flight request and short cache', async () => {

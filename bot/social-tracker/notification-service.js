@@ -44,16 +44,21 @@ export class NotificationService {
   }
 
   createLiveEndedEmbed(normalizedData, session = {}) {
-    const { displayName, username, profileUrl } = normalizedData
+    const { displayName, username, avatar, profileUrl, live } = normalizedData
     const streamTitle = endedStreamTitle(session.streamTitle, `${displayName || username} was live`)
+    const authorIcon = session.authorIconUrl || avatar
+    const mainImage = session.imageUrl || live?.thumbnail || avatar
 
     const embed = new EmbedBuilder()
       .setAuthor({
         name: displayName || username,
+        iconURL: authorIcon || null,
       })
       .setTitle(streamTitle)
       .setURL(profileUrl)
       .setColor(0x808080)
+
+    if (mainImage) embed.setImage(mainImage)
 
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()

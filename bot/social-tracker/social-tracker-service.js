@@ -49,6 +49,15 @@ function componentLabels(message) {
     .filter(Boolean)
 }
 
+function currentEmbedMedia(message) {
+  const embed = message?.embeds?.[0] || message?.payload?.embeds?.[0]
+  const data = embed?.data || embed
+  return {
+    imageUrl: embed?.image?.url || data?.image?.url || null,
+    authorIconUrl: embed?.author?.iconURL || data?.author?.icon_url || null,
+  }
+}
+
 export class SocialTrackerService {
   constructor(config = {}, store = null, notificationService = null) {
     this.config = config
@@ -541,7 +550,7 @@ export class SocialTrackerService {
                   displayName: event?.broadcaster_user_name || record.username,
                   avatar: null,
                   profileUrl: `https://www.twitch.tv/${broadcasterLogin}`,
-                })
+                }, currentEmbedMedia(targetMsg))
                 await targetMsg.edit(endedPayload).catch(() => null)
               }
             }
@@ -1030,6 +1039,7 @@ export class SocialTrackerService {
               const targetMsg = await channel.messages.fetch(record.live_message_id).catch(() => null)
               if (targetMsg) {
                 const endedPayload = this.notificationService.createLiveEndedEmbed(currentData, {
+                  ...currentEmbedMedia(targetMsg),
                   startedAt: liveStartedAt,
                   endedAt,
                   peakViewers,
@@ -1258,7 +1268,10 @@ export class SocialTrackerService {
               if (channel && channel.isTextBased?.()) {
                 const targetMsg = await channel.messages.fetch(record.live_message_id).catch(() => null)
                 if (targetMsg) {
-                  const endedPayload = this.notificationService.createLiveEndedEmbed(currentData)
+                  const endedPayload = this.notificationService.createLiveEndedEmbed(
+                    currentData,
+                    currentEmbedMedia(targetMsg),
+                  )
                   await targetMsg.edit(endedPayload).catch(() => null)
                 }
               }
