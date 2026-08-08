@@ -5,6 +5,12 @@ function embedTitle(value, fallback) {
   return title.slice(0, 256) || fallback
 }
 
+function endedStreamTitle(value, fallback) {
+  return embedTitle(value, fallback)
+    .replace(/\bis live on TikTok!?$/i, 'was live on TikTok')
+    .replace(/\bis live!?$/i, 'was live')
+}
+
 export class NotificationService {
   createLiveEmbed(normalizedData) {
     const { username, displayName, avatar, profileUrl, live } = normalizedData
@@ -39,7 +45,7 @@ export class NotificationService {
 
   createLiveEndedEmbed(normalizedData, session = {}) {
     const { displayName, username, avatar, profileUrl } = normalizedData
-    const streamTitle = embedTitle(session.streamTitle, `${displayName || username} was live`)
+    const streamTitle = endedStreamTitle(session.streamTitle, `${displayName || username} was live`)
 
     const embed = new EmbedBuilder()
       .setAuthor({

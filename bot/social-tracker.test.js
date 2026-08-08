@@ -220,6 +220,19 @@ test('notification cards use plain text without emoji decorations', () => {
   assert.equal(upload.content, '**Creator** uploaded a new video!')
   assert.equal(upload.components[0].components[0].data.label, 'Watch Video')
   assert.equal(upload.embeds[0].data.fields, undefined)
+
+  const ended = service.createLiveEndedEmbed({
+    username: 'creator',
+    displayName: 'Creator',
+    avatar: 'https://cdn.example/avatar.jpg',
+    profileUrl: 'https://www.tiktok.com/@creator',
+  }, {
+    streamTitle: 'creator is live on TikTok!',
+  })
+
+  assert.equal(ended.content, '**Creator** stream ended')
+  assert.equal(ended.embeds[0].data.title, 'creator was live on TikTok')
+  assert.doesNotMatch(ended.embeds[0].data.title, /\bis live\b/i)
 })
 
 test('TikTok command checks and background polls share one in-flight request and short cache', async () => {
