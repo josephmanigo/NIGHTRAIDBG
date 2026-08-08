@@ -836,12 +836,11 @@ export class SocialTrackerService {
       const currentLiveId = currentData.live?.liveId || null
       const wasLive = Boolean(record.is_live)
       const liveStatusAvailable = currentData.live?.statusAvailable !== false
-      const isNewLiveSession = Boolean(
-        isCurrentlyLive && currentLiveId && record.last_live_id && currentLiveId !== record.last_live_id,
-      )
 
-      // 1. OFFLINE -> LIVE, or a new room started before an offline poll was observed.
-      if (liveStatusAvailable && isCurrentlyLive && (!wasLive || isNewLiveSession)) {
+      // 1. OFFLINE -> LIVE. A changed room ID alone must never create another
+      // card while the creator is still marked live; only a confirmed offline
+      // transition can close the current card and allow the next one.
+      if (liveStatusAvailable && isCurrentlyLive && !wasLive) {
         console.log(`[SocialTracker] Creator ${record.username} (${record.platform}) went LIVE!`)
         const liveStartedAt = currentData.live?.startedAt || new Date().toISOString()
         const peakViewers = Math.max(0, Number(currentData.live?.viewers) || 0)
