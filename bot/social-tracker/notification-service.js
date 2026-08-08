@@ -17,10 +17,15 @@ function liveMetrics(normalizedData, session = {}) {
   return { peakViewers, startedAt }
 }
 
+function embedTitle(value, fallback) {
+  const title = String(value || fallback).trim()
+  return title.slice(0, 256) || fallback
+}
+
 export class NotificationService {
   createLiveEmbed(normalizedData, session = {}) {
     const { username, displayName, avatar, profileUrl, live } = normalizedData
-    const streamTitle = live?.title || `${displayName || username} is live!`
+    const streamTitle = embedTitle(live?.title, `${displayName || username} is live!`)
     const streamUrl = live?.url || profileUrl
     const mainImage = live?.thumbnail || avatar
     const metrics = liveMetrics(normalizedData, session)
@@ -57,13 +62,14 @@ export class NotificationService {
   createLiveEndedEmbed(normalizedData, session = {}) {
     const { displayName, username, avatar, profileUrl } = normalizedData
     const metrics = liveMetrics(normalizedData, session)
+    const streamTitle = embedTitle(session.streamTitle, `${displayName || username} was live`)
 
     const embed = new EmbedBuilder()
       .setAuthor({
         name: displayName || username,
         iconURL: avatar || null,
       })
-      .setTitle(`${displayName || username} was live`)
+      .setTitle(streamTitle)
       .setURL(profileUrl)
       .setColor(0x808080)
       .addFields(

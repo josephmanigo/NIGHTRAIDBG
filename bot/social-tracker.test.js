@@ -148,17 +148,20 @@ test('SocialTrackerService handles state transitions: OFFLINE -> LIVE, STILL LIV
   assert.ok(updatedRecord.live_message_id)
   assert.ok(updatedRecord.live_started_at)
   assert.equal(updatedRecord.peak_viewers, 50)
+  assert.equal(updatedRecord.live_title, 'Gaming Stream')
   assert.equal(sentMessages.length, 1)
   assert.equal(sentMessages[0].payload.content, '**testuser** is live!')
   assert.equal(sentMessages[0].payload.components[0].components[0].data.label, 'Watch Stream')
 
   // STILL LIVE
   mockProfile.live.viewers = 150
+  mockProfile.live.title = 'Final ranked title'
   await service._pollSingleCreator(updatedRecord, client)
   assert.equal(sentMessages.length, 1) // No duplicate!
   assert.equal(sentMessages[0].payload.embeds[0].data.fields[0].name, 'Live for')
   assert.equal(sentMessages[0].payload.embeds[0].data.fields[1].name, 'Peak viewers')
   assert.equal(sentMessages[0].payload.embeds[0].data.fields[1].value, '150')
+  assert.equal(sentMessages[0].payload.embeds[0].data.title, 'Final ranked title')
 
   // LIVE -> OFFLINE
   updatedRecord = store.findRecord('guild-1', 'tiktok', 'testuser')
@@ -170,7 +173,9 @@ test('SocialTrackerService handles state transitions: OFFLINE -> LIVE, STILL LIV
   assert.equal(updatedRecord.is_live, false)
   assert.equal(updatedRecord.live_started_at, null)
   assert.equal(updatedRecord.peak_viewers, 0)
+  assert.equal(updatedRecord.live_title, null)
   assert.equal(sentMessages[0].payload.content, '**testuser** stream ended')
+  assert.equal(sentMessages[0].payload.embeds[0].data.title, 'Final ranked title')
   assert.equal(sentMessages[0].payload.embeds[0].data.fields[0].name, 'Live duration')
   assert.equal(sentMessages[0].payload.embeds[0].data.fields[0].value, '12 minutes')
   assert.equal(sentMessages[0].payload.embeds[0].data.fields[1].value, '150')

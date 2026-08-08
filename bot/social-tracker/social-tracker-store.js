@@ -65,6 +65,7 @@ export class SocialTrackerStore {
       live_message_id: item.live_message_id || item.liveMessageId || null,
       live_started_at: item.live_started_at || item.liveStartedAt || null,
       peak_viewers: Math.max(0, Number(item.peak_viewers ?? item.peakViewers ?? 0) || 0),
+      live_title: item.live_title || item.liveTitle || null,
       last_event_at: item.last_event_at || item.lastEventAt || null,
       subscription_status: item.subscription_status || item.subscriptionStatus || 'active',
       created_by: item.created_by || item.createdBy || null,

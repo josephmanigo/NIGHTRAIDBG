@@ -845,6 +845,7 @@ export class SocialTrackerService {
         console.log(`[SocialTracker] Creator ${record.username} (${record.platform}) went LIVE!`)
         const liveStartedAt = currentData.live?.startedAt || new Date().toISOString()
         const peakViewers = Math.max(0, Number(currentData.live?.viewers) || 0)
+        const liveTitle = currentData.live?.title || `${currentData.displayName || record.username} is live!`
         let sentMsg = null
         if (record.live_notifications) {
           const channel = await client.channels.fetch(record.discord_channel_id).catch(() => null)
@@ -866,6 +867,7 @@ export class SocialTrackerService {
           live_message_id: sentMsg?.id || null,
           live_started_at: liveStartedAt,
           peak_viewers: peakViewers,
+          live_title: liveTitle,
           last_event_at: new Date().toISOString(),
         })
         this._lastTikTokEventAt = new Date().toISOString()
@@ -879,6 +881,7 @@ export class SocialTrackerService {
           Number(record.peak_viewers) || 0,
           Number(currentData.live?.viewers) || 0,
         )
+        const liveTitle = currentData.live?.title || record.live_title || `${currentData.displayName || record.username} is live!`
         if (record.live_message_id && record.live_notifications) {
           const channel = await client.channels.fetch(record.discord_channel_id).catch(() => null)
           if (channel && channel.isTextBased?.()) {
@@ -895,6 +898,7 @@ export class SocialTrackerService {
         this.store.updateRecord(record.id, {
           live_started_at: liveStartedAt,
           peak_viewers: peakViewers,
+          live_title: liveTitle,
           ...(currentLiveId && currentLiveId !== record.last_live_id ? { last_live_id: currentLiveId } : {}),
         })
       }
@@ -909,6 +913,7 @@ export class SocialTrackerService {
           Number(record.peak_viewers) || 0,
           Number(currentData.live?.viewers) || 0,
         )
+        const liveTitle = record.live_title || `${currentData.displayName || record.username} was live`
         if (record.live_message_id && record.live_notifications) {
           const channel = await client.channels.fetch(record.discord_channel_id).catch(() => null)
           if (channel && channel.isTextBased?.()) {
@@ -918,6 +923,7 @@ export class SocialTrackerService {
                 startedAt: liveStartedAt,
                 endedAt,
                 peakViewers,
+                streamTitle: liveTitle,
               })
               await targetMsg.edit(endedPayload).catch(() => null)
             }
@@ -928,6 +934,7 @@ export class SocialTrackerService {
           live_message_id: null,
           live_started_at: null,
           peak_viewers: 0,
+          live_title: null,
           last_event_at: endedAt,
         })
         this._lastTikTokEventAt = new Date().toISOString()
