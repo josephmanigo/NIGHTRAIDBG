@@ -8,6 +8,7 @@ function normalizeParty(party) {
     id: String(party.id),
     guildId: String(party.guildId || ''),
     channelId: String(party.channelId || ''),
+    voiceChannelId: party.voiceChannelId ? String(party.voiceChannelId) : null,
     messageId: party.messageId ? String(party.messageId) : null,
     hostId: String(party.hostId || ''),
     title: String(party.title || 'Movie Watch Party').slice(0, 256),

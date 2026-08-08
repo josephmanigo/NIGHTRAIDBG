@@ -16,6 +16,7 @@ const NOW = new Date('2026-08-08T10:00:00.000Z')
 function mockInteraction({
   query = 'Avatar',
   time = '',
+  voiceChannelId = null,
   userId = 'host-1',
   customId = null,
   guildId = 'guild-1',
@@ -37,6 +38,7 @@ function mockInteraction({
         if (name === 'time') return time || (required ? time : null)
         return null
       },
+      getChannel: (name) => name === 'voice_channel' && voiceChannelId ? { id: voiceChannelId } : null,
     },
     reply: async (payload) => {
       state.replies.push(payload)
@@ -80,11 +82,13 @@ function makeWorkflow() {
   })
 }
 
-test('WATCHPARTY_COMMAND supports a movie query and optional scheduled time', () => {
+test('WATCHPARTY_COMMAND supports movie, time, and voice-channel options', () => {
   assert.equal(WATCHPARTY_COMMAND.name, 'watchparty')
-  assert.deepEqual(WATCHPARTY_COMMAND.options.map((option) => option.name), ['query', 'time'])
+  assert.deepEqual(WATCHPARTY_COMMAND.options.map((option) => option.name), ['query', 'time', 'voice_channel'])
   assert.equal(WATCHPARTY_COMMAND.options[0].required, true)
   assert.equal(WATCHPARTY_COMMAND.options[1].required, false)
+  assert.equal(WATCHPARTY_COMMAND.options[2].required, false)
+  assert.equal(WATCHPARTY_COMMAND.options[2].channelTypes.length, 2)
 })
 
 test('parseWatchpartyQuery uses the current MoviBox search route', () => {
@@ -127,6 +131,7 @@ test('watch party card is cozy, emoji-free, and includes join and host controls'
     title: 'Avatar',
     url: 'https://movibox.net/searchResult?keyword=Avatar',
     scheduledFor: '2026-08-08T12:30:00.000Z',
+    voiceChannelId: 'voice-1',
     participantIds: ['guest-1'],
     status: 'open',
     createdAt: NOW.toISOString(),
@@ -136,6 +141,8 @@ test('watch party card is cozy, emoji-free, and includes join and host controls'
   assert.doesNotMatch(serialized, /\p{Extended_Pictographic}/u)
   assert.equal(payload.embeds[0].data.fields.find((field) => field.name === 'Guests').value, '1 member joined')
   assert.match(payload.embeds[0].data.fields.find((field) => field.name === 'Scheduled for').value, /<t:\d+:F>/)
+  assert.equal(payload.embeds[0].data.fields.find((field) => field.name === 'Voice channel').value, '<#voice-1>')
+  assert.match(payload.content, /Please join <#voice-1> at <t:\d+:F>\./)
   assert.deepEqual(
     payload.components[0].components.map((button) => button.data.label),
     ['Join Watch Party', 'Start Watch Party', 'Open Movie'],
@@ -150,12 +157,13 @@ test('parseWatchpartyButtonId accepts only watch party join and start controls',
 
 test('/watchparty creates a scheduled party with a persistent public card', async () => {
   const workflow = makeWorkflow()
-  const interaction = mockInteraction({ query: 'Inception', time: 'in 30m' })
+  const interaction = mockInteraction({ query: 'Inception', time: 'in 30m', voiceChannelId: 'voice-1' })
   const result = await workflow.handleInteraction(interaction)
 
   assert.equal(result.status, 'handled')
   assert.equal(result.party.scheduledFor, '2026-08-08T10:30:00.000Z')
   assert.equal(result.party.messageId, 'message-1')
+  assert.equal(result.party.voiceChannelId, 'voice-1')
   assert.equal(workflow.store.get(PARTY_ID).title, 'Inception')
   assert.equal(interaction.state.replies.length, 1)
   workflow.stop()
@@ -200,9 +208,9 @@ test('members join once and the public guest count updates', async () => {
   workflow.stop()
 })
 
-test('only the host can start and joined members are mentioned when it begins', async () => {
+test('only the host can start and joined members receive the voice-channel invitation', async () => {
   const workflow = makeWorkflow()
-  await workflow.handleInteraction(mockInteraction({ query: 'Interstellar' }))
+  await workflow.handleInteraction(mockInteraction({ query: 'Interstellar', voiceChannelId: 'voice-1' }))
   await workflow.handleInteraction(mockInteraction({ customId: `nr-watchparty:join:${PARTY_ID}`, userId: 'guest-1' }))
   await workflow.handleInteraction(mockInteraction({ customId: `nr-watchparty:join:${PARTY_ID}`, userId: 'guest-2' }))
 
@@ -219,6 +227,38 @@ test('only the host can start and joined members are mentioned when it begins', 
   assert.deepEqual(host.state.updates[0].components[0].components.map((button) => button.data.label), ['Open Movie'])
   assert.equal(host.state.channelMessages.length, 1)
   assert.match(host.state.channelMessages[0].content, /<@guest-1> <@guest-2>/)
+  assert.match(host.state.channelMessages[0].content, /Please join <#voice-1>\./)
   assert.deepEqual(host.state.channelMessages[0].allowedMentions.users, ['guest-1', 'guest-2'])
+  workflow.stop()
+})
+
+test('scheduled reminder tells the host which voice channel to join', async () => {
+  let currentTime = new Date(NOW)
+  const workflow = createWatchpartyWorkflow({
+    store: new WatchpartyStore(null),
+    timeZone: 'Asia/Manila',
+    now: () => new Date(currentTime),
+    createId: () => PARTY_ID,
+  })
+  await workflow.handleInteraction(mockInteraction({
+    query: 'Arrival',
+    time: 'in 1m',
+    voiceChannelId: 'voice-1',
+  }))
+
+  currentTime = new Date(NOW.getTime() + 120_000)
+  const reminders = []
+  await workflow.restore({
+    channels: {
+      fetch: async () => ({
+        isTextBased: () => true,
+        send: async (payload) => reminders.push(payload),
+      }),
+    },
+  })
+  await new Promise((resolve) => setImmediate(resolve))
+
+  assert.equal(reminders.length, 1)
+  assert.match(reminders[0].content, /Please join <#voice-1> at this time\./)
   workflow.stop()
 })

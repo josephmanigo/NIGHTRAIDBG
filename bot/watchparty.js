@@ -11,6 +11,7 @@ import {
   ApplicationCommandOptionType,
   ButtonBuilder,
   ButtonStyle,
+  ChannelType,
   EmbedBuilder,
   Events,
   MessageFlags,
@@ -36,6 +37,13 @@ export const WATCHPARTY_COMMAND = Object.freeze({
       name: 'time',
       description: 'Optional: in 30m, 8:30 PM, 2026-08-08 20:30, or a Discord timestamp.',
       required: false,
+    },
+    {
+      type: ApplicationCommandOptionType.Channel,
+      name: 'voice_channel',
+      description: 'Voice channel where everyone should meet for the watch party.',
+      required: false,
+      channelTypes: [ChannelType.GuildVoice, ChannelType.GuildStageVoice],
     },
   ],
 })
@@ -184,6 +192,21 @@ function scheduledValue(scheduledFor) {
   return `<t:${unix}:F>\n<t:${unix}:R>`
 }
 
+function voiceChannelValue(voiceChannelId) {
+  return voiceChannelId ? `<#${voiceChannelId}>` : 'Not selected'
+}
+
+function watchpartyContent(party) {
+  const heading = party.status === 'started'
+    ? `**${party.title}** watch party has started`
+    : `**${party.title}** watch party`
+  if (!party.voiceChannelId) return heading
+  const meetingTime = party.scheduledFor
+    ? `<t:${Math.floor(new Date(party.scheduledFor).getTime() / 1000)}:F>`
+    : 'when the host starts'
+  return `${heading}\nPlease join <#${party.voiceChannelId}> ${meetingTime === 'when the host starts' ? meetingTime : `at ${meetingTime}`}.`
+}
+
 export function createWatchpartyEmbed(party) {
   const guestCount = party.participantIds.length
   const started = party.status === 'started'
@@ -201,6 +224,7 @@ export function createWatchpartyEmbed(party) {
       { name: 'Guests', value: `${guestCount} ${guestCount === 1 ? 'member' : 'members'} joined`, inline: true },
       { name: 'Status', value: started ? 'Started' : 'Open for guests', inline: true },
       { name: 'Scheduled for', value: scheduledValue(party.scheduledFor), inline: false },
+      { name: 'Voice channel', value: voiceChannelValue(party.voiceChannelId), inline: false },
     )
     .setFooter({ text: 'NIGHTRAID Watch Party · MoviBox' })
 
@@ -227,7 +251,7 @@ export function createWatchpartyEmbed(party) {
   )
 
   return {
-    content: started ? `**${party.title}** watch party has started` : `**${party.title}** watch party`,
+    content: watchpartyContent(party),
     embeds: [embed],
     components: [new ActionRowBuilder().addComponents(...rows)],
     allowedMentions: { parse: [] },
@@ -268,8 +292,9 @@ export function createWatchpartyWorkflow(options = {}) {
       if (!current || current.status !== 'open' || current.reminderSentAt) return
       const channel = await client.channels.fetch(current.channelId).catch(() => null)
       if (channel?.isTextBased?.()) {
+        const voiceInvitation = current.voiceChannelId ? ` Please join <#${current.voiceChannelId}> at this time.` : ''
         await channel.send({
-          content: `<@${current.hostId}>, **${current.title}** is scheduled now. Use **Start Watch Party** when the room is ready.`,
+          content: `<@${current.hostId}>, **${current.title}** is scheduled now.${voiceInvitation} Use **Start Watch Party** when the room is ready.`,
           allowedMentions: { parse: [], users: [current.hostId] },
         }).catch(() => null)
       }
@@ -284,7 +309,7 @@ export function createWatchpartyWorkflow(options = {}) {
     }
   }
 
-  async function createParty({ query, timeInput, user, guildId, channelId, reply, errorReply, fetchReply }, client) {
+  async function createParty({ query, timeInput, voiceChannel, user, guildId, channelId, reply, errorReply, fetchReply }, client) {
     const parsed = parseWatchpartyQuery(query)
     if (!parsed) {
       await errorReply('Please provide a valid movie title or direct movie link.')
@@ -302,6 +327,7 @@ export function createWatchpartyWorkflow(options = {}) {
       id: createId(),
       guildId,
       channelId,
+      voiceChannelId: voiceChannel?.id || null,
       messageId: null,
       hostId: user.id,
       title: parsed.title,
@@ -335,6 +361,7 @@ export function createWatchpartyWorkflow(options = {}) {
     return createParty({
       query,
       timeInput,
+      voiceChannel: null,
       user: message.author,
       guildId: message.guildId,
       channelId: message.channelId,
@@ -390,9 +417,10 @@ export function createWatchpartyWorkflow(options = {}) {
     await interaction.update(createWatchpartyEmbed(started))
 
     const mentions = started.participantIds.map((id) => `<@${id}>`).join(' ')
+    const voiceInvitation = started.voiceChannelId ? ` Please join <#${started.voiceChannelId}>.` : ''
     const announcement = mentions
-      ? `**${started.title}** is starting now.\n${mentions}`
-      : `**${started.title}** is starting now. The room is open.`
+      ? `**${started.title}** is starting now.${voiceInvitation}\n${mentions}`
+      : `**${started.title}** is starting now. The room is open.${voiceInvitation}`
     await interaction.channel?.send({
       content: announcement,
       allowedMentions: { parse: [], users: started.participantIds },
@@ -410,6 +438,7 @@ export function createWatchpartyWorkflow(options = {}) {
     return createParty({
       query: interaction.options.getString('query', true),
       timeInput: interaction.options.getString('time') || '',
+      voiceChannel: interaction.options.getChannel('voice_channel'),
       user: interaction.user,
       guildId: interaction.guildId,
       channelId: interaction.channelId,
