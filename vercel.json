@@ -27,6 +27,7 @@
     { "source": "/apply", "destination": "/index.html" },
     { "source": "/application/status", "destination": "/index.html" },
     { "source": "/admin/login", "destination": "/index.html" },
-    { "source": "/admin/applications", "destination": "/index.html" }
+    { "source": "/admin/applications", "destination": "/index.html" },
+    { "source": "/admin/discord-bot", "destination": "/index.html" }
   ]
 }

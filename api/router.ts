@@ -13,6 +13,7 @@ import syncExcel from '../handlers/admin/applications/sync-excel.js'
 import deactivateBan from '../handlers/admin/bans/[id]/deactivate.js'
 import createBan from '../handlers/admin/bans/index.js'
 import security from '../handlers/admin/security.js'
+import botDashboard from '../handlers/admin/bot-dashboard.js'
 import discordCallback from '../handlers/auth/discord/callback.js'
 import discordLogin from '../handlers/auth/discord/index.js'
 import logout from '../handlers/auth/logout.js'
@@ -34,6 +35,7 @@ const routes: Record<string, Handler> = {
   'admin/applications/sync-excel': syncExcel,
   'admin/bans': createBan,
   'admin/security': security,
+  'admin/bot-dashboard': botDashboard,
   'auth/discord': discordLogin,
   'auth/discord/callback': discordCallback,
   'auth/logout': logout,

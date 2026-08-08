@@ -194,6 +194,57 @@ type RateLimitBucketRow = {
   updated_at: string
 }
 
+export type DiscordBotSettingsRow = {
+  guild_id: string
+  disabled_commands: string[]
+  module_settings: Json
+  presence_text: string
+  presence_status: string
+  presence_activity_type: string
+  updated_by: string | null
+  updated_at: string
+}
+
+export type DiscordCustomCommandRow = {
+  id: string
+  guild_id: string
+  name: string
+  description: string
+  response: string
+  ephemeral: boolean
+  enabled: boolean
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type DiscordTrackerProfileRow = {
+  id: string
+  guild_id: string
+  channel_id: string
+  platform: string
+  profile_url: string
+  username: string
+  live_notifications: boolean
+  upload_notifications: boolean
+  enabled: boolean
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type DiscordBotStatusRow = {
+  guild_id: string
+  bot_user_id: string | null
+  bot_tag: string | null
+  state: string
+  command_count: number
+  tracker_count: number
+  configuration_updated_at: string | null
+  last_error: string | null
+  last_seen_at: string
+}
+
 export type Database = {
   public: {
     Tables: {
@@ -411,6 +462,38 @@ export type Database = {
         Row: RateLimitBucketRow
         Insert: RateLimitBucketRow
         Update: Partial<RateLimitBucketRow>
+        Relationships: []
+      }
+      discord_bot_settings: {
+        Row: DiscordBotSettingsRow
+        Insert: Omit<DiscordBotSettingsRow, 'updated_at'> & { updated_at?: string }
+        Update: Partial<DiscordBotSettingsRow>
+        Relationships: []
+      }
+      discord_custom_commands: {
+        Row: DiscordCustomCommandRow
+        Insert: Omit<DiscordCustomCommandRow, 'id' | 'created_at' | 'updated_at'> & {
+          id?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<DiscordCustomCommandRow>
+        Relationships: []
+      }
+      discord_tracker_profiles: {
+        Row: DiscordTrackerProfileRow
+        Insert: Omit<DiscordTrackerProfileRow, 'id' | 'created_at' | 'updated_at'> & {
+          id?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: Partial<DiscordTrackerProfileRow>
+        Relationships: []
+      }
+      discord_bot_status: {
+        Row: DiscordBotStatusRow
+        Insert: Omit<DiscordBotStatusRow, 'last_seen_at'> & { last_seen_at?: string }
+        Update: Partial<DiscordBotStatusRow>
         Relationships: []
       }
     }

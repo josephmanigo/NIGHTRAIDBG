@@ -18,6 +18,7 @@ import ApplyPage from './components/ApplyPage'
 import ApplicationStatusPage from './components/ApplicationStatusPage'
 import AdminLoginPage from './components/AdminLoginPage'
 import AdminApplicationsPage from './components/AdminApplicationsPage'
+import AdminDiscordBotPage from './components/AdminDiscordBotPage'
 import Footer from './components/Footer'
 
 export default function App() {
@@ -25,6 +26,7 @@ export default function App() {
   if (window.location.pathname === '/application/status') return <ApplicationStatusPage />
   if (window.location.pathname === '/admin/login') return <AdminLoginPage />
   if (window.location.pathname === '/admin/applications') return <AdminApplicationsPage />
+  if (window.location.pathname === '/admin/discord-bot') return <AdminDiscordBotPage />
   return <MarketingSite />
 }
 

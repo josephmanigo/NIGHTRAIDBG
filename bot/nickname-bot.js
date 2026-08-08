@@ -84,6 +84,7 @@ import { formatNickname } from './name-format.js'
 import { containsLinkKeyword, NIGHTRAID_SERVER_INVITE_URL } from './server-link.js'
 import { containsJoinNRKeyword, formatJoinNRReply, fetchAndFormatJoinNRReply } from './join-nr.js'
 import { installScrimAutomation } from './scrim-automation.js'
+import { createDiscordBotDashboardService } from './dashboard-service.js'
 
 const required = (name) => {
   const value = process.env[name]?.trim()
@@ -526,6 +527,17 @@ installLiveWorkflow(client, {
 const trackerWorkflow = installCreatorTracker(client, {
   errorReporter: gameResultsErrorReporter,
 })
+const botDashboard = createDiscordBotDashboardService({
+  client,
+  guildId: GUILD_ID,
+  commandDefinitions: COMMAND_DEFINITIONS,
+  trackerWorkflow,
+})
+client.on(Events.InteractionCreate, (interaction) => {
+  botDashboard.handleInteraction(interaction).catch((reason) => {
+    gameResultsErrorReporter.report('bot_dashboard_custom_command', reason)
+  })
+})
 installGameResultsHealthWorkflow(client, {
   store: gameResultsStore,
   sheetClient: gameResultsSheetClient,
@@ -553,7 +565,7 @@ client.once(Events.ClientReady, async (readyClient) => {
   console.log(`Nickname bot connected as ${readyClient.user.tag}. Watching channel ${NICKNAME_CHANNEL_ID}.`)
 
   if (!GUILD_ID) {
-    console.warn('DISCORD_GUILD_ID is missing, so the /rules command cannot be registered.')
+    console.warn('DISCORD_GUILD_ID is missing, so the bot dashboard and slash commands cannot start.')
     return
   }
 
@@ -563,17 +575,20 @@ client.once(Events.ClientReady, async (readyClient) => {
   }
 
   try {
-    const guild = await readyClient.guilds.fetch(GUILD_ID)
     const commandNames = COMMAND_DEFINITIONS.map((command) => command.name)
     if (new Set(commandNames).size !== commandNames.length) {
       throw new Error('Duplicate command names were found in COMMAND_DEFINITIONS.')
     }
-    await guild.commands.set(COMMAND_DEFINITIONS)
-    console.log(
-      `${COMMAND_DEFINITIONS.map((command) => `/${command.name}`).join(', ')} registered in ${guild.name}.`,
-    )
+    await botDashboard.start(readyClient)
   } catch (reason) {
-    console.error('Could not register NIGHTRAID commands:', reason instanceof Error ? reason.message : reason)
+    console.error('Could not start the bot dashboard:', reason instanceof Error ? reason.message : reason)
+    try {
+      const guild = await readyClient.guilds.fetch(GUILD_ID)
+      await guild.commands.set(COMMAND_DEFINITIONS)
+      console.log(`Dashboard fallback registered ${COMMAND_DEFINITIONS.length} commands in ${guild.name}.`)
+    } catch (fallbackReason) {
+      console.error('Could not register NIGHTRAID commands:', fallbackReason instanceof Error ? fallbackReason.message : fallbackReason)
+    }
   }
 })
 

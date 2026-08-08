@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertCircle, Ban, Check, History, LogOut, MessageCircle, RefreshCw, ShieldAlert, UserRoundX, X } from 'lucide-react'
+import { AlertCircle, Ban, Bot, Check, History, LogOut, RefreshCw, ShieldAlert, UserRoundX, X } from 'lucide-react'
 import PortalShell from './PortalShell'
 
 interface AdminSession {
@@ -276,32 +276,6 @@ export default function AdminApplicationsPage() {
     }
   }
 
-  const retryMessenger = async () => {
-    if (!selected || acting) return
-    setActing(true)
-    setError('')
-    setNotice('')
-    try {
-      const response = await fetch(`/api/admin/applications/${selected.id}/retry-messenger`, {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: '{}',
-      })
-      if (!(response.headers.get('content-type') || '').includes('application/json')) {
-        throw new Error('The server API returned an invalid response.')
-      }
-      const payload = (await response.json()) as { message?: string }
-      await loadApplications()
-      if (!response.ok) throw new Error(payload.message || 'Messenger notification could not be retried.')
-      setNotice(payload.message || 'Messenger notification delivered.')
-    } catch (reasonValue) {
-      setError(requestError(reasonValue, 'Messenger notification could not be retried.'))
-    } finally {
-      setActing(false)
-    }
-  }
-
   const removeMember = async () => {
     if (!selected || acting) return
     const answer = window.prompt(`Why is ${selected.in_game_name} being removed from NIGHTRAID?`)
@@ -406,14 +380,20 @@ export default function AdminApplicationsPage() {
       kicker="Review complete applications and record the final NIGHTRAID administrator decision."
       showHeaderDivider={false}
       headerAction={(
-        <button
-          type="button"
-          disabled={acting}
-          onClick={() => void logout()}
-          className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.12em] text-bone/55 transition-colors hover:text-blood disabled:cursor-wait disabled:opacity-40"
-        >
-          <LogOut className="h-4 w-4" /> Logout
-        </button>
+        <div className="flex items-center gap-4 sm:gap-6">
+          <a href="/admin/discord-bot" className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.12em] text-bone/55 transition-colors hover:text-[#8993ff]" aria-label="Open Discord bot dashboard">
+            <Bot className="h-4 w-4" /> <span className="hidden sm:inline">Discord bot</span>
+          </a>
+          <span className="h-4 w-px bg-bone/15" />
+          <button
+            type="button"
+            disabled={acting}
+            onClick={() => void logout()}
+            className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.12em] text-bone/55 transition-colors hover:text-blood disabled:cursor-wait disabled:opacity-40"
+          >
+            <LogOut className="h-4 w-4" /> Logout
+          </button>
+        </div>
       )}
     >
       {loading ? (
@@ -470,7 +450,7 @@ export default function AdminApplicationsPage() {
                       <Ban className="h-3.5 w-3.5" /> Ban selected
                     </button>
                   </div>
-                  <div className="mt-4 max-h-64 space-y-2 overflow-y-auto pr-1">
+                  <div className="no-scrollbar mt-4 max-h-64 space-y-2 overflow-y-auto pr-1">
                     {securityData?.bans.filter((ban) => ban.is_active).map((ban) => (
                       <div key={ban.id} className="rounded-xl border border-white/10 bg-white/[0.025] p-4 backdrop-blur-xl">
                         <div className="flex items-start justify-between gap-3">
@@ -490,7 +470,7 @@ export default function AdminApplicationsPage() {
 
                 <div>
                   <p className="flex items-center gap-2 ln-label text-[0.5rem] text-bone/45"><History className="h-3.5 w-3.5" /> Recent audit history</p>
-                  <div className="mt-4 max-h-64 space-y-2 overflow-y-auto pr-1">
+                  <div className="no-scrollbar mt-4 max-h-64 space-y-2 overflow-y-auto pr-1">
                     {securityData?.auditLogs.slice(0, 30).map((entry) => (
                       <div key={entry.id} className="flex items-start justify-between gap-4 rounded-xl border border-white/10 bg-white/[0.025] p-3 backdrop-blur-xl">
                         <div className="min-w-0">
@@ -521,7 +501,7 @@ export default function AdminApplicationsPage() {
             <div className="rounded-[2rem] border border-bone/10 bg-black/30 p-10 text-center text-sm text-bone/45">There are no applications yet.</div>
           ) : (
             <div className="grid min-w-0 gap-5 lg:grid-cols-[22rem_minmax(0,1fr)]">
-              <div className="max-h-[48rem] space-y-2 overflow-y-auto pr-1">
+              <div className="no-scrollbar max-h-[48rem] space-y-2 overflow-y-auto pr-1">
                 {applications.map((application) => {
                   const active = application.id === selectedId
                   return (
@@ -584,29 +564,6 @@ export default function AdminApplicationsPage() {
                       )}
                       {selected.discord_onboarding_error && (
                         <p className="mt-3 rounded-xl border border-white/10 bg-black/20 p-3 text-xs leading-relaxed text-bone/55">{selected.discord_onboarding_error}</p>
-                      )}
-                    </div>
-
-                    <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.035] p-5 backdrop-blur-2xl">
-                      <div className="flex flex-wrap items-start justify-between gap-4">
-                        <div>
-                          <p className="flex items-center gap-2 ln-label text-[0.52rem] text-bone/40"><MessageCircle className="h-3.5 w-3.5" /> Messenger notification</p>
-                          <p className="mt-3 text-sm font-bold uppercase tracking-[0.08em] text-bone">{readable(selected.messenger_notification_status)}</p>
-                        </div>
-                        {selected.messenger_message_ids.length > 0 && (
-                          <span className="rounded-full border border-white/10 px-3 py-1.5 text-[0.55rem] font-bold uppercase tracking-[0.1em] text-bone/45">{selected.messenger_message_ids.length} messages</span>
-                        )}
-                      </div>
-                      {selected.messenger_notified_at && (
-                        <p className="mt-2 text-xs text-bone/35">Delivered {new Date(selected.messenger_notified_at).toLocaleString()}</p>
-                      )}
-                      {selected.messenger_notification_error && (
-                        <p className="mt-3 break-words rounded-xl border border-white/10 bg-black/20 p-3 text-xs leading-relaxed text-bone/55">{selected.messenger_notification_error}</p>
-                      )}
-                      {selected.status === 'PENDING_REVIEW' && ['NOT_STARTED', 'FAILED'].includes(selected.messenger_notification_status) && (
-                        <button type="button" disabled={acting} onClick={() => void retryMessenger()} className="mt-4 inline-flex h-10 items-center gap-2 rounded-full border border-sky-300/30 px-5 text-[0.6rem] font-extrabold uppercase tracking-[0.12em] text-sky-200 transition-colors hover:bg-sky-300 hover:text-black disabled:opacity-50">
-                          <RefreshCw className="h-3.5 w-3.5" /> Retry Messenger
-                        </button>
                       )}
                     </div>
 

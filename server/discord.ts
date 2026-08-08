@@ -31,7 +31,7 @@ interface DiscordMessage {
 }
 
 const DISCORD_API = 'https://discord.com/api/v10'
-export const MESSENGER_GROUP_CHAT_URL = 'https://m.me/ch/AbaeMdWdMHYbxpIE/'
+export const MESSENGER_GROUP_CHAT_URL = 'https://m.me/ch/AbbfW0BH7yFAYoMR/'
 export const DISCORD_NICKNAME_SERVER_URL = 'https://discord.gg/Ay8uSSJS3N'
 export const NIGHTRAID_CLAN_TAG = '\u119E\u6697NR'
 
