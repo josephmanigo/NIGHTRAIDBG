@@ -233,6 +233,8 @@ test('notification cards use plain text without emoji decorations', () => {
   assert.equal(ended.content, '**Creator** stream ended')
   assert.equal(ended.embeds[0].data.title, 'creator was live on TikTok')
   assert.doesNotMatch(ended.embeds[0].data.title, /\bis live\b/i)
+  assert.equal(ended.embeds[0].data.author.icon_url, undefined)
+  assert.equal(ended.embeds[0].data.image, undefined)
 })
 
 test('TikTok command checks and background polls share one in-flight request and short cache', async () => {
