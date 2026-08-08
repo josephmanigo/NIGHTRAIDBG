@@ -8,12 +8,13 @@ Nighty is NIGHTRAID's original persistent collecting and economy game. It uses o
 2. Apply [`database/phase20.sql`](database/phase20.sql) after Phase 19.
 3. Apply [`database/phase21.sql`](database/phase21.sql) after Phase 20.
 4. Apply [`database/phase22.sql`](database/phase22.sql) after Phase 21.
-5. Keep `SUPABASE_URL` and `SUPABASE_SECRET_KEY` configured for the Discord bot.
-6. Optionally set `NIGHTY_TIME_ZONE` (defaults to `Asia/Manila`).
-7. Optionally set `NIGHTY_ADMIN_ROLE_IDS` to comma-separated Discord role IDs.
-8. Deploy or restart `npm run bot:nickname`.
+5. Apply [`database/phase23.sql`](database/phase23.sql) after Phase 22.
+6. Keep `SUPABASE_URL` and `SUPABASE_SECRET_KEY` configured for the Discord bot.
+7. Optionally set `NIGHTY_TIME_ZONE` (defaults to `Asia/Manila`).
+8. Optionally set `NIGHTY_ADMIN_ROLE_IDS` to comma-separated Discord role IDs.
+9. Deploy or restart `npm run bot:nickname`.
 
-The migrations enable row-level security, restrict all Nighty tables and economy functions to the Supabase service role, and record currency changes in `nighty_ledger`. Phase 20 adds atomic combat wagers, trades, and market escrow. Phase 21 adds duplicate-safe game settlement, cooldowns, statistics, and escrowed interactive sessions. Phase 22 adds protected economy administration and audit history.
+The migrations enable row-level security, restrict all Nighty tables and economy functions to the Supabase service role, and record currency changes in `nighty_ledger`. Phase 20 adds atomic combat wagers, trades, and market escrow. Phase 21 adds duplicate-safe game settlement, cooldowns, statistics, and escrowed interactive sessions. Phase 22 adds protected economy administration and audit history. Phase 23 enables explicit all-in wagers for existing installations.
 
 ## Phase 1 commands
 
@@ -48,18 +49,18 @@ PvP challenges expire after two minutes and only the challenged player can accep
 
 ## Phase 3 commands
 
-- `nighty slots <bet>`
-- `nighty coinflip <heads|tails> <bet>`
-- `nighty blackjack <bet>`
-- `nighty trivia`
-- `nighty fish`
-- `nighty dungeon`
-- `nighty boss`
-- `nighty word`
-- `nighty word <answer>`
+- `nighty sl <bet|all>` — slots
+- `nighty cf <heads|tails> <bet|all>` — coin flip
+- `nighty bj <bet|all>` — blackjack
+- `nighty tr` — trivia
+- `nighty f` — fishing
+- `nighty dg` — dungeon
+- `nighty bf` — boss fight
+- `nighty wg` — word scramble
+- `nighty wg <answer>` — answer a word scramble
 - `nighty stats`
 
-Casino bets must be between **1,000** and **1,000,000 Night Currency**. Blackjack wagers are escrowed when the hand starts and its Hit/Stand buttons expire after three minutes. Trivia answer buttons expire after 45 seconds. Word scrambles expire after 90 seconds. Fishing, dungeon raids, and boss fights use separate cooldowns, and dungeon/boss power comes from the player's strongest owned NIGHTRAID character.
+The full command names still work. Numeric casino bets must be between **1,000** and **1,000,000 Night Currency**. Use `all` to wager the player's complete current balance, such as `nighty bj all`, `nighty sl all`, or `nighty cf heads all`. PvP also accepts `nighty pvp @player all`. Blackjack displays Unicode card faces, keeps the dealer's second card hidden until resolution, and retains Hit/Stand buttons while the hand is active. Wagers are escrowed when the hand starts and expire after three minutes. Trivia answer buttons expire after 45 seconds. Word scrambles expire after 90 seconds. Fishing, dungeon raids, and boss fights use separate cooldowns, and dungeon/boss power comes from the player's strongest owned NIGHTRAID character.
 
 Every completed game advances the `daily_games` and `weekly_games` missions. Positive net winnings also advance the weekly currency mission. Replayed Discord messages and repeated button presses cannot pay twice.
 

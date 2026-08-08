@@ -12,7 +12,13 @@ import {
   selectNightyCharacter,
 } from './nighty-data.js'
 import { MemoryNightyStore } from './nighty-store.js'
-import { createNightyWorkflow, parseNightyButtonId, parseNightyCommand, parseNightyGameButtonId } from './nighty.js'
+import {
+  blackjackCardFace,
+  createNightyWorkflow,
+  parseNightyButtonId,
+  parseNightyCommand,
+  parseNightyGameButtonId,
+} from './nighty.js'
 import { spinNightySlots } from './nighty-games.js'
 
 function mockMessage(content, {
@@ -91,6 +97,14 @@ test('Nighty uses text prefixes and command aliases without slash commands', () 
   assert.deepEqual(parseNightyCommand('nighty hunt'), { prefix: 'nighty', command: 'hunt', args: [] })
   assert.deepEqual(parseNightyCommand('NIGHT CASH'), { prefix: 'night', command: 'balance', args: [] })
   assert.deepEqual(parseNightyCommand('nighty inventory'), { prefix: 'nighty', command: 'collection', args: [] })
+  assert.deepEqual(parseNightyCommand('nighty cf heads all'), { prefix: 'nighty', command: 'coinflip', args: ['heads', 'all'] })
+  assert.deepEqual(parseNightyCommand('nighty bj all'), { prefix: 'nighty', command: 'blackjack', args: ['all'] })
+  assert.equal(parseNightyCommand('nighty sl 10k').command, 'slots')
+  assert.equal(parseNightyCommand('nighty tr').command, 'trivia')
+  assert.equal(parseNightyCommand('nighty f').command, 'fish')
+  assert.equal(parseNightyCommand('nighty dg').command, 'dungeon')
+  assert.equal(parseNightyCommand('nighty bf').command, 'boss')
+  assert.equal(parseNightyCommand('nighty wg').command, 'word')
   assert.deepEqual(parseNightyCommand('/nighty hunt'), null)
   assert.deepEqual(parseNightyCommand('good night'), null)
 })
@@ -338,6 +352,81 @@ test('slots and coin flip settle chosen bets exactly once', async () => {
   const stats = await store.getGameStats({ guildId: 'guild-1', userId: playerId })
   assert.equal(stats.find((row) => row.gameType === 'slots').plays, 1)
   assert.equal(stats.find((row) => row.gameType === 'coinflip').wins, 1)
+})
+
+test('casino aliases accept true all-in wagers while numeric bets keep their cap', async () => {
+  const playerId = '11111111111111111'
+  const slotRolls = [0, 0.2, 0.4]
+  const slots = makeWorkflow({ random: () => slotRolls.shift() ?? 0 })
+  const slotMessage = mockMessage('nighty sl all', { id: 'slots-all', userId: playerId })
+  await slots.workflow.handleMessage(slotMessage)
+  assert.equal((await slots.store.getPlayer({ guildId: 'guild-1', userId: playerId })).balance, 0)
+  assert.match(JSON.stringify(embedData(slotMessage)), /1,000,000 Night Currency/)
+
+  const coin = makeWorkflow({ random: () => 0 })
+  await coin.workflow.handleMessage(mockMessage('nighty cf heads all', { id: 'coin-all', userId: playerId }))
+  assert.equal((await coin.store.getPlayer({ guildId: 'guild-1', userId: playerId })).balance, 2_000_000)
+
+  const capped = makeWorkflow({ random: () => 0 })
+  const cappedMessage = mockMessage('nighty sl 2m', { id: 'slots-capped', userId: playerId })
+  await capped.workflow.handleMessage(cappedMessage)
+  assert.match(embedData(cappedMessage).description, /Numeric bets must be between/)
+  assert.equal((await capped.store.getPlayer({ guildId: 'guild-1', userId: playerId })).balance, 1_000_000)
+})
+
+test('blackjack alias escrows the complete balance when using all', async () => {
+  const playerId = '11111111111111111'
+  const { workflow, store } = makeWorkflow({ random: () => 0 })
+  await workflow.handleMessage(mockMessage('nighty bj all', { id: 'blackjack-all', userId: playerId }))
+  assert.equal((await store.getPlayer({ guildId: 'guild-1', userId: playerId })).balance, 0)
+  const stand = mockButton('nighty:blackjack:stand:33333333-3333-4333-8333-333333333333', playerId)
+  await workflow.handleInteraction(stand)
+  assert.equal((await store.getPlayer({ guildId: 'guild-1', userId: playerId })).balance, 2_500_000)
+})
+
+test('blackjack displays card faces and keeps Hit and Stand after drawing', async () => {
+  const playerId = '11111111111111111'
+  const { workflow } = makeWorkflow({
+    createBlackjack: () => ({
+      deck: ['9♣', '6♥'],
+      player: ['2♠', '3♠'],
+      dealer: ['4♦', '5♣'],
+    }),
+  })
+  assert.equal(blackjackCardFace('A♠'), '🂡')
+  assert.equal(blackjackCardFace('K♥'), '🂾')
+
+  const start = mockMessage('nighty bj 100k', { id: 'blackjack-cards', userId: playerId })
+  await workflow.handleMessage(start)
+  const opening = embedData(start).description
+  assert.match(opening, /Dealer \[4 \+ \?\]/)
+  assert.match(opening, /🃄　🂠/)
+  assert.match(opening, /You \[5\]/)
+  assert.match(opening, /🂢　🂣/)
+  assert.deepEqual(
+    start.state.replies[0].components[0].components.map((button) => button.data.label),
+    ['Hit', 'Stand'],
+  )
+
+  const hit = mockButton('nighty:blackjack:hit:33333333-3333-4333-8333-333333333333', playerId)
+  await workflow.handleInteraction(hit)
+  const updated = hit.state.updates[0]
+  assert.match(updated.embeds[0].data.description, /You \[11\]/)
+  assert.match(updated.embeds[0].data.description, /🂶/)
+  assert.deepEqual(updated.components[0].components.map((button) => button.data.label), ['Hit', 'Stand'])
+})
+
+test('PvP accepts all as the challenger wager and still requires acceptance', async () => {
+  const challengerId = '11111111111111111'
+  const opponentId = '22222222222222222'
+  const { workflow, store } = makeWorkflow({ random: () => 0 })
+  await workflow.handleMessage(mockMessage('nighty balance', { id: 'pvp-all-profile-1', userId: challengerId }))
+  await workflow.handleMessage(mockMessage('nighty balance', { id: 'pvp-all-profile-2', userId: opponentId }))
+  await workflow.handleMessage(mockMessage(`nighty pvp <@${opponentId}> all`, { id: 'pvp-all', userId: challengerId }))
+  const accept = mockButton('nighty:pvp:accept:11111111-1111-4111-8111-111111111111', opponentId)
+  await workflow.handleInteraction(accept)
+  assert.equal((await store.getPlayer({ guildId: 'guild-1', userId: challengerId })).balance, 2_000_000)
+  assert.equal((await store.getPlayer({ guildId: 'guild-1', userId: opponentId })).balance, 0)
 })
 
 test('blackjack escrows the wager and pays a completed button-controlled hand once', async () => {
@@ -601,4 +690,13 @@ test('Phase 22 migration protects audited economy administration', () => {
   assert.match(sql, /unique \(guild_id, action_id\)/)
   assert.match(sql, /v_after < 0/)
   assert.match(sql, /grant execute on function public\.nighty_admin_adjust_balance/)
+})
+
+test('Phase 23 migration enables explicit all-in game wagers for existing installs', () => {
+  const sql = fs.readFileSync(path.join(process.cwd(), 'database', 'phase23.sql'), 'utf8')
+  assert.match(sql, /create or replace function public\.nighty_record_game_result/)
+  assert.match(sql, /create or replace function public\.nighty_start_game_session/)
+  assert.match(sql, /p_game_type in \('slots', 'coinflip'\) and p_wager < 1000/)
+  assert.doesNotMatch(sql, /p_wager > 1000000/)
+  assert.match(sql, /grant execute on function public\.nighty_record_game_result/)
 })

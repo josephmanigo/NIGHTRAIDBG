@@ -102,8 +102,8 @@ begin
     or length(p_action_id) < 1 then
     raise exception 'Invalid Nighty game result.';
   end if;
-  if p_game_type in ('slots', 'coinflip') and (p_wager < 1000 or p_wager > 1000000) then
-    raise exception 'Nighty wager must be between 1,000 and 1,000,000.';
+  if p_game_type in ('slots', 'coinflip') and p_wager < 1000 then
+    raise exception 'Nighty wager must be at least 1,000.';
   end if;
   if p_game_type in ('fishing', 'dungeon', 'boss') and p_wager <> 0 then
     raise exception 'This Nighty game does not accept a wager.';
@@ -206,8 +206,8 @@ begin
     or p_wager < 0 or p_expires_at <= now() or p_state is null then
     raise exception 'Invalid Nighty game session.';
   end if;
-  if p_game_type = 'blackjack' and (p_wager < 1000 or p_wager > 1000000) then
-    raise exception 'Nighty blackjack wager must be between 1,000 and 1,000,000.';
+  if p_game_type = 'blackjack' and p_wager < 1000 then
+    raise exception 'Nighty blackjack wager must be at least 1,000.';
   end if;
   if p_game_type in ('trivia', 'word') and p_wager <> 0 then
     raise exception 'This Nighty game does not accept a wager.';

@@ -5,7 +5,7 @@ import {
   NIGHTY_STARTING_BALANCE,
 } from './nighty-data.js'
 
-const MIGRATION_FILES = 'database/phase19.sql through database/phase22.sql'
+const MIGRATION_FILES = 'database/phase19.sql through database/phase23.sql'
 
 function requiredEnvironment(name) {
   const value = process.env[name]?.trim()

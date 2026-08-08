@@ -79,14 +79,22 @@ const COMMAND_ALIASES = Object.freeze({
   fight: 'battle',
   duel: 'pvp',
   sell: 'market_sell',
+  sl: 'slots',
   slot: 'slots',
+  cf: 'coinflip',
   coin: 'coinflip',
   flip: 'coinflip',
   bj: 'blackjack',
+  tr: 'trivia',
+  quiz: 'trivia',
+  f: 'fish',
   fishing: 'fish',
+  dg: 'dungeon',
   raid: 'dungeon',
   dungeons: 'dungeon',
+  bf: 'boss',
   bossfight: 'boss',
+  wg: 'word',
   words: 'word',
   games: 'game_help',
 })
@@ -137,6 +145,19 @@ function parseAdminAmount(value, allowZero = false) {
   const normalized = String(value || '').trim().replace(/,/g, '')
   if (allowZero && /^0+$/.test(normalized)) return 0
   return parseNightAmount(value)
+}
+
+function parseNightyWager(value, balance) {
+  if (String(value || '').trim().toLowerCase() === 'all') {
+    const amount = Math.trunc(Number(balance))
+    return Number.isSafeInteger(amount) && amount > 0 ? { amount, allIn: true } : null
+  }
+  const amount = parseNightAmount(value)
+  return amount ? { amount, allIn: false } : null
+}
+
+function validCasinoWager(wager) {
+  return Boolean(wager && (wager.allIn ? wager.amount >= NIGHTY_MIN_BET : validNightyBet(wager.amount)))
 }
 
 function withArt(embed) {
@@ -201,10 +222,10 @@ function helpPayload() {
     { name: 'Trading', value: '`nighty trade @player <character_id> <quantity> <total_price>`' },
     { name: 'Market', value: '`nighty market` · `nighty market sell <character_id> <quantity> <price>` · `nighty buy <listing_id>`' },
     { name: 'Missions', value: '`nighty missions` · `nighty claim <mission_id>` · `nighty claim all`' },
-    { name: 'Casino', value: '`nighty slots <bet>` · `nighty coinflip <heads|tails> <bet>` · `nighty blackjack <bet>`' },
-    { name: 'Quick games', value: '`nighty trivia` · `nighty fish` · `nighty word` · `nighty word <answer>`' },
-    { name: 'Raids', value: '`nighty dungeon` · `nighty boss`' },
-    { name: 'Game records', value: '`nighty stats` · wagers accept `1000`, `1,000`, `100k`, or `1m`' },
+    { name: 'Casino', value: '`nighty sl <bet>` · `nighty cf <heads|tails> <bet>` · `nighty bj <bet>`' },
+    { name: 'Quick games', value: '`nighty tr` · `nighty f` · `nighty wg` · `nighty wg <answer>`' },
+    { name: 'Raids', value: '`nighty dg` · `nighty bf`' },
+    { name: 'Game records', value: '`nighty stats` · bets accept `100k`, `1m`, or `all`' },
     { name: 'Rankings', value: '`nighty leaderboard` · `nighty games`' },
   )
   return withArt(embed)
@@ -213,10 +234,10 @@ function helpPayload() {
 function gameHelpPayload() {
   const embed = baseEmbed('Nighty Games', 'Eight persistent games share your Night Currency balance, missions, records, and duplicate-safe settlement.')
     .addFields(
-      { name: 'Casino', value: '`nighty slots <bet>`\n`nighty coinflip <heads|tails> <bet>`\n`nighty blackjack <bet>`' },
-      { name: 'Knowledge & collection', value: '`nighty trivia`\n`nighty word` then `nighty word <answer>`\n`nighty fish`' },
-      { name: 'Raids', value: '`nighty dungeon`\n`nighty boss`\nBoth use your strongest owned character.' },
-      { name: 'Limits', value: `Casino bets: ${formatNightCurrency(NIGHTY_MIN_BET)}–${formatNightCurrency(NIGHTY_MAX_BET)}.` },
+      { name: 'Casino', value: '`nighty sl <bet>` (slots)\n`nighty cf <heads|tails> <bet>` (coin flip)\n`nighty bj <bet>` (blackjack)' },
+      { name: 'Knowledge & collection', value: '`nighty tr` (trivia)\n`nighty wg` then `nighty wg <answer>` (word)\n`nighty f` (fishing)' },
+      { name: 'Raids', value: '`nighty dg` (dungeon)\n`nighty bf` (boss)\nBoth use your strongest owned character.' },
+      { name: 'Limits', value: `Numeric casino bets: ${formatNightCurrency(NIGHTY_MIN_BET)}–${formatNightCurrency(NIGHTY_MAX_BET)}. Use \`all\` to wager your full balance.` },
     )
   return withGamesArt(embed)
 }
@@ -501,9 +522,45 @@ function adventurePayload(gameType, adventure, result) {
 
 function blackjackButtons(id) {
   return [new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`nighty:blackjack:hit:${id}`).setLabel('Hit').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId(`nighty:blackjack:stand:${id}`).setLabel('Stand').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`nighty:blackjack:hit:${id}`).setLabel('Hit').setEmoji('➕').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(`nighty:blackjack:stand:${id}`).setLabel('Stand').setEmoji('✋').setStyle(ButtonStyle.Secondary),
   )]
+}
+
+const BLACKJACK_SUIT_BASE = Object.freeze({
+  '♠': 0x1F0A0,
+  '♥': 0x1F0B0,
+  '♦': 0x1F0C0,
+  '♣': 0x1F0D0,
+})
+
+const BLACKJACK_RANK_OFFSET = Object.freeze({
+  A: 1,
+  2: 2,
+  3: 3,
+  4: 4,
+  5: 5,
+  6: 6,
+  7: 7,
+  8: 8,
+  9: 9,
+  10: 10,
+  J: 11,
+  Q: 13,
+  K: 14,
+})
+
+export function blackjackCardFace(card) {
+  const value = String(card || '')
+  const suit = value.slice(-1)
+  const rank = value.slice(0, -1)
+  const base = BLACKJACK_SUIT_BASE[suit]
+  const offset = BLACKJACK_RANK_OFFSET[rank]
+  return base && offset ? String.fromCodePoint(base + offset) : '🂠'
+}
+
+function blackjackCardRow(cards) {
+  return cards.map(blackjackCardFace).join('　')
 }
 
 function blackjackPayload(session, resolved = null) {
@@ -511,15 +568,20 @@ function blackjackPayload(session, resolved = null) {
   const playerValue = blackjackHandValue(state.player)
   const dealerValue = blackjackHandValue(state.dealer)
   const active = !resolved && session.status === 'active'
-  const dealerCards = active ? `${state.dealer[0]}  🂠` : state.dealer.join('  ')
-  const description = active
-    ? `Your wager of **${formatNightCurrency(session.wager)}** is escrowed. Choose Hit or Stand.`
+  const visibleDealerCards = active ? [state.dealer[0]] : state.dealer
+  const visibleDealerValue = blackjackHandValue(visibleDealerCards)
+  const dealerCards = `${blackjackCardRow(visibleDealerCards)}${active ? '　🂠' : ''}`
+  const status = active
+    ? `Wager: **${formatNightCurrency(session.wager)}** · Choose **Hit** or **Stand**.`
     : `Result: **${String(resolved?.outcome || session.outcome || session.status).toUpperCase()}**.`
+  const description = [
+    `**Dealer [${active ? `${visibleDealerValue} + ?` : dealerValue}]**`,
+    `## ${dealerCards}`,
+    `**You [${playerValue}]**`,
+    `## ${blackjackCardRow(state.player)}`,
+    status,
+  ].join('\n')
   const embed = baseEmbed(active ? 'Nighty Blackjack' : 'Nighty Blackjack Result', description)
-    .addFields(
-      { name: `Your hand · ${playerValue}`, value: state.player.join('  '), inline: false },
-      { name: active ? 'Dealer · ?' : `Dealer · ${dealerValue}`, value: dealerCards, inline: false },
-    )
   if (!active) {
     embed.addFields(
       { name: 'Payout', value: formatNightCurrency(resolved?.payout || session.payout || 0), inline: true },
@@ -876,11 +938,12 @@ export function createNightyWorkflow(options = {}) {
     }
 
     if (parsed.command === 'slots') {
-      const wager = parseNightAmount(parsed.args[0])
-      if (!validNightyBet(wager)) {
-        await safeReply(message, marketResultPayload('Nighty Slots', `Usage: \`nighty slots <bet>\`. Bets must be between **${formatNightCurrency(NIGHTY_MIN_BET)}** and **${formatNightCurrency(NIGHTY_MAX_BET)}**.`))
+      const wagerInput = parseNightyWager(parsed.args[0], ensured.player.balance)
+      if (!validCasinoWager(wagerInput)) {
+        await safeReply(message, marketResultPayload('Nighty Slots', `Usage: \`nighty sl <bet|all>\`. Numeric bets must be between **${formatNightCurrency(NIGHTY_MIN_BET)}** and **${formatNightCurrency(NIGHTY_MAX_BET)}**.`))
         return { status: 'handled', command: 'slots', reason: 'invalid_bet' }
       }
+      const wager = wagerInput.amount
       const spin = spinNightySlots(random)
       const result = await store.recordGameResult({
         guildId,
@@ -901,11 +964,12 @@ export function createNightyWorkflow(options = {}) {
       const first = String(parsed.args[0] || '').toLowerCase()
       const second = String(parsed.args[1] || '').toLowerCase()
       const choice = ['heads', 'tails'].includes(first) ? first : ['heads', 'tails'].includes(second) ? second : null
-      const wager = parseNightAmount(choice === first ? parsed.args[1] : parsed.args[0])
-      if (!choice || !validNightyBet(wager)) {
-        await safeReply(message, marketResultPayload('Nighty Coin Flip', `Usage: \`nighty coinflip <heads|tails> <bet>\`. Bets must be between **${formatNightCurrency(NIGHTY_MIN_BET)}** and **${formatNightCurrency(NIGHTY_MAX_BET)}**.`))
+      const wagerInput = parseNightyWager(choice === first ? parsed.args[1] : parsed.args[0], ensured.player.balance)
+      if (!choice || !validCasinoWager(wagerInput)) {
+        await safeReply(message, marketResultPayload('Nighty Coin Flip', `Usage: \`nighty cf <heads|tails> <bet|all>\`. Numeric bets must be between **${formatNightCurrency(NIGHTY_MIN_BET)}** and **${formatNightCurrency(NIGHTY_MAX_BET)}**.`))
         return { status: 'handled', command: 'coinflip', reason: 'invalid_arguments' }
       }
+      const wager = wagerInput.amount
       const flip = flipNightyCoin(choice, random)
       const result = await store.recordGameResult({
         guildId,
@@ -923,11 +987,12 @@ export function createNightyWorkflow(options = {}) {
     }
 
     if (parsed.command === 'blackjack') {
-      const wager = parseNightAmount(parsed.args[0])
-      if (!validNightyBet(wager)) {
-        await safeReply(message, marketResultPayload('Nighty Blackjack', `Usage: \`nighty blackjack <bet>\`. Bets must be between **${formatNightCurrency(NIGHTY_MIN_BET)}** and **${formatNightCurrency(NIGHTY_MAX_BET)}**.`))
+      const wagerInput = parseNightyWager(parsed.args[0], ensured.player.balance)
+      if (!validCasinoWager(wagerInput)) {
+        await safeReply(message, marketResultPayload('Nighty Blackjack', `Usage: \`nighty bj <bet|all>\`. Numeric bets must be between **${formatNightCurrency(NIGHTY_MIN_BET)}** and **${formatNightCurrency(NIGHTY_MAX_BET)}**.`))
         return { status: 'handled', command: 'blackjack', reason: 'invalid_bet' }
       }
+      const wager = wagerInput.amount
       const session = await store.startGameSession({
         id: createGameId(),
         guildId,
@@ -1056,9 +1121,10 @@ export function createNightyWorkflow(options = {}) {
 
     if (parsed.command === 'pvp') {
       const opponentId = mentionedUserId(parsed.args[0])
-      const wager = parseNightAmount(parsed.args[1])
+      const wagerInput = parseNightyWager(parsed.args[1], ensured.player.balance)
+      const wager = wagerInput?.amount || null
       if (!opponentId || !wager) {
-        await safeReply(message, marketResultPayload('Nighty PvP', 'Usage: `nighty pvp @player <wager>` — for example `nighty pvp @player 100k`.'))
+        await safeReply(message, marketResultPayload('Nighty PvP', 'Usage: `nighty pvp @player <wager|all>` — for example `nighty pvp @player 100k`.'))
         return { status: 'handled', command: 'pvp', reason: 'invalid_arguments' }
       }
       if (opponentId === userId) {
