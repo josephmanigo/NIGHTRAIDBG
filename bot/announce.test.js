@@ -314,6 +314,40 @@ test('duplicate interaction with same ID is ignored and posted only once', async
   assert.equal(interaction.state.sent.length, 1)
 })
 
+test('Discord nonce prevents duplicate posts across separate bot workflows', async () => {
+  const deliveries = []
+  const target = {
+    id: CHANNEL_ID,
+    guildId: 'guild-1',
+    isTextBased: () => true,
+    send: async (payload) => {
+      const existing = deliveries.find((delivery) =>
+        payload.enforceNonce && delivery.payload.nonce === payload.nonce)
+      if (existing) return existing.message
+      const message = { id: `msg-${deliveries.length + 1}` }
+      deliveries.push({ payload, message })
+      return message
+    },
+  }
+  const workflowOptions = () => ({
+    administratorIds: new Set(['admin-1']),
+    handledInteractions: new Set(),
+    inFlightInteractions: new Set(),
+  })
+  const first = announceInteraction({ id: 'cross-process-int-100', target })
+  const second = announceInteraction({ id: 'cross-process-int-100', target })
+
+  const results = await Promise.all([
+    createAnnounceWorkflow(workflowOptions()).handleInteraction(first),
+    createAnnounceWorkflow(workflowOptions()).handleInteraction(second),
+  ])
+
+  assert.deepEqual(results.map((result) => result.status), ['posted', 'posted'])
+  assert.equal(deliveries.length, 1)
+  assert.equal(deliveries[0].payload.nonce, 'cross-process-int-100')
+  assert.equal(deliveries[0].payload.enforceNonce, true)
+})
+
 test('already replied or deferred interaction is ignored as duplicate', async () => {
   const workflow = createAnnounceWorkflow({ administratorIds: new Set(['admin-1']) })
   const interaction = announceInteraction({

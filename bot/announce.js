@@ -332,6 +332,7 @@ export function createAnnounceWorkflow(options = {}) {
       const posted = await target.send({
         content,
         allowedMentions: announcementMentions(mention),
+        ...(interactionId ? { nonce: interactionId, enforceNonce: true } : {}),
         ...(files.length > 0 ? { files } : {}),
         ...(components.length > 0 ? { components } : {}),
       })
