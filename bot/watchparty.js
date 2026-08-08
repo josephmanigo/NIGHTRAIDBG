@@ -34,8 +34,14 @@ export const WATCHPARTY_COMMAND = Object.freeze({
     },
     {
       type: ApplicationCommandOptionType.String,
+      name: 'date',
+      description: 'Optional date in YYYY-MM-DD format.',
+      required: false,
+    },
+    {
+      type: ApplicationCommandOptionType.String,
       name: 'time',
-      description: 'Optional: in 30m, 8:30 PM, 2026-08-08 20:30, or a Discord timestamp.',
+      description: 'Optional time: 8:30 PM, in 30m, or a Discord timestamp.',
       required: false,
     },
     {
@@ -309,17 +315,26 @@ export function createWatchpartyWorkflow(options = {}) {
     }
   }
 
-  async function createParty({ query, timeInput, voiceChannel, user, guildId, channelId, reply, errorReply, fetchReply }, client) {
+  async function createParty({ query, dateInput, timeInput, voiceChannel, user, guildId, channelId, reply, errorReply, fetchReply }, client) {
     const parsed = parseWatchpartyQuery(query)
     if (!parsed) {
       await errorReply('Please provide a valid movie title or direct movie link.')
       return { status: 'handled' }
     }
 
-    const hasTime = Boolean(timeInput?.trim())
-    const scheduled = hasTime ? parseWatchpartyTime(timeInput, { now: now(), timeZone }) : null
+    const normalizedDate = dateInput?.trim() || ''
+    const normalizedTime = timeInput?.trim() || ''
+    const hasDate = Boolean(normalizedDate)
+    const hasTime = Boolean(normalizedTime)
+    if (hasDate && !hasTime) {
+      await errorReply('Please add a time when you add a watch-party date.')
+      return { status: 'handled' }
+    }
+
+    const scheduleInput = hasDate ? `${normalizedDate} ${normalizedTime}` : normalizedTime
+    const scheduled = hasTime ? parseWatchpartyTime(scheduleInput, { now: now(), timeZone }) : null
     if (hasTime && !scheduled) {
-      await errorReply(`The time is invalid or already passed. Use formats like \`in 30m\`, \`8:30 PM\`, or \`2026-08-08 20:30\` (${timeZone}).`)
+      await errorReply(`The date/time is invalid or already passed. Use \`YYYY-MM-DD\` with a time like \`8:30 PM\`, or use \`in 30m\` in the time field (${timeZone}).`)
       return { status: 'handled' }
     }
 
@@ -360,6 +375,7 @@ export function createWatchpartyWorkflow(options = {}) {
     const timeInput = separator >= 0 ? raw.slice(separator + 1).trim() : ''
     return createParty({
       query,
+      dateInput: '',
       timeInput,
       voiceChannel: null,
       user: message.author,
@@ -437,6 +453,7 @@ export function createWatchpartyWorkflow(options = {}) {
     }
     return createParty({
       query: interaction.options.getString('query', true),
+      dateInput: interaction.options.getString('date') || '',
       timeInput: interaction.options.getString('time') || '',
       voiceChannel: interaction.options.getChannel('voice_channel'),
       user: interaction.user,

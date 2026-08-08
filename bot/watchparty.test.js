@@ -15,6 +15,7 @@ const NOW = new Date('2026-08-08T10:00:00.000Z')
 
 function mockInteraction({
   query = 'Avatar',
+  date = '',
   time = '',
   voiceChannelId = null,
   userId = 'host-1',
@@ -35,6 +36,7 @@ function mockInteraction({
     options: {
       getString: (name, required = false) => {
         if (name === 'query') return query
+        if (name === 'date') return date || (required ? date : null)
         if (name === 'time') return time || (required ? time : null)
         return null
       },
@@ -82,13 +84,14 @@ function makeWorkflow() {
   })
 }
 
-test('WATCHPARTY_COMMAND supports movie, time, and voice-channel options', () => {
+test('WATCHPARTY_COMMAND supports movie, date, time, and voice-channel options', () => {
   assert.equal(WATCHPARTY_COMMAND.name, 'watchparty')
-  assert.deepEqual(WATCHPARTY_COMMAND.options.map((option) => option.name), ['query', 'time', 'voice_channel'])
+  assert.deepEqual(WATCHPARTY_COMMAND.options.map((option) => option.name), ['query', 'date', 'time', 'voice_channel'])
   assert.equal(WATCHPARTY_COMMAND.options[0].required, true)
   assert.equal(WATCHPARTY_COMMAND.options[1].required, false)
   assert.equal(WATCHPARTY_COMMAND.options[2].required, false)
-  assert.equal(WATCHPARTY_COMMAND.options[2].channelTypes.length, 2)
+  assert.equal(WATCHPARTY_COMMAND.options[3].required, false)
+  assert.equal(WATCHPARTY_COMMAND.options[3].channelTypes.length, 2)
 })
 
 test('parseWatchpartyQuery uses the current MoviBox search route', () => {
@@ -157,15 +160,31 @@ test('parseWatchpartyButtonId accepts only watch party join and start controls',
 
 test('/watchparty creates a scheduled party with a persistent public card', async () => {
   const workflow = makeWorkflow()
-  const interaction = mockInteraction({ query: 'Inception', time: 'in 30m', voiceChannelId: 'voice-1' })
+  const interaction = mockInteraction({
+    query: 'Inception',
+    date: '2026-08-09',
+    time: '8:30 PM',
+    voiceChannelId: 'voice-1',
+  })
   const result = await workflow.handleInteraction(interaction)
 
   assert.equal(result.status, 'handled')
-  assert.equal(result.party.scheduledFor, '2026-08-08T10:30:00.000Z')
+  assert.equal(result.party.scheduledFor, '2026-08-09T12:30:00.000Z')
   assert.equal(result.party.messageId, 'message-1')
   assert.equal(result.party.voiceChannelId, 'voice-1')
   assert.equal(workflow.store.get(PARTY_ID).title, 'Inception')
   assert.equal(interaction.state.replies.length, 1)
+  workflow.stop()
+})
+
+test('/watchparty requires a time when a date is provided', async () => {
+  const workflow = makeWorkflow()
+  const interaction = mockInteraction({ date: '2026-08-09' })
+  const result = await workflow.handleInteraction(interaction)
+
+  assert.equal(result.status, 'handled')
+  assert.equal(workflow.store.get(PARTY_ID), null)
+  assert.match(interaction.state.replies[0].content, /add a time/i)
   workflow.stop()
 })
 
@@ -176,7 +195,7 @@ test('invalid watch party time returns a private validation message', async () =
 
   assert.equal(result.status, 'handled')
   assert.equal(workflow.store.get(PARTY_ID), null)
-  assert.match(interaction.state.replies[0].content, /time is invalid or already passed/i)
+  assert.match(interaction.state.replies[0].content, /date\/time is invalid or already passed/i)
   workflow.stop()
 })
 
@@ -186,7 +205,7 @@ test('legacy !watchparty scheduling returns normal channel validation messages',
   const result = await workflow.handleMessageCommand(message)
 
   assert.equal(result.status, 'handled')
-  assert.match(message.state.replies[0].content, /time is invalid or already passed/i)
+  assert.match(message.state.replies[0].content, /date\/time is invalid or already passed/i)
   assert.equal(message.state.replies[0].flags, undefined)
   workflow.stop()
 })
