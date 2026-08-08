@@ -326,7 +326,6 @@ export function createSocialTrackerCommandHandler(socialTrackerService) {
       }
 
       const isLive = Boolean(statusData.live?.isLive)
-      const livePayload = socialTrackerService.notificationService.createLiveEmbed(statusData)
 
       // Get webhook/subscription diagnostics
       const trackedRecord = store.findRecord(guildId, parsed.platform, parsed.username)
@@ -348,14 +347,11 @@ export function createSocialTrackerCommandHandler(socialTrackerService) {
         `🎬 **Latest Content ID**: ${statusData.latestContent?.id || 'None detected'}`,
         `🔔 **Notification Channel**: ${trackedRecord ? `<#${trackedRecord.discord_channel_id}>` : 'Not tracked in this server'}`,
         ...diagnosticLines,
-        '',
-        `*Test Preview Notification Below:*`,
       ].join('\n')
 
       await interaction.editReply({
-        content: `${summaryText}\n\n${livePayload.content}`,
-        embeds: livePayload.embeds,
-        components: livePayload.components,
+        content: summaryText,
+        allowedMentions: { parse: [] },
       })
       return { status: 'handled' }
     }

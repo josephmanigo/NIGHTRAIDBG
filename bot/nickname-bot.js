@@ -564,9 +564,11 @@ client.once(Events.ClientReady, async (readyClient) => {
 
   try {
     const guild = await readyClient.guilds.fetch(GUILD_ID)
-    for (const command of COMMAND_DEFINITIONS) {
-      await guild.commands.create(command)
+    const commandNames = COMMAND_DEFINITIONS.map((command) => command.name)
+    if (new Set(commandNames).size !== commandNames.length) {
+      throw new Error('Duplicate command names were found in COMMAND_DEFINITIONS.')
     }
+    await guild.commands.set(COMMAND_DEFINITIONS)
     console.log(
       `${COMMAND_DEFINITIONS.map((command) => `/${command.name}`).join(', ')} registered in ${guild.name}.`,
     )

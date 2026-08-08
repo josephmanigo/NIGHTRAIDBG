@@ -452,7 +452,10 @@ export function installCreatorTracker(client, options = {}) {
   })
 
   client.once(Events.ClientReady, () => {
-    socialService.start(client)
+    socialService.start(client).catch((reason) => {
+      options.errorReporter?.report('creator_tracker_startup', reason)
+      console.error('Creator tracker startup failed:', reason instanceof Error ? reason.message : reason)
+    })
   })
 
   return { ...workflow, socialService }

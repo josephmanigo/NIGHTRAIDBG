@@ -5,6 +5,29 @@ import { YouTubeAdapter } from './adapters/youtube-adapter.js'
 import { SocialTrackerStore } from './social-tracker-store.js'
 import { NotificationService } from './notification-service.js'
 
+function boundedIntervalSeconds(value, fallback, minimum, maximum) {
+  const parsed = Number.parseInt(value, 10)
+  if (!Number.isFinite(parsed)) return fallback
+  return Math.min(Math.max(parsed, minimum), maximum)
+}
+
+function isNewerContent(record, latestContent) {
+  if (!record.last_content_id || latestContent.id === record.last_content_id) return false
+
+  if (record.platform === 'tiktok' && /^\d+$/.test(latestContent.id) && /^\d+$/.test(record.last_content_id)) {
+    try {
+      return BigInt(latestContent.id) > BigInt(record.last_content_id)
+    } catch {
+      // Fall through to timestamps when an upstream ID is malformed.
+    }
+  }
+
+  const latestTime = latestContent.createdAt ? new Date(latestContent.createdAt).getTime() : Number.NaN
+  const previousTime = record.last_content_timestamp ? new Date(record.last_content_timestamp).getTime() : Number.NaN
+  if (Number.isFinite(latestTime) && Number.isFinite(previousTime)) return latestTime > previousTime
+  return true
+}
+
 export class SocialTrackerService {
   constructor(config = {}, store = null, notificationService = null) {
     this.config = config
@@ -24,9 +47,17 @@ export class SocialTrackerService {
     )
 
     // TikTok polling fallback (only when webhook not supported)
-    this.tiktokPollIntervalSeconds = Number.parseInt(
+    this.tiktokPollIntervalSeconds = boundedIntervalSeconds(
       config.TIKTOK_POLL_INTERVAL_SECONDS || process.env.TIKTOK_POLL_INTERVAL_SECONDS || '10',
       10,
+      5,
+      300,
+    )
+    this.tiktokStatusCacheMs = boundedIntervalSeconds(
+      config.TIKTOK_STATUS_CACHE_MS || process.env.TIKTOK_STATUS_CACHE_MS || '5000',
+      5000,
+      0,
+      30000,
     )
 
     this.publicBaseUrl = config.PUBLIC_BASE_URL || process.env.PUBLIC_BASE_URL || ''
@@ -35,6 +66,8 @@ export class SocialTrackerService {
     this.tiktokPollTimer = null
     this.isReconciling = false
     this.isTikTokPolling = false
+    this._statusRequests = new Map()
+    this._statusCache = new Map()
 
     // Runtime stats
     this._startedAt = null
@@ -42,6 +75,7 @@ export class SocialTrackerService {
     this._lastTwitchEventAt = null
     this._lastYouTubeEventAt = null
     this._lastTikTokEventAt = null
+    this._lastTikTokPollAt = null
     this._client = null
   }
 
@@ -53,7 +87,34 @@ export class SocialTrackerService {
 
   async checkCreatorStatus(record, fetchImpl = fetch) {
     const adapter = this.getAdapter(record.platform)
-    return adapter.getProfile(record.profile_url, fetchImpl)
+    if (record.platform.toLowerCase() !== 'tiktok') {
+      return adapter.getProfile(record.profile_url, fetchImpl)
+    }
+
+    const username = String(record.username || record.profile_url || '')
+      .toLowerCase()
+      .replace(/^.*@/, '')
+      .split('/')[0]
+    const requestKey = `tiktok:${username}`
+    const now = Date.now()
+    const cached = this._statusCache.get(requestKey)
+    if (cached && now - cached.fetchedAt < this.tiktokStatusCacheMs) return cached.data
+
+    const inFlight = this._statusRequests.get(requestKey)
+    if (inFlight) return inFlight
+
+    const request = Promise.resolve()
+      .then(() => adapter.getProfile(record.profile_url, fetchImpl))
+      .then((data) => {
+        if (data) this._statusCache.set(requestKey, { data, fetchedAt: Date.now() })
+        return data
+      })
+      .finally(() => {
+        if (this._statusRequests.get(requestKey) === request) this._statusRequests.delete(requestKey)
+      })
+
+    this._statusRequests.set(requestKey, request)
+    return request
   }
 
   // ══════════════════════════════════════════════════════════
@@ -107,6 +168,8 @@ export class SocialTrackerService {
       clearInterval(this.tiktokPollTimer)
       this.tiktokPollTimer = null
     }
+    this._statusRequests.clear()
+    this._statusCache.clear()
     console.log('[SocialTrackerService] Service stopped.')
   }
 
@@ -148,6 +211,8 @@ export class SocialTrackerService {
         webhook_supported: tiktokProvider.supportsRealtimeWebhook(),
         mode: tiktokProvider.supportsRealtimeWebhook() ? 'Webhook' : 'Polling',
         poll_interval_seconds: tiktokProvider.supportsRealtimeWebhook() ? null : this.tiktokPollIntervalSeconds,
+        status_cache_ms: this.tiktokStatusCacheMs,
+        last_poll_at: this._lastTikTokPollAt,
         last_event_at: this._lastTikTokEventAt,
       },
       reconciliation: {
@@ -189,6 +254,7 @@ export class SocialTrackerService {
       `TikTok Provider: ${health.tiktok.provider}`,
       `Tracking Mode: ${health.tiktok.mode}`,
       `Interval: ${health.tiktok.poll_interval_seconds || 10} seconds`,
+      `Last poll: ${health.tiktok.last_poll_at || 'Not yet'}`,
       `Last event: ${health.tiktok.last_event_at || 'None'}`,
       '',
       '## Reconciliation',
@@ -699,11 +765,18 @@ export class SocialTrackerService {
   _startTikTokPolling(client, fetchImpl = fetch) {
     if (this.tiktokPollTimer) return
 
-    this.tiktokPollTimer = setInterval(() => {
+    const poll = () => {
       this._pollTikTokCreators(client, fetchImpl).catch((e) =>
         console.error('[SocialTrackerService] TikTok poll cycle failed:', e.message),
       )
-    }, this.tiktokPollIntervalSeconds * 1000)
+    }
+
+    // Do not wait one full interval after startup before detecting a live or
+    // upload transition. The overlap guard in _pollTikTokCreators keeps a slow
+    // request from creating concurrent scrape cycles.
+    poll()
+    this.tiktokPollTimer = setInterval(poll, this.tiktokPollIntervalSeconds * 1000)
+    this.tiktokPollTimer.unref?.()
   }
 
   async _pollTikTokCreators(client, fetchImpl = fetch) {
@@ -712,10 +785,29 @@ export class SocialTrackerService {
 
     try {
       const records = this.store.loadAll().filter((r) => r.platform === 'tiktok')
+      const creatorGroups = new Map()
       for (const record of records) {
-        await this._pollSingleCreator(record, client, fetchImpl)
+        const key = record.username.toLowerCase().replace(/^@/, '')
+        const group = creatorGroups.get(key) || []
+        group.push(record)
+        creatorGroups.set(key, group)
+      }
+
+      for (const [username, creatorRecords] of creatorGroups) {
+        let currentData
+        try {
+          currentData = await this.checkCreatorStatus(creatorRecords[0], fetchImpl)
+        } catch (err) {
+          console.error(`[SocialTracker] Error polling TikTok creator ${username}:`, err.message)
+          continue
+        }
+
+        for (const record of creatorRecords) {
+          await this._pollSingleCreator(record, client, fetchImpl, currentData)
+        }
         await new Promise((resolve) => setTimeout(resolve, 500))
       }
+      this._lastTikTokPollAt = new Date().toISOString()
     } finally {
       this.isTikTokPolling = false
     }
@@ -725,9 +817,11 @@ export class SocialTrackerService {
   // POLL SINGLE CREATOR (used by TikTok fallback + reconciliation)
   // ══════════════════════════════════════════════════════════
 
-  async _pollSingleCreator(record, client, fetchImpl = fetch) {
+  async _pollSingleCreator(record, client, fetchImpl = fetch, prefetchedData = undefined) {
     try {
-      const currentData = await this.checkCreatorStatus(record, fetchImpl)
+      const currentData = prefetchedData === undefined
+        ? await this.checkCreatorStatus(record, fetchImpl)
+        : prefetchedData
       if (!currentData) return
 
       // Scrape error / rate limit handling: DO NOT crash, DO NOT falsely mark creator offline
@@ -741,84 +835,137 @@ export class SocialTrackerService {
       const isCurrentlyLive = Boolean(currentData.live?.isLive)
       const currentLiveId = currentData.live?.liveId || null
       const wasLive = Boolean(record.is_live)
+      const liveStatusAvailable = currentData.live?.statusAvailable !== false
+      const isNewLiveSession = Boolean(
+        isCurrentlyLive && currentLiveId && record.last_live_id && currentLiveId !== record.last_live_id,
+      )
 
-      // 1. LIVE Notifications (OFFLINE -> LIVE)
-      if (isCurrentlyLive && !wasLive && record.live_notifications) {
+      // 1. OFFLINE -> LIVE, or a new room started before an offline poll was observed.
+      if (liveStatusAvailable && isCurrentlyLive && (!wasLive || isNewLiveSession)) {
         console.log(`[SocialTracker] Creator ${record.username} (${record.platform}) went LIVE!`)
-        const channel = await client.channels.fetch(record.discord_channel_id).catch(() => null)
-        if (channel && channel.isTextBased?.()) {
-          const payload = this.notificationService.createLiveEmbed(currentData)
-          const sentMsg = await channel.send(payload).catch((e) => {
-            console.error(`[SocialTracker] Failed to send live alert to ${record.discord_channel_id}:`, e.message)
-            return null
-          })
-
-          this.store.updateRecord(record.id, {
-            is_live: true,
-            last_live_id: currentLiveId || record.last_live_id,
-            live_message_id: sentMsg?.id || null,
-            last_event_at: new Date().toISOString(),
-          })
-        } else {
-          this.store.updateRecord(record.id, { is_live: true, last_live_id: currentLiveId || record.last_live_id, last_event_at: new Date().toISOString() })
+        const liveStartedAt = currentData.live?.startedAt || new Date().toISOString()
+        const peakViewers = Math.max(0, Number(currentData.live?.viewers) || 0)
+        let sentMsg = null
+        if (record.live_notifications) {
+          const channel = await client.channels.fetch(record.discord_channel_id).catch(() => null)
+          if (channel && channel.isTextBased?.()) {
+            const payload = this.notificationService.createLiveEmbed(currentData, {
+              startedAt: liveStartedAt,
+              peakViewers,
+            })
+            sentMsg = await channel.send(payload).catch((e) => {
+              console.error(`[SocialTracker] Failed to send live alert to ${record.discord_channel_id}:`, e.message)
+              return null
+            })
+          }
         }
+
+        this.store.updateRecord(record.id, {
+          is_live: true,
+          last_live_id: currentLiveId || record.last_live_id,
+          live_message_id: sentMsg?.id || null,
+          live_started_at: liveStartedAt,
+          peak_viewers: peakViewers,
+          last_event_at: new Date().toISOString(),
+        })
+        this._lastTikTokEventAt = new Date().toISOString()
       }
 
       // 2. LIVE -> STILL LIVE (update message if needed)
-      else if (isCurrentlyLive && wasLive) {
+      else if (liveStatusAvailable && isCurrentlyLive && wasLive) {
+        const liveStartedAt = record.live_started_at || currentData.live?.startedAt || new Date().toISOString()
+        const peakViewers = Math.max(
+          0,
+          Number(record.peak_viewers) || 0,
+          Number(currentData.live?.viewers) || 0,
+        )
         if (record.live_message_id && record.live_notifications) {
           const channel = await client.channels.fetch(record.discord_channel_id).catch(() => null)
           if (channel && channel.isTextBased?.()) {
             const targetMsg = await channel.messages.fetch(record.live_message_id).catch(() => null)
             if (targetMsg) {
-              const updatedPayload = this.notificationService.createLiveEmbed(currentData)
+              const updatedPayload = this.notificationService.createLiveEmbed(currentData, {
+                startedAt: liveStartedAt,
+                peakViewers,
+              })
               await targetMsg.edit(updatedPayload).catch(() => null)
             }
           }
         }
-        if (currentLiveId && currentLiveId !== record.last_live_id) {
-          this.store.updateRecord(record.id, { last_live_id: currentLiveId })
-        }
+        this.store.updateRecord(record.id, {
+          live_started_at: liveStartedAt,
+          peak_viewers: peakViewers,
+          ...(currentLiveId && currentLiveId !== record.last_live_id ? { last_live_id: currentLiveId } : {}),
+        })
       }
 
       // 3. LIVE -> OFFLINE (Stream Ended)
-      else if (!isCurrentlyLive && wasLive) {
+      else if (liveStatusAvailable && !isCurrentlyLive && wasLive) {
         console.log(`[SocialTracker] Creator ${record.username} (${record.platform}) went OFFLINE.`)
+        const endedAt = new Date().toISOString()
+        const liveStartedAt = record.live_started_at || record.last_event_at || endedAt
+        const peakViewers = Math.max(
+          0,
+          Number(record.peak_viewers) || 0,
+          Number(currentData.live?.viewers) || 0,
+        )
         if (record.live_message_id && record.live_notifications) {
           const channel = await client.channels.fetch(record.discord_channel_id).catch(() => null)
           if (channel && channel.isTextBased?.()) {
             const targetMsg = await channel.messages.fetch(record.live_message_id).catch(() => null)
             if (targetMsg) {
-              const endedPayload = this.notificationService.createLiveEndedEmbed(currentData)
+              const endedPayload = this.notificationService.createLiveEndedEmbed(currentData, {
+                startedAt: liveStartedAt,
+                endedAt,
+                peakViewers,
+              })
               await targetMsg.edit(endedPayload).catch(() => null)
             }
           }
         }
-        this.store.updateRecord(record.id, { is_live: false, live_message_id: null, last_event_at: new Date().toISOString() })
+        this.store.updateRecord(record.id, {
+          is_live: false,
+          live_message_id: null,
+          live_started_at: null,
+          peak_viewers: 0,
+          last_event_at: endedAt,
+        })
+        this._lastTikTokEventAt = new Date().toISOString()
       }
 
       // 4. NEW CONTENT Notifications
       const latestContent = currentData.latestContent
-      if (latestContent && latestContent.id && record.upload_notifications) {
+      if (latestContent && latestContent.id) {
         if (record.last_content_id === null) {
           // SEED INITIAL BASELINE SILENTLY
           this.store.updateRecord(record.id, {
             last_content_id: latestContent.id,
             last_content_timestamp: latestContent.createdAt || new Date().toISOString(),
           })
-        } else if (latestContent.id !== record.last_content_id) {
+        } else if (latestContent.id !== record.last_content_id && isNewerContent(record, latestContent)) {
           console.log(`[SocialTracker] New video detected for ${record.username}: ${latestContent.id}`)
-          const channel = await client.channels.fetch(record.discord_channel_id).catch(() => null)
-          if (channel && channel.isTextBased?.()) {
-            const payload = this.notificationService.createNewContentEmbed(currentData)
-            await channel.send(payload).catch((e) => {
-              console.error(`[SocialTracker] Failed to send new content alert:`, e.message)
-            })
+          if (record.upload_notifications) {
+            const channel = await client.channels.fetch(record.discord_channel_id).catch(() => null)
+            if (channel && channel.isTextBased?.()) {
+              const payload = this.notificationService.createNewContentEmbed(currentData)
+              await channel.send(payload).catch((e) => {
+                console.error(`[SocialTracker] Failed to send new content alert:`, e.message)
+              })
+            }
           }
           this.store.updateRecord(record.id, {
             last_content_id: latestContent.id,
             last_content_timestamp: latestContent.createdAt || new Date().toISOString(),
             last_event_at: new Date().toISOString(),
+          })
+          this._lastTikTokEventAt = new Date().toISOString()
+        } else if (latestContent.id !== record.last_content_id) {
+          // The newest visible post can move backwards when a creator deletes
+          // or hides a video. Re-baseline silently so an older post is never
+          // announced as a fresh upload.
+          this.store.updateRecord(record.id, {
+            last_content_id: latestContent.id,
+            last_content_timestamp: record.last_content_timestamp || latestContent.createdAt || new Date().toISOString(),
           })
         }
       }

@@ -5,11 +5,15 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { parseSocialUrl } from './social-tracker/url-parser.js'
 import { SocialTrackerStore } from './social-tracker/social-tracker-store.js'
-import { NotificationService } from './social-tracker/notification-service.js'
+import { NotificationService, formatLiveMinutes } from './social-tracker/notification-service.js'
 import { SocialTrackerService } from './social-tracker/social-tracker-service.js'
 import { TwitchAdapter } from './social-tracker/adapters/twitch-adapter.js'
 import { YouTubeAdapter } from './social-tracker/adapters/youtube-adapter.js'
-import { TikTokProvider } from './social-tracker/providers/tiktok-provider.js'
+import {
+  SelfHostedTikTokProvider,
+  TikTokProvider,
+  parseTikTokPageData,
+} from './social-tracker/providers/tiktok-provider.js'
 import { createSocialTrackerCommandHandler, hasAdminOrManageGuildPermission } from './social-tracker/commands.js'
 
 const TEST_DIR = path.join(process.cwd(), 'data')
@@ -142,22 +146,135 @@ test('SocialTrackerService handles state transitions: OFFLINE -> LIVE, STILL LIV
   let updatedRecord = store.findRecord('guild-1', 'tiktok', 'testuser')
   assert.equal(updatedRecord.is_live, true)
   assert.ok(updatedRecord.live_message_id)
+  assert.ok(updatedRecord.live_started_at)
+  assert.equal(updatedRecord.peak_viewers, 50)
   assert.equal(sentMessages.length, 1)
-  assert.match(sentMessages[0].payload.content, /is live/)
+  assert.equal(sentMessages[0].payload.content, '**testuser** is live!')
+  assert.equal(sentMessages[0].payload.components[0].components[0].data.label, 'Watch Stream')
 
   // STILL LIVE
   mockProfile.live.viewers = 150
   await service._pollSingleCreator(updatedRecord, client)
   assert.equal(sentMessages.length, 1) // No duplicate!
-  assert.match(String(sentMessages[0].payload.embeds[0].data.fields[0].value), /150/)
+  assert.equal(sentMessages[0].payload.embeds[0].data.fields[0].name, 'Live for')
+  assert.equal(sentMessages[0].payload.embeds[0].data.fields[1].name, 'Peak viewers')
+  assert.equal(sentMessages[0].payload.embeds[0].data.fields[1].value, '150')
 
   // LIVE -> OFFLINE
+  updatedRecord = store.findRecord('guild-1', 'tiktok', 'testuser')
+  store.updateRecord(updatedRecord.id, { live_started_at: new Date(Date.now() - 12 * 60_000).toISOString() })
+  updatedRecord = store.findRecord('guild-1', 'tiktok', 'testuser')
   mockProfile.live.isLive = false
   await service._pollSingleCreator(updatedRecord, client)
   updatedRecord = store.findRecord('guild-1', 'tiktok', 'testuser')
   assert.equal(updatedRecord.is_live, false)
-  assert.match(sentMessages[0].payload.content, /ended/)
+  assert.equal(updatedRecord.live_started_at, null)
+  assert.equal(updatedRecord.peak_viewers, 0)
+  assert.equal(sentMessages[0].payload.content, '**testuser** stream ended')
+  assert.equal(sentMessages[0].payload.embeds[0].data.fields[0].name, 'Live duration')
+  assert.equal(sentMessages[0].payload.embeds[0].data.fields[0].value, '12 minutes')
+  assert.equal(sentMessages[0].payload.embeds[0].data.fields[1].value, '150')
+  assert.equal(sentMessages[0].payload.components[0].components[0].data.label, 'View Profile')
 
+  cleanupTestStore()
+})
+
+test('notification cards use plain text without emoji decorations', () => {
+  const service = new NotificationService()
+  const upload = service.createNewContentEmbed({
+    platform: 'tiktok',
+    username: 'creator',
+    displayName: 'Creator',
+    avatar: 'https://cdn.example/avatar.jpg',
+    profileUrl: 'https://www.tiktok.com/@creator',
+    latestContent: {
+      id: '7481234567890123456',
+      title: 'New post',
+      url: 'https://www.tiktok.com/@creator/video/7481234567890123456',
+      thumbnail: 'https://cdn.example/video.jpg',
+    },
+  })
+
+  assert.equal(upload.content, '**Creator** uploaded a new video!')
+  assert.equal(upload.components[0].components[0].data.label, 'Watch Video')
+  assert.equal(upload.embeds[0].data.fields, undefined)
+  assert.equal(formatLiveMinutes('2026-08-08T00:00:00.000Z', '2026-08-08T00:01:00.000Z'), '1 minute')
+  assert.equal(formatLiveMinutes('2026-08-08T00:00:00.000Z', '2026-08-08T00:42:59.000Z'), '42 minutes')
+})
+
+test('TikTok command checks and background polls share one in-flight request and short cache', async () => {
+  const store = makeStore()
+  const service = makeService(store, { TIKTOK_STATUS_CACHE_MS: '5000' })
+  const record = {
+    platform: 'tiktok',
+    profile_url: 'https://www.tiktok.com/@sharedrequest',
+    username: 'sharedrequest',
+  }
+  let fetchCount = 0
+  let finishRequest
+  service.adapters.tiktok.getProfile = async () => {
+    fetchCount += 1
+    return new Promise((resolve) => {
+      finishRequest = resolve
+    })
+  }
+
+  const commandRequest = service.checkCreatorStatus(record)
+  const pollRequest = service.checkCreatorStatus(record)
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.equal(fetchCount, 1)
+
+  const snapshot = {
+    success: true,
+    platform: 'tiktok',
+    username: 'sharedrequest',
+    profileUrl: record.profile_url,
+    live: { isLive: false, statusAvailable: true },
+    latestContent: null,
+  }
+  finishRequest(snapshot)
+  const [commandResult, pollResult] = await Promise.all([commandRequest, pollRequest])
+  assert.equal(commandResult, snapshot)
+  assert.equal(pollResult, snapshot)
+
+  assert.equal(await service.checkCreatorStatus(record), snapshot)
+  assert.equal(fetchCount, 1)
+  cleanupTestStore()
+})
+
+test('/track-check returns diagnostics only and never renders a duplicate notification preview', async () => {
+  const store = makeStore()
+  const service = makeService(store)
+  const handler = createSocialTrackerCommandHandler(service)
+  const edits = []
+  let deferred = 0
+  service.adapters.tiktok.getProfile = async () => ({
+    success: true,
+    platform: 'tiktok',
+    username: 'creator',
+    displayName: 'Creator',
+    profileUrl: 'https://www.tiktok.com/@creator',
+    live: { isLive: true, viewers: 25, statusAvailable: true },
+    latestContent: { id: '7481234567890123456' },
+  })
+
+  const result = await handler.handleInteraction({
+    isChatInputCommand: () => true,
+    commandName: 'track-check',
+    guildId: 'guild-1',
+    member: { permissions: { has: () => true } },
+    options: { getString: () => 'https://www.tiktok.com/@creator' },
+    deferReply: async () => { deferred += 1 },
+    editReply: async (payload) => { edits.push(payload) },
+  })
+
+  assert.equal(result.status, 'handled')
+  assert.equal(deferred, 1)
+  assert.equal(edits.length, 1)
+  assert.match(edits[0].content, /Manual Status Check/)
+  assert.doesNotMatch(edits[0].content, /Test Preview Notification/)
+  assert.equal(edits[0].embeds, undefined)
+  assert.equal(edits[0].components, undefined)
   cleanupTestStore()
 })
 
@@ -506,7 +623,7 @@ test('12. YouTube new video Atom event triggers notification', async () => {
 
   await service.handleYouTubeWebhook(Buffer.from(xml))
   assert.equal(sentMessages.length, 1)
-  assert.match(sentMessages[0].payload.content, /uploaded new content/)
+  assert.equal(sentMessages[0].payload.content, '**@ytcreator** uploaded a new video!')
 
   const rec = store.findRecord('guild-1', 'youtube', '@ytcreator')
   assert.equal(rec.last_content_id, 'new-vid-123')
@@ -656,6 +773,190 @@ test('21. TikTok /track-check reports Polling mode', () => {
 
   const diag = service.getCreatorDiagnostics(rec)
   assert.equal(diag.trackingMode, 'Polling (10s)')
+  cleanupTestStore()
+})
+
+test('TikTok parser selects the newest upload and reads a live room from hydration data', () => {
+  const hydration = {
+    __DEFAULT_SCOPE__: {
+      'webapp.user-detail': {
+        userInfo: {
+          user: {
+            uniqueId: 'testuser',
+            nickname: 'Test User',
+            avatarMedium: 'https://cdn.example/avatar.jpg',
+          },
+          roomInfo: {
+            room: {
+              status: 2,
+              roomId: '7481234567890123456',
+              title: 'Ranked games',
+              stats: { totalUser: 321 },
+              startTime: 1800000000,
+            },
+          },
+        },
+        itemList: [
+          {
+            id: '7381234567890123456',
+            desc: 'Pinned older post',
+            createTime: 1700000000,
+            author: { uniqueId: 'testuser' },
+            video: { cover: 'https://cdn.example/old.jpg' },
+          },
+          {
+            id: '7481234567890123457',
+            desc: 'Newest post',
+            createTime: 1800000000,
+            author: { uniqueId: 'testuser' },
+            video: { cover: 'https://cdn.example/new.jpg' },
+          },
+        ],
+      },
+    },
+  }
+  const html = `<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">${JSON.stringify(hydration)}</script>`
+  const parsed = parseTikTokPageData(html, 'testuser')
+
+  assert.equal(parsed.profileVerified, true)
+  assert.equal(parsed.isLive, true)
+  assert.equal(parsed.liveId, '7481234567890123456')
+  assert.equal(parsed.viewers, 321)
+  assert.equal(parsed.liveStartedAt, '2027-01-15T08:00:00.000Z')
+  assert.equal(parsed.latestContent.id, '7481234567890123457')
+  assert.equal(parsed.latestContent.title, 'Newest post')
+})
+
+test('TikTok parser never treats unrelated numeric IDs as uploads', () => {
+  const hydration = {
+    __DEFAULT_SCOPE__: {
+      'webapp.user-detail': {
+        userInfo: {
+          user: { uniqueId: 'testuser', id: '7123456789012345678' },
+          stats: { id: '7223456789012345678', followerCount: 50 },
+        },
+      },
+    },
+  }
+  const html = `<script id="SIGI_STATE">${JSON.stringify(hydration)}</script>`
+  const parsed = parseTikTokPageData(html, 'testuser')
+
+  assert.equal(parsed.profileVerified, true)
+  assert.equal(parsed.liveStatusReliable, false)
+  assert.equal(parsed.latestContent, null)
+})
+
+test('TikTok self-hosted provider rejects challenge pages instead of reporting a false offline state', async () => {
+  const provider = new SelfHostedTikTokProvider()
+  const challengePage = '<html><title>Security check</title><div>Verify to continue</div></html>'
+  const fetchImpl = async () => ({ ok: true, status: 200, text: async () => challengePage })
+
+  const result = await provider.getProfile('https://www.tiktok.com/@testuser', fetchImpl)
+
+  assert.equal(result.success, false)
+  assert.match(result.error, /no verifiable public profile data/i)
+})
+
+test('TikTok polling fetches a shared creator once and fans out to every Discord guild', async () => {
+  const store = makeStore()
+  const service = makeService(store)
+  const { client, sentMessages } = makeMockClient()
+  let profileFetches = 0
+
+  store.addTrackedCreator({
+    guildId: 'guild-1', discordChannelId: 'chan-1', platform: 'tiktok',
+    profileUrl: 'https://www.tiktok.com/@shared', username: 'shared',
+  })
+  store.addTrackedCreator({
+    guildId: 'guild-2', discordChannelId: 'chan-2', platform: 'tiktok',
+    profileUrl: 'https://www.tiktok.com/@shared', username: 'shared',
+  })
+  service.adapters.tiktok.getProfile = async () => {
+    profileFetches += 1
+    return {
+      success: true,
+      platform: 'tiktok', username: 'shared', displayName: 'Shared', avatar: null,
+      profileUrl: 'https://www.tiktok.com/@shared',
+      live: {
+        isLive: true, liveId: '7481234567890123456', title: 'Live now', viewers: 10,
+        url: 'https://www.tiktok.com/@shared/live', statusAvailable: true,
+      },
+      latestContent: null,
+    }
+  }
+
+  await service._pollTikTokCreators(client)
+
+  assert.equal(profileFetches, 1)
+  assert.equal(sentMessages.length, 2)
+  assert.ok(service.getHealthReport().tiktok.last_poll_at)
+  cleanupTestStore()
+})
+
+test('TikTok polling interval is clamped to a safe near-real-time range', () => {
+  const store = makeStore()
+  assert.equal(makeService(store, { TIKTOK_POLL_INTERVAL_SECONDS: '1' }).tiktokPollIntervalSeconds, 5)
+  assert.equal(makeService(store, { TIKTOK_POLL_INTERVAL_SECONDS: 'invalid' }).tiktokPollIntervalSeconds, 10)
+  assert.equal(makeService(store, { TIKTOK_POLL_INTERVAL_SECONDS: '9999' }).tiktokPollIntervalSeconds, 300)
+  cleanupTestStore()
+})
+
+test('TikTok polling does not announce an older post after the newest post is deleted', async () => {
+  const store = makeStore()
+  const service = makeService(store)
+  const { client, sentMessages } = makeMockClient()
+
+  store.addTrackedCreator({
+    guildId: 'guild-1', discordChannelId: 'chan-1', platform: 'tiktok',
+    profileUrl: 'https://www.tiktok.com/@creator', username: 'creator',
+    initialContentId: '7481234567890123457',
+  })
+  const record = store.findRecord('guild-1', 'tiktok', 'creator')
+  store.updateRecord(record.id, { last_content_timestamp: '2027-01-15T08:00:00.000Z' })
+  service.adapters.tiktok.getProfile = async () => ({
+    success: true,
+    platform: 'tiktok', username: 'creator', displayName: 'Creator', avatar: null,
+    profileUrl: 'https://www.tiktok.com/@creator',
+    live: { isLive: false, liveId: null, statusAvailable: true },
+    latestContent: {
+      id: '7381234567890123456', title: 'Older visible post',
+      url: 'https://www.tiktok.com/@creator/video/7381234567890123456',
+      createdAt: '2023-11-14T22:13:20.000Z',
+    },
+  })
+
+  await service._pollSingleCreator(record, client)
+
+  assert.equal(sentMessages.length, 0)
+  assert.equal(store.findRecord('guild-1', 'tiktok', 'creator').last_content_id, '7381234567890123456')
+  cleanupTestStore()
+})
+
+test('TikTok polling preserves live state when TikTok omits reliable live data', async () => {
+  const store = makeStore()
+  const service = makeService(store)
+  const { client, sentMessages } = makeMockClient()
+
+  store.addTrackedCreator({
+    guildId: 'guild-1', discordChannelId: 'chan-1', platform: 'tiktok',
+    profileUrl: 'https://www.tiktok.com/@creator', username: 'creator',
+  })
+  const record = store.findRecord('guild-1', 'tiktok', 'creator')
+  store.updateRecord(record.id, { is_live: true, last_live_id: '7481234567890123456' })
+  service.adapters.tiktok.getProfile = async () => ({
+    success: true,
+    platform: 'tiktok', username: 'creator', displayName: 'Creator', avatar: null,
+    profileUrl: 'https://www.tiktok.com/@creator',
+    live: { isLive: false, liveId: null, statusAvailable: false },
+    latestContent: null,
+  })
+
+  await service._pollSingleCreator(record, client)
+
+  const updated = store.findRecord('guild-1', 'tiktok', 'creator')
+  assert.equal(updated.is_live, true)
+  assert.equal(updated.last_live_id, '7481234567890123456')
+  assert.equal(sentMessages.length, 0)
   cleanupTestStore()
 })
 
