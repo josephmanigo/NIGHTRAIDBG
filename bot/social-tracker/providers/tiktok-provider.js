@@ -3,7 +3,15 @@ import fetch from 'node-fetch'
 
 const TIKTOK_VIDEO_ID_PATTERN = /^\d{10,22}$/
 const TIKTOK_ROOM_ID_PATTERN = /^\d{10,22}$/
-const JSON_SCRIPT_PATTERN = /<script\b[^>]*\bid=["'](?:__UNIVERSAL_DATA_FOR_REHYDRATION__|SIGI_STATE|__NEXT_DATA__)["'][^>]*>([\s\S]*?)<\/script>/gi
+const JSON_SCRIPT_PATTERN = /<script\b[^>]*\bid=["'](?:__UNIVERSAL_DATA_FOR_REHYDRATION__|SIGI_STATE|__NEXT_DATA__|__FRONTITY_CONNECT_STATE__)["'][^>]*>([\s\S]*?)<\/script>/gi
+// TikTok answers profile requests from datacenter IPs with a 200 OK WAF
+// interstitial instead of the profile HTML. Without this check the empty page
+// looks exactly like "this creator has never posted".
+const CHALLENGE_PAGE_PATTERN = /_wafchallengeid|waforiginalreid|<title>[^<]{0,80}(?:security check|verify to continue|captcha)/i
+
+export function isTikTokChallengePage(html) {
+  return CHALLENGE_PAGE_PATTERN.test(String(html || ''))
+}
 
 function normalizeUsername(value) {
   return String(value || '').trim().replace(/^@/, '').toLowerCase()
@@ -45,6 +53,34 @@ function toIsoTimestamp(value) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString()
 }
 
+/**
+ * TikTok item IDs are snowflakes: the upper 32 bits hold the upload time in
+ * unix seconds. The embed feed and the profile URL fallback both omit
+ * `createTime`, so deriving it here keeps every upload comparable no matter
+ * which page it came from.
+ */
+export function timestampFromTikTokId(id) {
+  try {
+    const seconds = Number(BigInt(id) >> 32n)
+    if (!Number.isFinite(seconds) || seconds < 1_400_000_000 || seconds > 4_000_000_000) return null
+    return new Date(seconds * 1000).toISOString()
+  } catch {
+    return null
+  }
+}
+
+/** Ranks two uploads the same way the parser sorts a feed: newest wins. */
+function isOlderUpload(candidate, current) {
+  const candidateTime = candidate?.createdAt ? new Date(candidate.createdAt).getTime() : 0
+  const currentTime = current?.createdAt ? new Date(current.createdAt).getTime() : 0
+  if (candidateTime !== currentTime) return candidateTime < currentTime
+  try {
+    return BigInt(candidate.id) < BigInt(current.id)
+  } catch {
+    return false
+  }
+}
+
 function getAuthorUsername(value) {
   if (!value || typeof value !== 'object') return ''
   const author = value.author && typeof value.author === 'object' ? value.author : null
@@ -52,6 +88,8 @@ function getAuthorUsername(value) {
     author?.uniqueId ||
       author?.unique_id ||
       author?.username ||
+      value.authorUniqueId ||
+      value.author_unique_id ||
       value.authorName ||
       value.author_name ||
       value.username,
@@ -105,6 +143,9 @@ export function parseTikTokPageData(html, username) {
     if (!looksLikeVideo(value, keyHint)) return
     const authorUsername = getAuthorUsername(value)
     if (authorUsername && authorUsername !== canonicalUsername) return
+    // The embed feed marks posts that are not publicly visible; announcing one
+    // would link followers to a video they cannot open.
+    if (value.privateItem === true || value.private_item === true) return
 
     const id = validNumericId(value.id ?? value.itemId ?? value.item_id ?? value.videoId ?? value.video_id, TIKTOK_VIDEO_ID_PATTERN)
     const video = value.video && typeof value.video === 'object' ? value.video : {}
@@ -117,16 +158,22 @@ export function parseTikTokPageData(html, username) {
         video.dynamicCover,
         video.originCover,
         value.cover,
+        value.coverUrl,
+        value.originCoverUrl,
+        value.dynamicCoverUrl,
         value.coverImage,
         value.cover_image_url,
       ),
       url: `https://www.tiktok.com/@${username}/video/${id}`,
-      createdAt: toIsoTimestamp(value.createTime ?? value.create_time),
+      createdAt: toIsoTimestamp(value.createTime ?? value.create_time) || timestampFromTikTokId(id),
       authorUsername,
     }
 
+    // Prefer whichever copy carries the most detail: pages differ in what they
+    // embed, and the URL fallback contributes an ID with no metadata at all.
     const previous = videos.get(id)
-    if (!previous || (!previous.createdAt && candidate.createdAt)) videos.set(id, candidate)
+    const score = (entry) => (entry.description ? 2 : 0) + (entry.thumbnail ? 1 : 0)
+    if (!previous || score(candidate) > score(previous)) videos.set(id, candidate)
     if (authorUsername === canonicalUsername) profileVerified = true
   }
 
@@ -222,7 +269,7 @@ export function parseTikTokPageData(html, username) {
         description: '',
         thumbnail: null,
         url: `https://www.tiktok.com/@${username}/video/${match[2]}`,
-        createdAt: null,
+        createdAt: timestampFromTikTokId(match[2]),
         authorUsername: canonicalUsername,
       })
     }
@@ -266,6 +313,19 @@ export class SelfHostedTikTokProvider {
     this.providerName = 'self-hosted'
     const requestedTimeout = Number.parseInt(config.TIKTOK_REQUEST_TIMEOUT_MS || process.env.TIKTOK_REQUEST_TIMEOUT_MS || '10000', 10)
     this.requestTimeoutMs = Number.isFinite(requestedTimeout) ? Math.min(Math.max(requestedTimeout, 3000), 30000) : 10000
+
+    // The embed feed is the upload source of last resort. It is rate limited
+    // far more aggressively than the live page, so it is refreshed on its own
+    // slower clock instead of on every live poll.
+    const requestedContentCache = Number.parseInt(
+      config.TIKTOK_CONTENT_CACHE_MS || process.env.TIKTOK_CONTENT_CACHE_MS || '60000',
+      10,
+    )
+    this.contentCacheMs = Number.isFinite(requestedContentCache)
+      ? Math.min(Math.max(requestedContentCache, 0), 600_000)
+      : 60_000
+    this._contentCache = new Map()
+    this._loggedUploadSourceBlock = new Set()
   }
 
   async getProfile(profileUrl, fetchImpl = fetch) {
@@ -280,6 +340,7 @@ export class SelfHostedTikTokProvider {
 
     const canonicalProfileUrl = `https://www.tiktok.com/@${canonicalUsername}`
     const liveUrl = `https://www.tiktok.com/@${canonicalUsername}/live`
+    const embedUrl = `https://www.tiktok.com/embed/@${canonicalUsername}`
 
     const headers = {
       'User-Agent':
@@ -300,6 +361,7 @@ export class SelfHostedTikTokProvider {
     let parsedPublicData = false
     let rateLimited = false
     let scrapeError = null
+    let uploadSourceBlocked = false
 
     const mergePageData = (pageData) => {
       if (!pageData) return
@@ -315,9 +377,9 @@ export class SelfHostedTikTokProvider {
       avatar ||= pageData.avatar || pageData.liveThumbnail
       displayName = pageData.displayName || displayName
       if (pageData.latestContent) {
-        const currentTime = latestContent?.createdAt ? new Date(latestContent.createdAt).getTime() : 0
-        const candidateTime = pageData.latestContent.createdAt ? new Date(pageData.latestContent.createdAt).getTime() : 0
-        if (!latestContent || candidateTime >= currentTime) latestContent = pageData.latestContent
+        if (!latestContent || !isOlderUpload(pageData.latestContent, latestContent)) {
+          latestContent = pageData.latestContent
+        }
       }
     }
 
@@ -327,38 +389,76 @@ export class SelfHostedTikTokProvider {
       signal: AbortSignal.timeout(this.requestTimeoutMs),
     })
 
-    try {
-      const resLive = await fetchImpl(liveUrl, requestOptions()).catch((err) => {
-        scrapeError = err.message
-        return null
-      })
-
-      if (resLive) {
-        if (resLive.status === 429 || resLive.status === 403) {
-          rateLimited = true
-          scrapeError = `HTTP ${resLive.status} (Rate limited / blocked)`
-        } else if (resLive.ok) {
-          const htmlLive = await resLive.text().catch(() => '')
-          mergePageData(parseTikTokPageData(htmlLive, canonicalUsername))
-        }
-      }
-
-      const resProf = await fetchImpl(canonicalProfileUrl, requestOptions()).catch((err) => {
+    // Returns true when the page produced usable data, false when TikTok
+    // blocked it (HTTP error, WAF interstitial, or an unparsable body).
+    const loadPage = async (url) => {
+      const res = await fetchImpl(url, requestOptions()).catch((err) => {
         if (!scrapeError) scrapeError = err.message
         return null
       })
+      if (!res) return false
 
-      if (resProf) {
-        if (resProf.status === 429 || resProf.status === 403) {
-          rateLimited = true
-          if (!scrapeError) scrapeError = `HTTP ${resProf.status} (Rate limited / blocked)`
-        } else if (resProf.ok) {
-          const htmlProf = await resProf.text().catch(() => '')
-          mergePageData(parseTikTokPageData(htmlProf, canonicalUsername))
+      if (res.status === 429 || res.status === 403 || res.status === 503) {
+        rateLimited = true
+        if (!scrapeError) scrapeError = `HTTP ${res.status} (Rate limited / blocked)`
+        return false
+      }
+      if (!res.ok) {
+        if (!scrapeError) scrapeError = `HTTP ${res.status}`
+        return false
+      }
+
+      const html = await res.text().catch(() => '')
+      if (isTikTokChallengePage(html)) {
+        // A 200 OK challenge page is a block, not an empty profile. Reporting
+        // it as "no uploads" is what silently suppressed upload alerts.
+        rateLimited = true
+        if (!scrapeError) scrapeError = 'TikTok served a WAF challenge page'
+        return false
+      }
+
+      const pageData = parseTikTokPageData(html, canonicalUsername)
+      mergePageData(pageData)
+      return pageData.profileVerified || Boolean(pageData.latestContent) || pageData.liveStatusReliable
+    }
+
+    try {
+      await loadPage(liveUrl)
+      await loadPage(canonicalProfileUrl)
+
+      // The profile page is routinely served as a WAF challenge, which strips
+      // the upload feed while live data still comes through. The embed feed is
+      // the same creator's public posts and is not behind that challenge.
+      if (!latestContent) {
+        const cached = this._contentCache.get(canonicalUsername)
+        const cacheIsFresh = cached && Date.now() - cached.checkedAt < this.contentCacheMs
+        if (!cacheIsFresh) {
+          const embedOk = await loadPage(embedUrl)
+          if (latestContent) this._loggedUploadSourceBlock.delete(canonicalUsername)
+          else uploadSourceBlocked = !embedOk
+          // Record the attempt either way so a blocked embed is retried on the
+          // slow clock instead of on every live poll.
+          this._contentCache.set(canonicalUsername, {
+            content: latestContent || cached?.content || null,
+            checkedAt: Date.now(),
+          })
         }
+        // Keep serving the last known upload so a temporary block cannot look
+        // like the creator wiping their profile.
+        latestContent ||= this._contentCache.get(canonicalUsername)?.content || null
+      } else {
+        this._contentCache.set(canonicalUsername, { content: latestContent, checkedAt: Date.now() })
+        this._loggedUploadSourceBlock.delete(canonicalUsername)
       }
     } catch (err) {
       scrapeError = err.message
+    }
+
+    if (uploadSourceBlocked && !this._loggedUploadSourceBlock.has(canonicalUsername)) {
+      this._loggedUploadSourceBlock.add(canonicalUsername)
+      console.warn(
+        `[TikTokProvider] Upload feed unavailable for @${canonicalUsername} (${scrapeError || 'no public post data'}). Upload alerts are paused until TikTok serves the feed again.`,
+      )
     }
 
     if (!parsedPublicData) {

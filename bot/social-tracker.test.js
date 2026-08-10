@@ -13,6 +13,7 @@ import {
   SelfHostedTikTokProvider,
   TikTokProvider,
   parseTikTokPageData,
+  timestampFromTikTokId,
 } from './social-tracker/providers/tiktok-provider.js'
 import { createSocialTrackerCommandHandler, hasAdminOrManageGuildPermission } from './social-tracker/commands.js'
 
@@ -1040,7 +1041,170 @@ test('TikTok self-hosted provider rejects challenge pages instead of reporting a
   const result = await provider.getProfile('https://www.tiktok.com/@testuser', fetchImpl)
 
   assert.equal(result.success, false)
-  assert.match(result.error, /no verifiable public profile data/i)
+  assert.equal(result.rateLimited, true)
+  assert.match(result.error, /challenge page/i)
+})
+
+test('TikTok upload IDs resolve to their real upload time', () => {
+  assert.equal(timestampFromTikTokId('7670293981833612574'), '2026-08-04T21:38:04.000Z')
+  assert.equal(timestampFromTikTokId('not-a-number'), null)
+  assert.equal(timestampFromTikTokId('12345'), null)
+})
+
+test('TikTok parser reads the upload feed out of the embed page state', () => {
+  const state = {
+    source: {
+      data: {
+        '/embed/@testuser': {
+          videoList: [
+            {
+              id: '7481234567890123456',
+              desc: 'Older post',
+              coverUrl: 'https://cdn.example/old.jpg',
+              privateItem: false,
+              authorUniqueId: 'testuser',
+            },
+            {
+              id: '7581234567890123456',
+              desc: 'Newest post',
+              coverUrl: 'https://cdn.example/new.jpg',
+              privateItem: false,
+              authorUniqueId: 'testuser',
+            },
+            {
+              id: '7681234567890123456',
+              desc: 'Hidden post',
+              privateItem: true,
+              authorUniqueId: 'testuser',
+            },
+          ],
+        },
+      },
+    },
+  }
+  const html = `<script id="__FRONTITY_CONNECT_STATE__" type="application/json">${JSON.stringify(state)}</script>`
+  const parsed = parseTikTokPageData(html, 'testuser')
+
+  assert.equal(parsed.profileVerified, true)
+  assert.equal(parsed.latestContent.id, '7581234567890123456')
+  assert.equal(parsed.latestContent.title, 'Newest post')
+  assert.equal(parsed.latestContent.thumbnail, 'https://cdn.example/new.jpg')
+  assert.equal(parsed.latestContent.url, 'https://www.tiktok.com/@testuser/video/7581234567890123456')
+  assert.equal(parsed.latestContent.createdAt, timestampFromTikTokId('7581234567890123456'))
+  // A live-only page must not be mistaken for a profile with no uploads.
+  assert.equal(parsed.liveStatusReliable, false)
+})
+
+test('TikTok provider still finds uploads when the profile page is a WAF challenge', async () => {
+  const provider = new SelfHostedTikTokProvider()
+  const livePage = `<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">${JSON.stringify({
+    __DEFAULT_SCOPE__: {
+      'webapp.user-detail': {
+        userInfo: {
+          user: { uniqueId: 'testuser', nickname: 'Test User' },
+          liveRoom: { roomId: '7481234567890123456', status: 2, title: 'Live now' },
+        },
+      },
+    },
+  })}</script>`
+  const challengePage = '<html><body>Please wait...<p id="wci" class="_wafchallengeid"></p></body></html>'
+  const embedPage = `<script id="__FRONTITY_CONNECT_STATE__" type="application/json">${JSON.stringify({
+    source: {
+      data: {
+        '/embed/@testuser': {
+          videoList: [{ id: '7581234567890123456', desc: 'Fresh upload', authorUniqueId: 'testuser' }],
+        },
+      },
+    },
+  })}</script>`
+
+  const requested = []
+  const fetchImpl = async (url) => {
+    requested.push(url)
+    const body = url.includes('/live') ? livePage : url.includes('/embed/') ? embedPage : challengePage
+    return { ok: true, status: 200, text: async () => body }
+  }
+
+  const result = await provider.getProfile('https://www.tiktok.com/@testuser', fetchImpl)
+
+  assert.equal(result.success, true)
+  assert.equal(result.live.isLive, true)
+  assert.equal(result.latestContent.id, '7581234567890123456')
+  assert.equal(result.latestContent.title, 'Fresh upload')
+  assert.ok(requested.some((url) => url === 'https://www.tiktok.com/embed/@testuser'))
+  // A blocked profile page must not make the live alert path bail out.
+  assert.equal(result.rateLimited, undefined)
+})
+
+test('TikTok provider does not refetch the embed feed on every live poll', async () => {
+  const provider = new SelfHostedTikTokProvider({ TIKTOK_CONTENT_CACHE_MS: '60000' })
+  const embedPage = `<script id="__FRONTITY_CONNECT_STATE__" type="application/json">${JSON.stringify({
+    source: {
+      data: {
+        '/embed/@testuser': {
+          videoList: [{ id: '7581234567890123456', desc: 'Fresh upload', authorUniqueId: 'testuser' }],
+        },
+      },
+    },
+  })}</script>`
+
+  const livePage = `<script id="SIGI_STATE">${JSON.stringify({
+    __DEFAULT_SCOPE__: {
+      'webapp.user-detail': {
+        userInfo: { user: { uniqueId: 'testuser' }, liveRoom: null },
+      },
+    },
+  })}</script>`
+
+  let embedFetches = 0
+  const fetchImpl = async (url) => {
+    if (url.includes('/embed/')) {
+      embedFetches += 1
+      return { ok: true, status: 200, text: async () => embedPage }
+    }
+    if (url.endsWith('/live')) return { ok: true, status: 200, text: async () => livePage }
+    // The profile page stays blocked upstream, as it is in production.
+    return { ok: true, status: 200, text: async () => '<p class="_wafchallengeid"></p>' }
+  }
+
+  const first = await provider.getProfile('https://www.tiktok.com/@testuser', fetchImpl)
+  const second = await provider.getProfile('https://www.tiktok.com/@testuser', fetchImpl)
+
+  assert.equal(embedFetches, 1)
+  assert.equal(first.latestContent.id, '7581234567890123456')
+  assert.equal(second.latestContent.id, '7581234567890123456')
+})
+
+test('TikTok polling announces a new upload while the creator is live', async () => {
+  const store = makeStore()
+  const service = makeService(store)
+  const { client, sentMessages } = makeMockClient()
+
+  store.addTrackedCreator({
+    guildId: 'guild-1', discordChannelId: 'chan-1', platform: 'tiktok',
+    profileUrl: 'https://www.tiktok.com/@creator', username: 'creator',
+    initialContentId: '7481234567890123456',
+  })
+  const record = store.findRecord('guild-1', 'tiktok', 'creator')
+  service.adapters.tiktok.getProfile = async () => ({
+    success: true,
+    platform: 'tiktok', username: 'creator', displayName: 'Creator', avatar: null,
+    profileUrl: 'https://www.tiktok.com/@creator',
+    live: { isLive: false, liveId: null, statusAvailable: true },
+    latestContent: {
+      id: '7581234567890123456',
+      title: 'Fresh upload',
+      url: 'https://www.tiktok.com/@creator/video/7581234567890123456',
+      createdAt: timestampFromTikTokId('7581234567890123456'),
+    },
+  })
+
+  await service._pollSingleCreator(record, client)
+
+  assert.equal(sentMessages.length, 1)
+  assert.equal(sentMessages[0].payload.embeds[0].data.title, 'Fresh upload')
+  assert.equal(store.findRecord('guild-1', 'tiktok', 'creator').last_content_id, '7581234567890123456')
+  cleanupTestStore()
 })
 
 test('TikTok polling fetches a shared creator once and fans out to every Discord guild', async () => {
