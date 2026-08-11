@@ -629,7 +629,7 @@ test('automatically writes a valid labeled round without confirmation controls',
   assert.match(automaticInteraction.followUps[0].content, /TOTAL SCORE: \*\*30 POINTS\*\*/)
   assert.match(automaticInteraction.followUps[0].content, /Google Sheet Updated/)
   assert.deepEqual(automaticInteraction.followUps[0].embeds, [])
-  assert.deepEqual(automaticInteraction.followUps[0].components, [])
+  assert.equal(automaticInteraction.followUps[0].components[0].components[0].data.label, 'View Standings')
 })
 
 test('automatic tally retries once and writes without review when the second read succeeds', async () => {
@@ -666,7 +666,7 @@ test('automatic tally retries once and writes without review when the second rea
   assert.equal(writes, 1)
   assert.equal(automaticInteraction.followUps.length, 1)
   assert.match(automaticInteraction.followUps[0].content, /tallied automatically/)
-  assert.deepEqual(automaticInteraction.followUps[0].components, [])
+  assert.equal(automaticInteraction.followUps[0].components[0].components[0].data.label, 'View Standings')
 })
 
 test('automatic tally retries an approved safe write without rerunning OCR', async () => {
@@ -756,7 +756,7 @@ test('automatic tally writes displayed PLACE and KILLS without requiring player 
   assert.ok(approvedSubmission.reviewPayload.warning_count > 0)
   assert.equal(approvedSubmission.reviewPayload.round_result.teams[0].team_code, 'A')
   assert.equal(automaticInteraction.followUps.length, 1)
-  assert.deepEqual(automaticInteraction.followUps[0].components, [])
+  assert.equal(automaticInteraction.followUps[0].components[0].components[0].data.label, 'View Standings')
 })
 
 test('automatic result confirmation paginates plain Markdown under Discord limits', () => {
@@ -1188,6 +1188,7 @@ test('Confirm and Save invokes the safe test writer and shows rollback after ver
   assert.deepEqual(controls.map((component) => component.label), [
     'Rollback Test Write',
     'Correction Mode',
+    'View Standings',
   ])
 })
 

@@ -11,6 +11,8 @@ import {
   buildGameResultsReviewPayload,
   prepareAutomaticTallyPayload,
 } from './game-results-review.js'
+import { formatTallyDate } from './game-results-runtime.js'
+import { DEFAULT_GAME_RESULTS_SPREADSHEET_ID } from './game-results-scoresheet-source.js'
 
 const CUSTOM_ID_PREFIX = 'nr-gr-score'
 const CORRECTION_ACTIONS = new Set(['confirm', 'cancel'])
@@ -329,6 +331,7 @@ async function replyEphemeral(interaction, content) {
 function standingsMessage(standings, worksheetName) {
   const lines = [
     '# NIGHTRAID CURRENT STANDINGS',
+    `Date: **${formatTallyDate()}**`,
     `-# Formula-calculated from ${worksheetName}`,
     '',
   ]
@@ -520,10 +523,18 @@ export function createGameResultsScoreboardWorkflow(options = {}) {
       await sheetClient.readState(),
       sheetClient.config,
     )
+    const spreadsheetId = sheetClient.config?.spreadsheetId ?? DEFAULT_GAME_RESULTS_SPREADSHEET_ID
+    const sheetUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}`
+    const standingsRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setLabel('View Standings')
+        .setStyle(ButtonStyle.Link)
+        .setURL(sheetUrl),
+    )
     await interaction.editReply({
       content: standingsMessage(standings, worksheetName),
       embeds: [],
-      components: [],
+      components: [standingsRow],
       allowedMentions: { parse: [] },
     })
     return { status: 'standings', standings }
@@ -635,15 +646,24 @@ export function createGameResultsScoreboardWorkflow(options = {}) {
       )
       const team =
         result.submission.reviewPayload.round_result.teams[parsed.teamIndex]
+      const spreadsheetId = sheetClient.config?.spreadsheetId ?? DEFAULT_GAME_RESULTS_SPREADSHEET_ID
+      const sheetUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}`
+      const standingsRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setLabel('View Standings')
+          .setStyle(ButtonStyle.Link)
+          .setURL(sheetUrl),
+      )
       await interaction.editReply({
         content: [
           `# Round ${result.submission.round} score corrected`,
+          `Date: **${formatTallyDate(result.submission.submissionTimestamp)}**`,
           `Team slot: **${safeText(team.team_code)}**`,
           `PLACE: **${team.rank}**`,
           `KILLS: **${team.team_total_kills}**`,
           `Updated and verified on **${worksheetName}**.`,
         ].join('\n'),
-        components: [],
+        components: [standingsRow],
         embeds: [],
         allowedMentions: { parse: [] },
       })

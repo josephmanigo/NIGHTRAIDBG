@@ -11,6 +11,8 @@ import {
 import { createRoundSubmissionReader } from './game-results-round-reader.js'
 import { createSupabaseGameResultsStore } from './game-results-store.js'
 import { createTeamMappingService } from './game-results-team-mapper.js'
+import { formatTallyDate } from './game-results-runtime.js'
+import { DEFAULT_GAME_RESULTS_SPREADSHEET_ID } from './game-results-scoresheet-source.js'
 
 const CUSTOM_ID_PREFIX = 'nr-gr-review'
 const DISCORD_MESSAGE_LIMIT = 2_000
@@ -694,6 +696,7 @@ export function renderAutomaticTallyConfirmation(
   return bodyPages.map((body, index) => {
     const lines = [
       `# 🔥 NIGHTRAID GAME ${round} RESULT`,
+      `Date: **${formatTallyDate(submission?.submissionTimestamp)}**`,
       `-# Page ${index + 1}/${bodyPages.length}`,
       '',
       index === 0
@@ -739,6 +742,7 @@ export function renderGameResultsReview(submission) {
     '# NIGHTRAID GAME-RESULT REVIEW',
     `Submission: \`${submission.submissionId}\``,
     `Round: **${payload?.round_result?.submission?.round ?? submission.round ?? 'Unreadable'}**`,
+    `Date: **${formatTallyDate(submission.submissionTimestamp)}**`,
     `Status: **${safeText(submission.status).replaceAll('_', ' ').toUpperCase()}**`,
     `Page: **${page + 1}/${pageCount}**`,
     '',
@@ -799,6 +803,11 @@ function reviewComponents(submission) {
   const id = submission.submissionId
   const version = submission.reviewVersion
   if (submission.status === 'confirmed') {
+    const spreadsheetId =
+      submission.reviewPayload?.score_sheet_write?.spreadsheetId
+      ?? submission.reviewPayload?.spreadsheet_id
+      ?? DEFAULT_GAME_RESULTS_SPREADSHEET_ID
+    const sheetUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}`
     return [new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(customId('rollback', id, page, version))
@@ -808,6 +817,10 @@ function reviewComponents(submission) {
         .setCustomId(customId('correct', id, page, version))
         .setLabel('Correction Mode')
         .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setLabel('View Standings')
+        .setStyle(ButtonStyle.Link)
+        .setURL(sheetUrl),
     )]
   }
   return [
@@ -1198,11 +1211,23 @@ export function createGameResultsReviewWorkflow(options = {}) {
         sheetWrite.submission,
         scoreSheetWorksheet,
       )
-      for (const content of confirmations) {
+      const spreadsheetId =
+        sheetWrite.submission?.reviewPayload?.score_sheet_write?.spreadsheetId
+        ?? sheetWrite.submission?.reviewPayload?.spreadsheet_id
+        ?? DEFAULT_GAME_RESULTS_SPREADSHEET_ID
+      const sheetUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}`
+      const standingsRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setLabel('View Standings')
+          .setStyle(ButtonStyle.Link)
+          .setURL(sheetUrl),
+      )
+      for (let index = 0; index < confirmations.length; index += 1) {
+        const isLast = index === confirmations.length - 1
         await interaction.followUp({
-          content,
+          content: confirmations[index],
           embeds: [],
-          components: [],
+          components: isLast ? [standingsRow] : [],
           allowedMentions: { parse: [] },
         })
       }

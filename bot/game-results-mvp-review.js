@@ -6,6 +6,8 @@ import {
   PermissionFlagsBits,
 } from 'discord.js'
 import { createChampionMvpService } from './game-results-mvp-sheet-writer.js'
+import { formatTallyDate } from './game-results-runtime.js'
+import { DEFAULT_GAME_RESULTS_SPREADSHEET_ID } from './game-results-scoresheet-source.js'
 
 export const GAME_RESULTS_MVP_COMMAND = Object.freeze({
   name: 'generate-mvp',
@@ -90,6 +92,7 @@ export function renderMvpReview(review) {
   const champion = review.champion ?? {}
   const lines = [
     '# NIGHTRAID OVERALL CHAMPION • MVP REVIEW',
+    `Date: **${formatTallyDate(review.createdAt)}**`,
     `Status: **${statusLabel(review.status)}**`,
     `Champion: **${safeText(champion.officialTeamName)}**`,
     `Team code: **${safeText(champion.teamCode)}** • Slot: **${safeText(champion.slotCode)}**`,
@@ -131,6 +134,16 @@ export function renderMvpReview(review) {
 }
 
 function reviewComponents(review) {
+  if (review.status === 'confirmed') {
+    const spreadsheetId = review.spreadsheetId ?? DEFAULT_GAME_RESULTS_SPREADSHEET_ID
+    const sheetUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}`
+    return [new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setLabel('View Standings')
+        .setStyle(ButtonStyle.Link)
+        .setURL(sheetUrl),
+    )]
+  }
   if (review.status !== 'pending') return []
   return [new ActionRowBuilder().addComponents(
     new ButtonBuilder()

@@ -5,7 +5,7 @@ import {
   GAME_RESULTS_TEST_SHEET_ID,
 } from './game-results-sheet-client.js'
 import { buildConfirmedPlayerHistory } from './game-results-player-history.js'
-import { validateSafeSheetText } from './game-results-runtime.js'
+import { formatTallyDate, validateSafeSheetText } from './game-results-runtime.js'
 import { createSupabaseGameResultsStore } from './game-results-store.js'
 import {
   DEFAULT_GAME_RESULTS_SPREADSHEET_ID,
@@ -574,12 +574,14 @@ export function buildSafeSheetWritePlan({ submission, state, sheetConfig }) {
       requests.push(scoreMarkerCellRequest(sheetConfig.sheetId, rowIndex, column))
     }
   }
+  const tallyDate = formatTallyDate(submission?.submissionTimestamp)
   return {
     mode: sheetConfig.mode,
     spreadsheetId: sheetConfig.spreadsheetId,
     worksheetName: sheetConfig.worksheetName,
     sheetId: sheetConfig.sheetId,
     round,
+    tallyDate,
     teams,
     targets,
     formulas,

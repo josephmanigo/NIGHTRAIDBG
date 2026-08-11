@@ -211,3 +211,13 @@ export function createSlidingWindowRateLimiter(options = {}) {
   }
   return { consume }
 }
+
+export function formatTallyDate(value) {
+  const date = value ? new Date(value) : new Date()
+  const valid = !Number.isNaN(date.getTime()) ? date : new Date()
+  const year = valid.getFullYear()
+  const month = String(valid.getMonth() + 1).padStart(2, '0')
+  const day = String(valid.getDate()).padStart(2, '0')
+  return `${month}/${day}/${year} 10:00 PM`
+}
+
