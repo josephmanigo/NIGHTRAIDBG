@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { prefersReducedMotion } from '../lib/motion'
 
 /** Safety net in case autoplay is blocked and the video's 'ended' event never fires. */
-const FALLBACK_MS = 4000
+const FALLBACK_MS = 6000
 
 /**
  * App-root overlay — deliberately outside the hero's `.nr-hero-surface`
@@ -34,11 +34,13 @@ export default function Preloader() {
           muted
           playsInline
           preload="auto"
-          src="/preload.mp4"
           onEnded={() => setDone(true)}
           onError={() => setDone(true)}
           className="absolute inset-0 h-full w-full object-cover"
-        />
+        >
+          <source src="/preload.mp4" type="video/mp4" />
+          <source src="/preload.mov" type="video/quicktime" />
+        </video>
       )}
     </div>
   )
