@@ -1,14 +1,15 @@
 /*
  * /guesstheword — the word version of /guessthenumber.
  *
- * The host sets a word and a hint. Players type a single word into the
- * channel and the bot reacts to their own message: a tick for the word, a
- * cross for a miss, and a stop sign once a player has spent all five of
+ * The host sets a one- or two-word answer and a hint. Players type an answer
+ * with the same word count into the channel and the bot reacts to their own
+ * message: a tick for the answer, a cross for a miss, and a stop sign once
+ * a player has spent all five of
  * their guesses. Nothing is replied, so the channel stays readable.
  *
- * A guess is one word with no spaces, so ordinary sentences are chat and
- * are left alone. Matching ignores case and accents: `Bloodstrike`,
- * `bloodstrike`, and `BLOODSTRIKE` are the same answer.
+ * A guess can contain one word or two words separated by a space. Longer
+ * sentences are chat and are left alone. Matching ignores case, accents,
+ * and repeated spaces.
  *
  * Games live in memory: a bot restart clears whatever is in play.
  */
@@ -20,12 +21,13 @@ import {
   PermissionFlagsBits,
 } from 'discord.js'
 
-const WORD_LIMIT = 32
+const WORD_PART_LIMIT = 32
+const WORD_LIMIT = WORD_PART_LIMIT * 2 + 1
 const HINT_LIMIT = 200
 const PRIZE_LIMIT = 100
-/* One word: letters (any language), digits, and the joiners that live
- * inside real words. No spaces, so a sentence is never a guess. */
-const WORD_PATTERN = /^[\p{L}\p{N}'’-]{1,32}$/u
+/* One or two words: letters (any language), digits, and the joiners that
+ * live inside real words. Three-word sentences are never guesses. */
+const WORD_PATTERN = /^[\p{L}\p{N}'’-]{1,32}(?: +[\p{L}\p{N}'’-]{1,32})?$/u
 
 export const WORD_ATTEMPTS = 5
 
@@ -42,7 +44,7 @@ export const GUESS_THE_WORD_COMMAND = Object.freeze({
     {
       type: ApplicationCommandOptionType.String,
       name: 'word',
-      description: 'The word players will guess. Nobody else sees it.',
+      description: 'The one- or two-word answer players will guess. Nobody else sees it.',
       required: true,
       maxLength: WORD_LIMIT,
     },
@@ -69,20 +71,30 @@ export function normalizeWord(value) {
     .normalize('NFKD')
     .replace(/\p{Diacritic}/gu, '')
     .trim()
+    .replace(/ +/g, ' ')
     .toLowerCase()
 }
 
-/* Only a single word is a guess; a sentence is chat and is ignored. */
+function cleanWordSpacing(value) {
+  return String(value ?? '').trim().replace(/ +/g, ' ')
+}
+
+function wordCount(value) {
+  const text = cleanWordSpacing(value)
+  return text ? text.split(' ').length : 0
+}
+
+/* Only one or two words are a guess; a longer sentence is chat. */
 export function parseWordGuess(value) {
-  const text = String(value ?? '').trim()
+  const text = cleanWordSpacing(value)
   if (!WORD_PATTERN.test(text)) return null
   return text
 }
 
 export function assertSecretWord(value) {
-  const word = String(value ?? '').trim()
+  const word = cleanWordSpacing(value)
   if (!WORD_PATTERN.test(word)) {
-    throw new Error(`The word must be a single word of up to ${WORD_LIMIT} letters, with no spaces.`)
+    throw new Error(`The answer must contain one or two words, with up to ${WORD_PART_LIMIT} characters per word.`)
   }
   return word
 }
@@ -148,6 +160,7 @@ export function evaluateWordGuess(game, userId, rawValue) {
 
   const guess = parseWordGuess(rawValue)
   if (guess === null) return { status: 'not_a_guess' }
+  if (wordCount(guess) !== wordCount(game.secret)) return { status: 'not_a_guess' }
   if (attemptsLeft(game, player) === 0) return { status: 'eliminated', guess, remaining: 0 }
 
   const used = attemptsUsed(game, player) + 1
@@ -163,14 +176,16 @@ export function evaluateWordGuess(game, userId, rawValue) {
 }
 
 export function renderWordGameStart({ secret, hint, prize = null }) {
+  const answerWords = wordCount(secret)
   const lines = [
     '# Game Started',
     '',
     '**How To Play:**',
     `- Hint: **${hint}**`,
-    '- First person to guess the word wins!',
+    '- First person to guess the answer wins!',
     `- You have **${WORD_ATTEMPTS}** guesses each.`,
-    '- Type your guess as one word in this channel.',
+    `- Answer format: **${answerWords} word${answerWords === 1 ? '' : 's'}**.`,
+    `- Type your guess ${answerWords === 1 ? 'as one word' : 'with a space between both words'} in this channel.`,
   ]
   if (prize) lines.push(`- Prize: **${prize}**`)
   lines.push('- Good Luck!')
@@ -279,7 +294,7 @@ export function createGuessTheWordWorkflow(options = {}) {
   }
 
   /* Every message in a channel with a running game passes through here, so
-   * anything longer than a single word is left untouched. */
+   * anything longer than two words is left untouched. */
   async function handleMessage(message) {
     if (message.author?.bot) return { status: 'ignored' }
     const game = games.get(String(message.channelId))

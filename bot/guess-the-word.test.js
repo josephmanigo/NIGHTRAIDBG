@@ -97,28 +97,34 @@ test('five guesses each, same as the number game', () => {
   assert.equal(WORD_ATTEMPTS, 5)
 })
 
-test('matching ignores case and accents', () => {
+test('matching ignores case, accents, and repeated spaces', () => {
   assert.equal(normalizeWord('  BloodStrike '), 'bloodstrike')
   assert.equal(normalizeWord('Ñoño'), 'nono')
+  assert.equal(normalizeWord('  Blood   Stríke  '), 'blood strike')
   const active = game({ word: 'NightRaid' })
   assert.equal(evaluateWordGuess(active, 'p1', 'nightraid').status, 'correct')
+  const twoWords = game({ word: 'Blood Strike' })
+  assert.equal(evaluateWordGuess(twoWords, 'p2', 'BLOOD   STRÍKE').status, 'correct')
 })
 
-test('only a single word counts as a guess', () => {
+test('one or two words count as a guess while longer sentences are chat', () => {
   assert.equal(parseWordGuess('bloodstrike'), 'bloodstrike')
   assert.equal(parseWordGuess("  don't  "), "don't")
   assert.equal(parseWordGuess('night-raid'), 'night-raid')
+  assert.equal(parseWordGuess('blood strike'), 'blood strike')
+  assert.equal(parseWordGuess('  blood   strike  '), 'blood strike')
   assert.equal(parseWordGuess('is it bloodstrike'), null)
   assert.equal(parseWordGuess(''), null)
   assert.equal(parseWordGuess('https://example.com/x'), null)
   assert.equal(parseWordGuess('x'.repeat(33)), null)
 })
 
-test('a multi-word or empty secret is refused', () => {
+test('the secret accepts one or two words and refuses empty or longer answers', () => {
   assert.equal(assertSecretWord(' bloodstrike '), 'bloodstrike')
-  assert.throws(() => assertSecretWord('blood strike'), /single word/)
-  assert.throws(() => assertSecretWord(''), /single word/)
-  assert.throws(() => assertSecretWord('x'.repeat(33)), /single word/)
+  assert.equal(assertSecretWord(' blood   strike '), 'blood strike')
+  assert.throws(() => assertSecretWord('guess this answer'), /one or two words/)
+  assert.throws(() => assertSecretWord(''), /one or two words/)
+  assert.throws(() => assertSecretWord('x'.repeat(33)), /one or two words/)
 })
 
 test('the board shows the hint', () => {
@@ -126,6 +132,7 @@ test('the board shows the hint', () => {
   assert.match(board, /# Game Started/)
   assert.match(board, /- Hint: \*\*The game we play\*\*/)
   assert.match(board, /- You have \*\*5\*\* guesses each\./)
+  assert.match(board, /Answer format: \*\*1 word\*\*/)
   assert.match(board, /- Prize: \*\*500 diamonds\*\*/)
   /* The word itself is never on the board. */
   assert.equal(board.includes('bloodstrike'), false)
@@ -153,7 +160,16 @@ test('each player gets their own five guesses', () => {
 test('chat never costs an attempt', () => {
   const active = game()
   assert.equal(evaluateWordGuess(active, 'player-1', 'is it bloodstrike').status, 'not_a_guess')
+  assert.equal(evaluateWordGuess(active, 'player-1', 'blood strike').status, 'not_a_guess')
   assert.equal(attemptsLeft(active, 'player-1'), WORD_ATTEMPTS)
+})
+
+test('a two-word game only counts two-word guesses and accepts the spaced answer', () => {
+  const active = game({ word: 'blood strike' })
+  assert.equal(evaluateWordGuess(active, 'player-1', 'bloodstrike').status, 'not_a_guess')
+  assert.equal(attemptsLeft(active, 'player-1'), WORD_ATTEMPTS)
+  assert.equal(evaluateWordGuess(active, 'player-1', 'wrong answer').status, 'wrong')
+  assert.equal(evaluateWordGuess(active, 'player-1', 'blood strike').status, 'correct')
 })
 
 test('the host who set the word cannot play', () => {
@@ -182,13 +198,23 @@ test('starting a game posts the board and hides the word', async () => {
   assert.equal('components' in payload, false)
 })
 
-test('a multi-word answer is refused before a game starts', async () => {
+test('a two-word answer starts successfully and remains hidden on the board', async () => {
   const { workflow, games } = workflowWith()
   const interaction = commandInteraction({ word: 'blood strike' })
   const result = await workflow.handleInteraction(interaction)
+  assert.equal(result.status, 'started')
+  assert.equal(games.get(CHANNEL_ID).secret, 'blood strike')
+  assert.match(interaction.state.replies[0].content, /Answer format: \*\*2 words\*\*/)
+  assert.equal(interaction.state.replies[0].content.includes('blood strike'), false)
+})
+
+test('a three-word answer is refused before a game starts', async () => {
+  const { workflow, games } = workflowWith()
+  const interaction = commandInteraction({ word: 'guess this answer' })
+  const result = await workflow.handleInteraction(interaction)
   assert.equal(result.status, 'rejected')
   assert.equal(games.size, 0)
-  assert.match(interaction.state.replies[0].content, /single word/)
+  assert.match(interaction.state.replies[0].content, /one or two words/)
 })
 
 test('a wrong guess gets a cross and nothing else', async () => {
@@ -200,14 +226,14 @@ test('a wrong guess gets a cross and nothing else', async () => {
 })
 
 test('the winning guess is ticked and announced', async () => {
-  const { workflow } = workflowWith(game({ prize: '500 diamonds' }))
-  const winner = guessMessage({ userId: 'player-7', content: 'BLOODSTRIKE' })
+  const { workflow } = workflowWith(game({ word: 'blood strike', prize: '500 diamonds' }))
+  const winner = guessMessage({ userId: 'player-7', content: 'BLOOD STRIKE' })
   const result = await workflow.handleMessage(winner)
   assert.equal(result.status, 'won')
   assert.equal(result.winnerId, 'player-7')
   assert.deepEqual(winner.state.reactions, ['✅'])
   assert.match(winner.state.sent[0].content, /# Guessed It/)
-  assert.match(winner.state.sent[0].content, /\*\*bloodstrike\*\*/)
+  assert.match(winner.state.sent[0].content, /\*\*blood strike\*\*/)
   assert.match(winner.state.sent[0].content, /Prize: \*\*500 diamonds\*\*/)
 })
 
