@@ -1,10 +1,10 @@
 /*
  * /guesstheword — the word version of /guessthenumber.
  *
- * The host sets a one- or two-word answer and a hint. Players type an answer
- * with the same word count into the channel and the bot reacts to their own
- * message: a tick for the answer, a cross for a miss, and a stop sign once
- * a player has spent all five of
+ * The host sets a one- or two-word answer and a hint. Players type a one- or
+ * two-word guess into the channel and the bot reacts to their own message: a
+ * tick for the answer, a cross for a miss, and a stop sign once a player has
+ * spent all five of
  * their guesses. Nothing is replied, so the channel stays readable.
  *
  * A guess can contain one word or two words separated by a space. Longer
@@ -160,7 +160,6 @@ export function evaluateWordGuess(game, userId, rawValue) {
 
   const guess = parseWordGuess(rawValue)
   if (guess === null) return { status: 'not_a_guess' }
-  if (wordCount(guess) !== wordCount(game.secret)) return { status: 'not_a_guess' }
   if (attemptsLeft(game, player) === 0) return { status: 'eliminated', guess, remaining: 0 }
 
   const used = attemptsUsed(game, player) + 1

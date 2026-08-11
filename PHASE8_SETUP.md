@@ -219,9 +219,9 @@ npm run test:guess-the-number
 /guesstheword word:blood strike hint:The game we play prize:500 diamonds
 ```
 
-The board shows the hint and whether the hidden answer contains one or two words, never the answer itself. Players type an answer with the same word count into the channel and the bot reacts to their message: ✅ correct, ❌ wrong, 🚫 out of guesses. **Every player gets five guesses of their own.**
+The board shows the hint and whether the hidden answer contains one or two words, never the answer itself. Players can submit either a one-word or two-word guess, and the bot reacts to their message: ✅ correct, ❌ wrong, 🚫 out of guesses. **Every player gets five guesses of their own.**
 
-Only a message with the hidden answer's word count consumes a guess. Longer sentences such as `is it blood strike` remain ordinary chat. Matching ignores case, accents, and repeated spaces, so `Blood Strike` and `BLOOD   STRÍKE` both win.
+Every valid one- or two-word response consumes a guess, even when its word count differs from the hidden answer. That means a one-word wrong answer during a two-word game still receives ❌. Longer sentences such as `is it blood strike` remain ordinary chat. Matching ignores case, accents, and repeated spaces, so `Blood Strike` and `BLOOD   STRÍKE` both win.
 
 The host who set the word cannot play: words they type are ignored rather than answered. One game runs per channel; the host or an administrator can run the command again to replace it. Games are held in memory and do not survive a bot restart.
 

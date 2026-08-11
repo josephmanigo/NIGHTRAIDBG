@@ -160,16 +160,22 @@ test('each player gets their own five guesses', () => {
 test('chat never costs an attempt', () => {
   const active = game()
   assert.equal(evaluateWordGuess(active, 'player-1', 'is it bloodstrike').status, 'not_a_guess')
-  assert.equal(evaluateWordGuess(active, 'player-1', 'blood strike').status, 'not_a_guess')
   assert.equal(attemptsLeft(active, 'player-1'), WORD_ATTEMPTS)
 })
 
-test('a two-word game only counts two-word guesses and accepts the spaced answer', () => {
+test('a two-word game marks both one- and two-word wrong guesses', () => {
   const active = game({ word: 'blood strike' })
-  assert.equal(evaluateWordGuess(active, 'player-1', 'bloodstrike').status, 'not_a_guess')
-  assert.equal(attemptsLeft(active, 'player-1'), WORD_ATTEMPTS)
+  assert.equal(evaluateWordGuess(active, 'player-1', 'bloodstrike').status, 'wrong')
+  assert.equal(attemptsLeft(active, 'player-1'), WORD_ATTEMPTS - 1)
   assert.equal(evaluateWordGuess(active, 'player-1', 'wrong answer').status, 'wrong')
   assert.equal(evaluateWordGuess(active, 'player-1', 'blood strike').status, 'correct')
+})
+
+test('a one-word wrong reply receives a cross during a two-word game', async () => {
+  const { workflow } = workflowWith(game({ word: 'body wash' }))
+  const miss = guessMessage({ content: 'sabon' })
+  assert.equal((await workflow.handleMessage(miss)).status, 'wrong')
+  assert.deepEqual(miss.state.reactions, [WORD_REACTIONS.wrong])
 })
 
 test('the host who set the word cannot play', () => {
