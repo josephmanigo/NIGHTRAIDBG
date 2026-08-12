@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { prefersReducedMotion } from '../lib/motion'
 
-/** Safety net in case autoplay is blocked and video's timeupdate/ended never fire. */
+/** Safety net — GIF has no ended event, so we rely on this timeout. */
 const FALLBACK_MS = 6000
 
 /** Duration of the smooth exit ender transition in milliseconds. */
@@ -10,7 +10,7 @@ const TRANSITION_DURATION_MS = 1000
 /**
  * App-root overlay — deliberately outside the hero's `.nr-hero-surface`
  * (which sets `isolation: isolate`), so it can sit above the fixed header
- * (z-70) without fighting that stacking context. Plays preload.mp4 once;
+ * (z-70) without fighting that stacking context. Shows preload.gif;
  * smoothly transitions into the hero with a cinematic scale, blur, and 
  * crimson flare dissolve as the preloader concludes.
  */
@@ -20,7 +20,7 @@ export default function Preloader() {
     reduced ? 'done' : 'playing'
   )
   const endingTriggeredRef = useRef(false)
-  const videoRef = useRef<HTMLVideoElement>(null)
+
 
   const triggerEnding = () => {
     if (endingTriggeredRef.current) return
@@ -49,15 +49,6 @@ export default function Preloader() {
     }
   }, [status])
 
-  const handleTimeUpdate = () => {
-    const video = videoRef.current
-    if (!video || status !== 'playing') return
-    // Trigger smooth transition slightly before full video end to prevent frame freeze
-    if (video.duration && video.currentTime >= video.duration - 0.35) {
-      triggerEnding()
-    }
-  }
-
   if (status === 'done') return null
 
   const isEnding = status === 'ending'
@@ -72,22 +63,14 @@ export default function Preloader() {
       }`}
     >
       {!reduced && (
-        <video
-          ref={videoRef}
-          autoPlay
-          muted
-          playsInline
-          preload="auto"
-          onTimeUpdate={handleTimeUpdate}
-          onEnded={triggerEnding}
+        <img
+          src="/preload.gif"
+          alt=""
           onError={triggerEnding}
           className={`absolute inset-0 h-full w-full object-cover transform-gpu transition-all duration-1000 ease-out ${
             isEnding ? 'scale-105 brightness-110' : 'scale-100 brightness-100'
           }`}
-        >
-          <source src="/preload.mp4" type="video/mp4" />
-          <source src="/preload.mov" type="video/quicktime" />
-        </video>
+        />
       )}
 
       {/* Crimson flare sweep line on exit */}
