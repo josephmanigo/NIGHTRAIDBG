@@ -9,8 +9,12 @@ interface PreloaderProps {
 /** Timing for Akame screen slice completion (ms) before transitioning to hero page. */
 const PRELOAD_DURATION_MS = 2950
 
-/** Duration of the smooth exit transition in milliseconds. */
-const TRANSITION_DURATION_MS = 200
+/**
+ * Duration of the smooth exit transition in milliseconds.
+ * Must be long enough for the CSS opacity/scale/blur to dissolve gracefully
+ * while the hero entrance animation plays underneath.
+ */
+const TRANSITION_DURATION_MS = 800
 
 /**
  * App-root overlay — deliberately outside the hero's `.nr-hero-surface`
@@ -50,7 +54,7 @@ export default function Preloader({ onEnding, onDone }: PreloaderProps = {}) {
     return () => window.clearTimeout(timer)
   }, [reduced, status])
 
-  /* Transition phase completion timer */
+  /* Transition phase completion — keep mounted until CSS transition finishes */
   useEffect(() => {
     if (status === 'ending') {
       const exitTimer = window.setTimeout(() => {
@@ -69,25 +73,30 @@ export default function Preloader({ onEnding, onDone }: PreloaderProps = {}) {
   return (
     <div
       aria-hidden="true"
-      className={`fixed inset-0 z-[100] overflow-hidden bg-deep transform-gpu will-change-[opacity,transform,filter] transition-all duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] ${isEnding
-        ? 'pointer-events-none opacity-0 scale-[1.03] blur-[8px]'
-        : 'opacity-100 scale-100 blur-0'
-        }`}
+      className={`fixed inset-0 z-[100] overflow-hidden bg-deep transform-gpu will-change-[opacity,transform,filter] transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+        isEnding
+          ? 'pointer-events-none opacity-0 scale-[1.02] blur-[6px]'
+          : 'opacity-100 scale-100 blur-0'
+      }`}
     >
       {!reduced && (
         <img
           src="/preload.gif"
           alt=""
           onError={triggerEnding}
-          className={`absolute inset-0 h-full w-full object-cover transform-gpu transition-all duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] ${isEnding ? 'opacity-0 scale-104 brightness-110' : 'opacity-100 scale-100 brightness-100'
-            }`}
+          className={`absolute inset-0 h-full w-full object-cover transform-gpu transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+            isEnding
+              ? 'opacity-0 scale-[1.03] brightness-125'
+              : 'opacity-100 scale-100 brightness-100'
+          }`}
         />
       )}
 
       {/* Akame katana slice flare overlay on transition */}
       <div
-        className={`absolute inset-0 pointer-events-none transition-opacity duration-1000 ease-out ${isEnding ? 'opacity-100' : 'opacity-0'
-          }`}
+        className={`absolute inset-0 pointer-events-none transition-opacity ease-out ${
+          isEnding ? 'opacity-100 duration-200' : 'opacity-0 duration-700'
+        }`}
       >
         {/* Ambient crimson flash burst */}
         <div className="absolute inset-0 bg-gradient-to-t from-blood/30 via-blood/10 to-blood/30 mix-blend-screen animate-pulse" />
