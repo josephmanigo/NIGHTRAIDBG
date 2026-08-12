@@ -71,7 +71,7 @@ export default function Preloader({ onEnding, onDone }: PreloaderProps = {}) {
       aria-hidden="true"
       className={`fixed inset-0 z-[100] overflow-hidden bg-deep transform-gpu will-change-[opacity,transform,filter] transition-all duration-1000 ease-[cubic-bezier(0.16,1,0.3,1)] ${
         isEnding
-          ? 'pointer-events-none opacity-0 scale-[1.04] blur-[4px]'
+          ? 'pointer-events-none opacity-0 scale-[1.05] blur-[6px]'
           : 'opacity-100 scale-100 blur-0'
       }`}
     >
@@ -81,19 +81,25 @@ export default function Preloader({ onEnding, onDone }: PreloaderProps = {}) {
           alt=""
           onError={triggerEnding}
           className={`absolute inset-0 h-full w-full object-cover transform-gpu transition-all duration-1000 ease-out ${
-            isEnding ? 'scale-105 brightness-110' : 'scale-100 brightness-100'
+            isEnding ? 'scale-108 brightness-125' : 'scale-100 brightness-100'
           }`}
         />
       )}
 
-      {/* Crimson flare sweep line on exit */}
+      {/* Akame katana slice flare overlay on transition */}
       <div
         className={`absolute inset-0 pointer-events-none transition-opacity duration-700 ease-out ${
           isEnding ? 'opacity-100' : 'opacity-0'
         }`}
       >
-        <div className="absolute inset-0 bg-gradient-to-t from-blood/20 via-transparent to-blood/20 mix-blend-screen" />
-        <div className="absolute top-1/2 left-0 right-0 h-[2px] -translate-y-1/2 bg-gradient-to-r from-transparent via-blood to-transparent shadow-[0_0_20px_#e3262e] animate-nr-sweep" />
+        {/* Ambient crimson flash burst */}
+        <div className="absolute inset-0 bg-gradient-to-t from-blood/30 via-blood/10 to-blood/30 mix-blend-screen animate-pulse" />
+        
+        {/* Diagonal slash beam cut */}
+        <div className="absolute top-1/2 left-1/2 w-[160%] h-[3px] -translate-x-1/2 -translate-y-1/2 -rotate-12 bg-gradient-to-r from-transparent via-blood to-transparent shadow-[0_0_35px_#e3262e] animate-nr-sweep" />
+        
+        {/* Horizontal slice accent */}
+        <div className="absolute top-1/2 left-0 right-0 h-[1px] -translate-y-1/2 bg-gradient-to-r from-transparent via-[#ff4d52] to-transparent shadow-[0_0_15px_#ff4d52]" />
       </div>
     </div>
   )

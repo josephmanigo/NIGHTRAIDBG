@@ -48,18 +48,19 @@ export default function Hero({ preloaded }: HeroProps = {}) {
       const tl = gsap.timeline({ defaults: { ease: 'power3.out' } })
       tl.fromTo(
         '[data-hero-frame]',
-        { scale: 1.02 },
+        { scale: 1.03, opacity: 0.9 },
         {
           scale: 1,
-          duration: 1.4,
-          ease: 'power4.inOut',
+          opacity: 1,
+          duration: 1.2,
+          ease: 'power3.out',
           onComplete: () => {
             setInitScrollTrigger(true)
           },
         },
       )
-        .from('[data-hero-line="1"] > span', { yPercent: 112, duration: 0.9, ease: 'power4.out' }, '-=0.7')
-        .from('[data-hero-line="2"] > span', { yPercent: 112, duration: 0.9, ease: 'power4.out' }, '-=0.72')
+        .from('[data-hero-line="1"] > span', { yPercent: 112, duration: 0.95, ease: 'power4.out' }, '-=0.85')
+        .from('[data-hero-line="2"] > span', { yPercent: 112, duration: 0.95, ease: 'power4.out' }, '-=0.87')
     }, scope)
     return () => ctx.revert()
   }, [booted, reduced])
