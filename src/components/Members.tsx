@@ -10,9 +10,13 @@ export default function Members() {
   const [statusFilter, setStatusFilter] = useState<TeamStatusFilter>('All')
 
   const teams = useMemo(() => {
-    const base = TEAMS.filter((team) => team.id !== 'deso')
-    if (statusFilter === 'All') return base
-    return base.filter((team) => team.status === statusFilter.toLowerCase())
+    if (statusFilter === 'All') {
+      return TEAMS.filter((team) => team.id !== 'deso' && team.status !== 'current')
+    }
+    if (statusFilter === 'Current') {
+      return TEAMS.filter((team) => team.status === 'current')
+    }
+    return TEAMS.filter((team) => team.id !== 'deso' && team.status === 'former' && team.id !== 'shadow')
   }, [statusFilter])
 
   const galleryItems = useMemo<GalleryItem[]>(
