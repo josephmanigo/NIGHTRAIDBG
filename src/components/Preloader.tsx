@@ -7,7 +7,7 @@ interface PreloaderProps {
 }
 
 /** Timing for Akame screen slice completion (ms) before transitioning to hero page. */
-const PRELOAD_DURATION_MS = 2950
+const PRELOAD_DURATION_MS = 2920
 
 /**
  * Duration of the smooth exit transition in milliseconds.
@@ -73,30 +73,27 @@ export default function Preloader({ onEnding, onDone }: PreloaderProps = {}) {
   return (
     <div
       aria-hidden="true"
-      className={`fixed inset-0 z-[100] overflow-hidden bg-deep transform-gpu will-change-[opacity,transform,filter] transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] ${
-        isEnding
+      className={`fixed inset-0 z-[100] overflow-hidden bg-deep transform-gpu will-change-[opacity,transform,filter] transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] ${isEnding
           ? 'pointer-events-none opacity-0 scale-[1.02] blur-[12px]'
           : 'opacity-100 scale-100 blur-0'
-      }`}
+        }`}
     >
       {!reduced && (
         <img
           src="/preload.gif"
           alt=""
           onError={triggerEnding}
-          className={`absolute inset-0 h-full w-full object-cover transform-gpu will-change-[opacity,transform,filter] transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] ${
-            isEnding
+          className={`absolute inset-0 h-full w-full object-cover transform-gpu will-change-[opacity,transform,filter] transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] ${isEnding
               ? 'opacity-0 scale-[1.03] blur-[10px] brightness-125'
               : 'opacity-100 scale-100 blur-0 brightness-100'
-          }`}
+            }`}
         />
       )}
 
       {/* Akame katana slice flare overlay on transition */}
       <div
-        className={`absolute inset-0 pointer-events-none transition-opacity ease-out ${
-          isEnding ? 'opacity-100 duration-200' : 'opacity-0 duration-700'
-        }`}
+        className={`absolute inset-0 pointer-events-none transition-opacity ease-out ${isEnding ? 'opacity-100 duration-200' : 'opacity-0 duration-700'
+          }`}
       >
         {/* Ambient crimson flash burst */}
         <div className="absolute inset-0 bg-gradient-to-t from-blood/30 via-blood/10 to-blood/30 mix-blend-screen animate-pulse" />
