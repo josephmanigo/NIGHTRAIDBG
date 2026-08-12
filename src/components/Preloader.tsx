@@ -6,8 +6,8 @@ interface PreloaderProps {
   onDone?: () => void
 }
 
-/** Timing for Akame screen slice completion (37 frames @ 80ms = ~2.96s) before transitioning to hero page. */
-const PRELOAD_DURATION_MS = 2960
+/** Timing for Akame screen slice completion (ms) before transitioning to hero page. */
+const PRELOAD_DURATION_MS = 2650
 
 /** Duration of the smooth exit transition in milliseconds. */
 const TRANSITION_DURATION_MS = 800
@@ -69,9 +69,9 @@ export default function Preloader({ onEnding, onDone }: PreloaderProps = {}) {
   return (
     <div
       aria-hidden="true"
-      className={`fixed inset-0 z-[100] overflow-hidden bg-deep transform-gpu will-change-[opacity,transform,filter] transition-all duration-1000 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+      className={`fixed inset-0 z-[100] overflow-hidden bg-deep transform-gpu will-change-[opacity,transform,filter] transition-all duration-800 ease-[cubic-bezier(0.16,1,0.3,1)] ${
         isEnding
-          ? 'pointer-events-none opacity-0 scale-[1.05] blur-[6px]'
+          ? 'pointer-events-none opacity-0 scale-[1.04] blur-[4px]'
           : 'opacity-100 scale-100 blur-0'
       }`}
     >
@@ -80,8 +80,8 @@ export default function Preloader({ onEnding, onDone }: PreloaderProps = {}) {
           src="/preload.gif"
           alt=""
           onError={triggerEnding}
-          className={`absolute inset-0 h-full w-full object-cover transform-gpu transition-all duration-1000 ease-out ${
-            isEnding ? 'scale-108 brightness-125' : 'scale-100 brightness-100'
+          className={`absolute inset-0 h-full w-full object-cover transform-gpu transition-opacity duration-300 ease-out ${
+            isEnding ? 'opacity-0 scale-105 brightness-125' : 'opacity-100 scale-100 brightness-100'
           }`}
         />
       )}
