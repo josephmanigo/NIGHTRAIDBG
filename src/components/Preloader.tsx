@@ -7,7 +7,7 @@ interface PreloaderProps {
 }
 
 /** Timing for Akame screen slice completion (ms) before transitioning to hero page. */
-const PRELOAD_DURATION_MS = 2800
+const PRELOAD_DURATION_MS = 2850
 
 /** Duration of the smooth exit transition in milliseconds. */
 const TRANSITION_DURATION_MS = 800
