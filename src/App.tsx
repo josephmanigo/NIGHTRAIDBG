@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ScrollTrigger } from './lib/motion'
 import { useSmoothScroll } from './hooks/useSmoothScroll'
 import { useSectionSpy } from './hooks/useSectionSpy'
@@ -31,6 +31,7 @@ export default function App() {
 }
 
 function MarketingSite() {
+  const [preloaderEnding, setPreloaderEnding] = useState(false)
   useSmoothScroll(true)
   useMagnetic()
 
@@ -56,12 +57,12 @@ function MarketingSite() {
       <a href="#main" className="skip-link">
         Skip to content
       </a>
-      <Preloader />
+      <Preloader onEnding={() => setPreloaderEnding(true)} />
       <Header activeSection={activeSection} />
       {/* One continuous surface — sections are transparent so the color and
        * topo pattern flow unbroken from hero to footer, no visible seams. */}
       <div className="nr-site-surface relative bg-paper">
-        <Hero />
+        <Hero preloaded={preloaderEnding} />
         <main id="main">
           <About />
           <Members />

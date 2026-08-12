@@ -14,7 +14,11 @@ const POSTER_SRC = '/hero.webp'
  * backward currentTime scrubbing is slow and janky on real mobile
  * browsers, so it must never be reintroduced here.
  */
-export default function Hero() {
+interface HeroProps {
+  preloaded?: boolean
+}
+
+export default function Hero({ preloaded }: HeroProps = {}) {
   const rootRef = useRef<HTMLElement>(null)
   const pinRef = useRef<HTMLDivElement>(null)
   const frameRef = useRef<HTMLDivElement>(null)
@@ -25,17 +29,15 @@ export default function Hero() {
   const reduced = prefersReducedMotion()
 
   useEffect(() => {
-    if (reduced) setBooted(true)
-  }, [reduced])
+    if (reduced || preloaded) setBooted(true)
+  }, [reduced, preloaded])
 
-  /* Dismiss the loading state after one playthrough of preload.gif (37 frames
-   * @ 80ms = ~2.96s) — the hero video keeps loading behind it and crossfades
-   * in over the poster whenever it becomes ready, so the veil never waits on it. */
+  /* Fallback timer to clear loading state if preloaded prop is delayed */
   useEffect(() => {
-    if (reduced) return
+    if (reduced || booted) return
     const t = window.setTimeout(() => setBooted(true), 2960)
     return () => window.clearTimeout(t)
-  }, [reduced])
+  }, [reduced, booted])
 
   /* Entrance timeline — runs once, when the loader clears. */
   useEffect(() => {

@@ -1,8 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { prefersReducedMotion } from '../lib/motion'
 
-/** Timing for Akame screen slice X mark completion (ms) before transitioning to hero page. */
-const FALLBACK_MS = 2600
+interface PreloaderProps {
+  onEnding?: () => void
+  onDone?: () => void
+}
+
+/** Timing for Akame screen slice completion (37 frames @ 80ms = ~2.96s) before transitioning to hero page. */
+const PRELOAD_DURATION_MS = 2960
 
 /** Duration of the smooth exit transition in milliseconds. */
 const TRANSITION_DURATION_MS = 800
@@ -14,28 +19,35 @@ const TRANSITION_DURATION_MS = 800
  * smoothly transitions into the hero with a cinematic scale, blur, and 
  * crimson flare dissolve as the preloader concludes.
  */
-export default function Preloader() {
+export default function Preloader({ onEnding, onDone }: PreloaderProps = {}) {
   const reduced = prefersReducedMotion()
   const [status, setStatus] = useState<'playing' | 'ending' | 'done'>(
     reduced ? 'done' : 'playing'
   )
   const endingTriggeredRef = useRef(false)
 
-
   const triggerEnding = () => {
     if (endingTriggeredRef.current) return
     endingTriggeredRef.current = true
     setStatus('ending')
+    onEnding?.()
   }
 
-  /* Safety fallback timeout */
+  useEffect(() => {
+    if (reduced) {
+      onEnding?.()
+      onDone?.()
+    }
+  }, [reduced])
+
+  /* Full playthrough timer for preload animation before transition */
   useEffect(() => {
     if (reduced || status !== 'playing') return
-    const fallbackTimer = window.setTimeout(() => {
+    const timer = window.setTimeout(() => {
       triggerEnding()
-    }, FALLBACK_MS)
+    }, PRELOAD_DURATION_MS)
 
-    return () => window.clearTimeout(fallbackTimer)
+    return () => window.clearTimeout(timer)
   }, [reduced, status])
 
   /* Transition phase completion timer */
@@ -43,6 +55,7 @@ export default function Preloader() {
     if (status === 'ending') {
       const exitTimer = window.setTimeout(() => {
         setStatus('done')
+        onDone?.()
       }, TRANSITION_DURATION_MS)
 
       return () => window.clearTimeout(exitTimer)

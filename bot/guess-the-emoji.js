@@ -21,7 +21,7 @@ import {
 } from 'discord.js'
 
 const PRIZE_LIMIT = 100
-const EMOJI_INPUT_LIMIT = 200
+const EMOJI_INPUT_LIMIT = 1000
 
 /* Matches custom Discord emojis (<:name:id>, <a:name:id>) or Unicode emojis. */
 export const EMOJI_REGEX = /<a?:[^:\s]+:\d+>|\p{Extended_Pictographic}(?:[\u{FE0F}\u{200D}\u{1F3FB}-\u{1F3FF}]|\p{Extended_Pictographic})*/gu

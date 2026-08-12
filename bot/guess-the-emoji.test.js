@@ -87,8 +87,8 @@ function guessMessage({ userId = 'player-1', content = '🥰 🫡 🐱 💚 😺
 test('GUESS_THE_EMOJI_COMMAND options and properties', () => {
   assert.equal(GUESS_THE_EMOJI_COMMAND.name, 'guesstheemoji')
   assert.deepEqual(
-    GUESS_THE_EMOJI_COMMAND.options.map((option) => [option.name, option.required === true]),
-    [['emojis', true], ['prize', false]],
+    GUESS_THE_EMOJI_COMMAND.options.map((option) => [option.name, option.required === true, option.maxLength]),
+    [['emojis', true, 1000], ['prize', false, 100]],
   )
 })
 
@@ -109,9 +109,12 @@ test('assertSecretEmojis requires between 7 and 10 emojis', () => {
   const seq10 = '🥰 🫡 🐱 💚 😺 🛡️ 🎯 🎲 🚀 💎'
   const seq6 = '🥰 🫡 🐱 💚 😺 🛡️'
   const seq11 = '🥰 🫡 🐱 💚 😺 🛡️ 🎯 🎲 🚀 💎 🏆'
+  const customSeq10 = Array.from({ length: 10 }, (_, i) => `<:long_custom_emoji_name_${i}:123456789012345678>`).join(' ')
 
   assert.deepEqual(assertSecretEmojis(seq7), ['🥰', '🫡', '🐱', '💚', '😺', '🛡️', '🎯'])
   assert.equal(assertSecretEmojis(seq10).length, 10)
+  assert.equal(customSeq10.length > 200, true)
+  assert.equal(assertSecretEmojis(customSeq10).length, 10)
   assert.throws(() => assertSecretEmojis(seq6), /7 to 10 emojis/)
   assert.throws(() => assertSecretEmojis(seq11), /7 to 10 emojis/)
   assert.throws(() => assertSecretEmojis('hello world'), /7 to 10 emojis/)
