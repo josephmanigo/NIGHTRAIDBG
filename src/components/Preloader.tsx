@@ -7,7 +7,7 @@ interface PreloaderProps {
 }
 
 /** Timing for Akame screen slice completion (ms) before transitioning to hero page. */
-const PRELOAD_DURATION_MS = 2920
+const PRELOAD_DURATION_MS = 2900
 
 /**
  * Duration of the smooth exit transition in milliseconds.
@@ -74,8 +74,8 @@ export default function Preloader({ onEnding, onDone }: PreloaderProps = {}) {
     <div
       aria-hidden="true"
       className={`fixed inset-0 z-[100] overflow-hidden bg-deep transform-gpu will-change-[opacity,transform,filter] transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] ${isEnding
-          ? 'pointer-events-none opacity-0 scale-[1.02] blur-[12px]'
-          : 'opacity-100 scale-100 blur-0'
+        ? 'pointer-events-none opacity-0 scale-[1.02] blur-[12px]'
+        : 'opacity-100 scale-100 blur-0'
         }`}
     >
       {!reduced && (
@@ -84,8 +84,8 @@ export default function Preloader({ onEnding, onDone }: PreloaderProps = {}) {
           alt=""
           onError={triggerEnding}
           className={`absolute inset-0 h-full w-full object-cover transform-gpu will-change-[opacity,transform,filter] transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] ${isEnding
-              ? 'opacity-0 scale-[1.03] blur-[10px] brightness-125'
-              : 'opacity-100 scale-100 blur-0 brightness-100'
+            ? 'opacity-0 scale-[1.03] blur-[10px] brightness-125'
+            : 'opacity-100 scale-100 blur-0 brightness-100'
             }`}
         />
       )}
