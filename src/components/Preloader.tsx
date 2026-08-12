@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { prefersReducedMotion } from '../lib/motion'
 
-/** Safety net — GIF has no ended event, so we rely on this timeout. */
-const FALLBACK_MS = 6000
+/** Timing for Akame screen slice X mark completion (ms) before transitioning to hero page. */
+const FALLBACK_MS = 2600
 
-/** Duration of the smooth exit ender transition in milliseconds. */
-const TRANSITION_DURATION_MS = 1000
+/** Duration of the smooth exit transition in milliseconds. */
+const TRANSITION_DURATION_MS = 800
 
 /**
  * App-root overlay — deliberately outside the hero's `.nr-hero-surface`

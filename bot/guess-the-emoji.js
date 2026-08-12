@@ -59,7 +59,7 @@ export const GUESS_THE_EMOJI_COMMAND = Object.freeze({
     {
       type: ApplicationCommandOptionType.String,
       name: 'emojis',
-      description: 'The secret emoji sequence. Nobody else sees it.',
+      description: 'The secret sequence of 7 to 10 emojis. Nobody else sees it.',
       required: true,
       maxLength: EMOJI_INPUT_LIMIT,
     },
@@ -86,8 +86,8 @@ export function parseEmojis(text) {
 
 export function assertSecretEmojis(value) {
   const emojis = parseEmojis(value)
-  if (!emojis || emojis.length < 2) {
-    throw new Error('Please provide a secret sequence of at least 2 emojis.')
+  if (!emojis || emojis.length < 7 || emojis.length > 10) {
+    throw new Error('Please provide a secret sequence of 7 to 10 emojis.')
   }
   return emojis
 }

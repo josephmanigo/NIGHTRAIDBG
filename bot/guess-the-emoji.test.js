@@ -24,7 +24,7 @@ const CHANNEL_ID = '1208605026868535387'
 const GAME_ID = 'e1m0j100'
 
 function game({
-  emojis = '🥰 🫡 🐱 💚 😺 🛡️',
+  emojis = '🥰 🫡 🐱 💚 😺 🛡️ 🎯',
   hostId = 'host-1',
   prize = null,
 } = {}) {
@@ -40,7 +40,7 @@ function game({
 
 function commandInteraction({
   userId = 'host-1',
-  emojis = '🥰 🫡 🐱 💚 😺 🛡️',
+  emojis = '🥰 🫡 🐱 💚 😺 🛡️ 🎯',
   prize = null,
   administrator = false,
 } = {}) {
@@ -65,7 +65,7 @@ function commandInteraction({
   }
 }
 
-function guessMessage({ userId = 'player-1', content = '🥰 🫡 🐱 💚 😺 🛡️', bot = false } = {}) {
+function guessMessage({ userId = 'player-1', content = '🥰 🫡 🐱 💚 😺 🛡️ 🎯', bot = false } = {}) {
   const state = { reactions: [], sent: [] }
   return {
     state,
@@ -93,8 +93,8 @@ test('GUESS_THE_EMOJI_COMMAND options and properties', () => {
 })
 
 test('parseEmojis extracts Unicode and custom Discord emojis', () => {
-  const parsed = parseEmojis('🥰 🫡 🐱 💚 😺 🛡️')
-  assert.deepEqual(parsed, ['🥰', '🫡', '🐱', '💚', '😺', '🛡️'])
+  const parsed = parseEmojis('🥰 🫡 🐱 💚 😺 🛡️ 🎯')
+  assert.deepEqual(parsed, ['🥰', '🫡', '🐱', '💚', '😺', '🛡️', '🎯'])
 
   const custom = parseEmojis('<:custom_emoji:123456789> <a:anim_emoji:987654321>')
   assert.deepEqual(custom, ['<:custom_emoji:123456789>', '<a:anim_emoji:987654321>'])
@@ -104,32 +104,39 @@ test('parseEmojis extracts Unicode and custom Discord emojis', () => {
   assert.deepEqual(parseEmojis(null), [])
 })
 
-test('assertSecretEmojis requires at least 2 emojis', () => {
-  assert.deepEqual(assertSecretEmojis('🥰 🫡'), ['🥰', '🫡'])
-  assert.throws(() => assertSecretEmojis('🥰'), /at least 2 emojis/)
-  assert.throws(() => assertSecretEmojis('hello world'), /at least 2 emojis/)
+test('assertSecretEmojis requires between 7 and 10 emojis', () => {
+  const seq7 = '🥰 🫡 🐱 💚 😺 🛡️ 🎯'
+  const seq10 = '🥰 🫡 🐱 💚 😺 🛡️ 🎯 🎲 🚀 💎'
+  const seq6 = '🥰 🫡 🐱 💚 😺 🛡️'
+  const seq11 = '🥰 🫡 🐱 💚 😺 🛡️ 🎯 🎲 🚀 💎 🏆'
+
+  assert.deepEqual(assertSecretEmojis(seq7), ['🥰', '🫡', '🐱', '💚', '😺', '🛡️', '🎯'])
+  assert.equal(assertSecretEmojis(seq10).length, 10)
+  assert.throws(() => assertSecretEmojis(seq6), /7 to 10 emojis/)
+  assert.throws(() => assertSecretEmojis(seq11), /7 to 10 emojis/)
+  assert.throws(() => assertSecretEmojis('hello world'), /7 to 10 emojis/)
 })
 
 test('shuffleArray and shuffleEmojiSequence randomize order', () => {
-  const emojis = ['🥰', '🫡', '🐱', '💚', '😺', '🛡️']
+  const emojis = ['🥰', '🫡', '🐱', '💚', '😺', '🛡️', '🎯']
   const shuffled = shuffleArray(emojis, Math.random)
   assert.equal(shuffled.length, emojis.length)
   assert.deepEqual(shuffled.sort(), [...emojis].sort())
 
   // Test deterministic shuffle override when same as original
-  const deterministicSeq = shuffleEmojiSequence(['🥰', '🫡'], () => 0)
-  assert.notDeepEqual(deterministicSeq, ['🥰', '🫡'])
+  const deterministicSeq = shuffleEmojiSequence(['🥰', '🫡', '🐱', '💚', '😺', '🛡️', '🎯'], () => 0)
+  assert.notDeepEqual(deterministicSeq, ['🥰', '🫡', '🐱', '💚', '😺', '🛡️', '🎯'])
 })
 
 test('countCorrectPositions calculates exact position matches', () => {
-  const secret = ['🥰', '🫡', '🐱', '💚', '😺', '🛡️']
+  const secret = ['🥰', '🫡', '🐱', '💚', '😺', '🛡️', '🎯']
   
   // All correct
-  assert.equal(countCorrectPositions(['🥰', '🫡', '🐱', '💚', '😺', '🛡️'], secret), 6)
+  assert.equal(countCorrectPositions(['🥰', '🫡', '🐱', '💚', '😺', '🛡️', '🎯'], secret), 7)
   // Partial correct (index 2 and 4 match)
-  assert.equal(countCorrectPositions(['🫡', '🥰', '🐱', '🛡️', '😺', '💚'], secret), 2)
+  assert.equal(countCorrectPositions(['🫡', '🥰', '🐱', '🛡️', '😺', '💚', '🎯'], secret), 3)
   // 0 correct
-  assert.equal(countCorrectPositions(['🛡️', '😺', '💚', '🐱', '🫡', '🥰'], secret), 0)
+  assert.equal(countCorrectPositions(['🛡️', '😺', '💚', '🐱', '🎯', '🥰', '🫡'], secret), 0)
 })
 
 test('getReactionForCount maps counts to digit emojis or cross mark', () => {
@@ -140,11 +147,11 @@ test('getReactionForCount maps counts to digit emojis or cross mark', () => {
 })
 
 test('evaluateEmojiGuess handles guesses, reactions, and victory', () => {
-  const active = game({ emojis: '🥰 🫡 🐱 💚' })
+  const active = game({ emojis: '🥰 🫡 🐱 💚 😺 🛡️ 🎯' })
   
   // Host guess when hostMayGuess is disabled
   active.hostMayGuess = false
-  assert.equal(evaluateEmojiGuess(active, 'host-1', '🥰 🫡 🐱 💚').status, 'host_locked')
+  assert.equal(evaluateEmojiGuess(active, 'host-1', '🥰 🫡 🐱 💚 😺 🛡️ 🎯').status, 'host_locked')
 
   // Host guess allowed when hostMayGuess is true
   active.hostMayGuess = true
@@ -152,24 +159,24 @@ test('evaluateEmojiGuess handles guesses, reactions, and victory', () => {
   // Chat message (non-emoji)
   assert.equal(evaluateEmojiGuess(active, 'player-1', 'Good game everyone!').status, 'not_a_guess')
 
-  // Wrong guess with 1 position match (index 0 match)
-  const wrongRes = evaluateEmojiGuess(active, 'player-1', '🥰 🐱 🫡 💚') // index 0 & 3 match -> 2
+  // Wrong guess with partial position match
+  const wrongRes = evaluateEmojiGuess(active, 'player-1', '🥰 🐱 🫡 💚 😺 🛡️ 🎯') // index 0, 3, 4, 5, 6 match -> 5
   assert.equal(wrongRes.status, 'wrong')
-  assert.equal(wrongRes.count, 2)
-  assert.equal(wrongRes.reaction, '2️⃣')
+  assert.equal(wrongRes.count, 5)
+  assert.equal(wrongRes.reaction, '5️⃣')
   // 5 guess limit test
-  const testGame = game({ emojis: '🥰 🫡 🐱 💚' })
+  const testGame = game({ emojis: '🥰 🫡 🐱 💚 😺 🛡️ 🎯' })
   for (let i = 1; i <= 5; i++) {
-    const res = evaluateEmojiGuess(testGame, 'player-2', '🥰 🐱 🫡 💚')
+    const res = evaluateEmojiGuess(testGame, 'player-2', '🥰 🐱 🫡 💚 😺 🛡️ 🎯')
     assert.equal(res.status, 'wrong')
     assert.equal(res.remaining, 5 - i)
   }
   // 6th guess gets eliminated status
-  const eliminatedRes = evaluateEmojiGuess(testGame, 'player-2', '🥰 🐱 🫡 💚')
+  const eliminatedRes = evaluateEmojiGuess(testGame, 'player-2', '🥰 🐱 🫡 💚 😺 🛡️ 🎯')
   assert.equal(eliminatedRes.status, 'eliminated')
 
   // Correct guess
-  const correctRes = evaluateEmojiGuess(active, 'player-1', '🥰 🫡 🐱 💚')
+  const correctRes = evaluateEmojiGuess(active, 'player-1', '🥰 🫡 🐱 💚 😺 🛡️ 🎯')
   assert.equal(correctRes.status, 'correct')
   assert.equal(active.finished, true)
   assert.equal(active.winnerId, 'player-1')
@@ -178,7 +185,7 @@ test('evaluateEmojiGuess handles guesses, reactions, and victory', () => {
 test('workflow starts game and announces shuffled emoji pool', async () => {
   const games = new Map()
   const workflow = createGuessTheEmojiWorkflow({ games, gameIdImpl: () => GAME_ID })
-  const interaction = commandInteraction({ emojis: '🥰 🫡 🐱 💚 😺 🛡️', prize: '1,000 Scrim Points' })
+  const interaction = commandInteraction({ emojis: '🥰 🫡 🐱 💚 😺 🛡️ 🎯', prize: '1,000 Scrim Points' })
 
   const result = await workflow.handleInteraction(interaction)
   assert.equal(result.status, 'started')
@@ -193,14 +200,14 @@ test('workflow starts game and announces shuffled emoji pool', async () => {
 test('player guessing correct sequence receives reaction and victory message', async () => {
   const games = new Map()
   const workflow = createGuessTheEmojiWorkflow({ games, gameIdImpl: () => GAME_ID })
-  await workflow.handleInteraction(commandInteraction({ emojis: '🥰 🫡 🐱 💚' }))
+  await workflow.handleInteraction(commandInteraction({ emojis: '🥰 🫡 🐱 💚 😺 🛡️ 🎯' }))
 
-  const wrongMsg = guessMessage({ userId: 'player-1', content: '🥰 🐱 🫡 💚' }) // 2 correct
+  const wrongMsg = guessMessage({ userId: 'player-1', content: '🥰 🐱 🫡 💚 😺 🛡️ 🎯' })
   const wrongRes = await workflow.handleMessage(wrongMsg)
   assert.equal(wrongRes.status, 'wrong')
-  assert.equal(wrongMsg.state.reactions.includes('2️⃣'), true)
+  assert.equal(wrongMsg.state.reactions.includes('5️⃣'), true)
 
-  const winMsg = guessMessage({ userId: 'player-1', content: '🥰 🫡 🐱 💚' })
+  const winMsg = guessMessage({ userId: 'player-1', content: '🥰 🫡 🐱 💚 😺 🛡️ 🎯' })
   const winRes = await workflow.handleMessage(winMsg)
   assert.equal(winRes.status, 'won')
   assert.equal(winMsg.state.reactions.includes('✅'), true)
@@ -210,7 +217,7 @@ test('player guessing correct sequence receives reaction and victory message', a
 test('endGame allows host or admin to terminate game', async () => {
   const games = new Map()
   const emojiWorkflow = createGuessTheEmojiWorkflow({ games, gameIdImpl: () => GAME_ID })
-  await emojiWorkflow.handleInteraction(commandInteraction({ userId: 'host-1', emojis: '🥰 🫡 🐱 💚' }))
+  await emojiWorkflow.handleInteraction(commandInteraction({ userId: 'host-1', emojis: '🥰 🫡 🐱 💚 😺 🛡️ 🎯' }))
 
   const endWorkflow = createEndGameWorkflow({ workflows: [emojiWorkflow] })
 
