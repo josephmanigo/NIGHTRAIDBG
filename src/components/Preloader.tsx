@@ -10,7 +10,7 @@ interface PreloaderProps {
 const PRELOAD_DURATION_MS = 2950
 
 /** Duration of the smooth exit transition in milliseconds. */
-const TRANSITION_DURATION_MS = 500
+const TRANSITION_DURATION_MS = 200
 
 /**
  * App-root overlay — deliberately outside the hero's `.nr-hero-surface`
@@ -69,7 +69,7 @@ export default function Preloader({ onEnding, onDone }: PreloaderProps = {}) {
   return (
     <div
       aria-hidden="true"
-      className={`fixed inset-0 z-[100] overflow-hidden bg-deep transform-gpu will-change-[opacity,transform,filter] transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] ${isEnding
+      className={`fixed inset-0 z-[100] overflow-hidden bg-deep transform-gpu will-change-[opacity,transform,filter] transition-all duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] ${isEnding
         ? 'pointer-events-none opacity-0 scale-[1.03] blur-[8px]'
         : 'opacity-100 scale-100 blur-0'
         }`}
@@ -79,7 +79,7 @@ export default function Preloader({ onEnding, onDone }: PreloaderProps = {}) {
           src="/preload.gif"
           alt=""
           onError={triggerEnding}
-          className={`absolute inset-0 h-full w-full object-cover transform-gpu transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] ${isEnding ? 'opacity-0 scale-104 brightness-110' : 'opacity-100 scale-100 brightness-100'
+          className={`absolute inset-0 h-full w-full object-cover transform-gpu transition-all duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] ${isEnding ? 'opacity-0 scale-104 brightness-110' : 'opacity-100 scale-100 brightness-100'
             }`}
         />
       )}
