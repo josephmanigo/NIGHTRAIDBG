@@ -11,7 +11,7 @@ export interface Player {
   role: string
 }
 
-export type TeamStatus = 'current' | 'former'
+export type TeamStatus = 'current' | 'former' | 'all'
 
 export interface Team {
   id: string
@@ -168,7 +168,7 @@ export const TEAMS: Team[] = [
     name: 'SHADOW',
     game: 'Blood Strike',
     division: 'PC',
-    status: 'former',
+    status: 'all',
     image: '/images/roster-shadow.png',
     imageAlt: 'NIGHTRAID Shadow lineup at the Blood Strike Masters Asia S2 tournament',
     players: [

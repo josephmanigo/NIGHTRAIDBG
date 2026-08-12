@@ -16,7 +16,7 @@ export default function Members() {
     if (statusFilter === 'Current') {
       return TEAMS.filter((team) => team.status === 'current')
     }
-    return TEAMS.filter((team) => team.id !== 'deso' && team.status === 'former' && team.id !== 'shadow')
+    return TEAMS.filter((team) => team.id !== 'deso' && team.status === 'former')
   }, [statusFilter])
 
   const galleryItems = useMemo<GalleryItem[]>(
