@@ -7,7 +7,7 @@ interface PreloaderProps {
 }
 
 /** Timing for Akame screen slice completion (ms) before transitioning to hero page. */
-const PRELOAD_DURATION_MS = 2700
+const PRELOAD_DURATION_MS = 2800
 
 /** Duration of the smooth exit transition in milliseconds. */
 const TRANSITION_DURATION_MS = 800
@@ -70,8 +70,8 @@ export default function Preloader({ onEnding, onDone }: PreloaderProps = {}) {
     <div
       aria-hidden="true"
       className={`fixed inset-0 z-[100] overflow-hidden bg-deep transform-gpu will-change-[opacity,transform,filter] transition-all duration-800 ease-[cubic-bezier(0.16,1,0.3,1)] ${isEnding
-          ? 'pointer-events-none opacity-0 scale-[1.04] blur-[4px]'
-          : 'opacity-100 scale-100 blur-0'
+        ? 'pointer-events-none opacity-0 scale-[1.04] blur-[4px]'
+        : 'opacity-100 scale-100 blur-0'
         }`}
     >
       {!reduced && (
