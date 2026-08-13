@@ -162,6 +162,22 @@ test('evaluateEmojiGuess handles guesses, reactions, and victory', () => {
   // Chat message (non-emoji)
   assert.equal(evaluateEmojiGuess(active, 'player-1', 'Good game everyone!').status, 'not_a_guess')
 
+  // Guess with duplicate emojis
+  const dupGame = game({ emojis: '🥰 🫡 🐱 💚 😺 🛡️ 🎯' })
+  const dupRes = evaluateEmojiGuess(dupGame, 'player-1', '🥰 🥰 🐱 💚 😺 🛡️ 🎯')
+  assert.equal(dupRes.status, 'wrong')
+  assert.equal(dupRes.count, 0)
+  assert.equal(dupRes.reaction, '❌')
+  assert.equal(dupRes.used, 1)
+
+  // Guess with lacking emojis (e.g. 3 emojis but secret is 7)
+  const lackGame = game({ emojis: '🥰 🫡 🐱 💚 😺 🛡️ 🎯' })
+  const lackRes = evaluateEmojiGuess(lackGame, 'player-1', '🥰 🫡 🐱')
+  assert.equal(lackRes.status, 'wrong')
+  assert.equal(lackRes.count, 0)
+  assert.equal(lackRes.reaction, '❌')
+  assert.equal(lackRes.used, 1)
+
   // Wrong guess with partial position match
   const wrongRes = evaluateEmojiGuess(active, 'player-1', '🥰 🐱 🫡 💚 😺 🛡️ 🎯') // index 0, 3, 4, 5, 6 match -> 5
   assert.equal(wrongRes.status, 'wrong')

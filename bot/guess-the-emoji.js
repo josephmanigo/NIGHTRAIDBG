@@ -185,6 +185,19 @@ export function evaluateEmojiGuess(game, userId, rawContent) {
   game.attempts.set(player, used)
   const remaining = EMOJI_ATTEMPTS - used
 
+  const hasDuplicate = new Set(guessEmojis.map(normalizeEmoji)).size !== guessEmojis.length
+  const isLacking = guessEmojis.length < game.secretEmojis.length
+
+  if (hasDuplicate || isLacking) {
+    return {
+      status: 'wrong',
+      count: 0,
+      reaction: EMOJI_REACTIONS.wrong,
+      used,
+      remaining,
+    }
+  }
+
   const isExactLength = guessEmojis.length === game.secretEmojis.length
   const correctCount = countCorrectPositions(guessEmojis, game.secretEmojis)
 
