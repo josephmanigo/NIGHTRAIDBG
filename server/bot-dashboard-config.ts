@@ -25,6 +25,7 @@ export const BOT_COMMANDS = [
   { name: 'leaderboard', description: 'Show the minigame winner leaderboard.', module: 'leaderboards' },
   { name: 'tokenleaderboard', description: 'Show the token leaderboard.', module: 'leaderboards' },
   { name: 'addtoken', description: 'Add tokens to a user.', module: 'leaderboards' },
+  { name: 'minustoken', description: 'Subtract tokens from a user.', module: 'leaderboards' },
   { name: 'music', description: 'Play music in your voice channel.', module: 'music' },
   { name: 'skip', description: 'Skip the currently playing track.', module: 'music' },
   { name: 'stop', description: 'Stop playback and leave voice.', module: 'music' },

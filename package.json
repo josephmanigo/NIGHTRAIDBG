@@ -24,6 +24,8 @@
     "test:minigame-end": "node --test bot/minigame-end.test.js",
     "test:winner": "node --test bot/winner.test.js",
     "test:leaderboard": "node --test bot/leaderboard.test.js",
+    "test:tokenleaderboard": "node --test bot/tokenleaderboard.test.js",
+    "test:token-actions": "node --test bot/token-actions.test.js",
     "test:game-results-reader": "node --test bot/game-results-reader.test.js",
     "test:game-results-local": "node --test bot/game-results-local-reader.test.js",
     "test:game-results-scoreboard": "node --test bot/game-results-scoreboard-commands.test.js",

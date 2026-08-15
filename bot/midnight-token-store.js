@@ -44,6 +44,14 @@ export class MidnightTokenStore {
     return tokens[userId]
   }
 
+  subtractToken(userId, amount) {
+    const tokens = this.loadAll()
+    const currentBalance = tokens[userId] || 0
+    tokens[userId] = Math.max(0, currentBalance - amount)
+    this.saveAll(tokens)
+    return tokens[userId]
+  }
+
   getLeaderboard() {
     const tokens = this.loadAll()
     return Object.entries(tokens)

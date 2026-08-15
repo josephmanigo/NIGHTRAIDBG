@@ -74,6 +74,7 @@ import { WINNER_COMMAND, installWinnerWorkflow } from './winner.js'
 import { LEADERBOARD_COMMAND, installLeaderboardWorkflow } from './leaderboard.js'
 import { TOKENLEADERBOARD_COMMAND, installTokenLeaderboardWorkflow } from './tokenleaderboard.js'
 import { ADDTOKEN_COMMAND, installAddTokenWorkflow } from './addtoken.js'
+import { MINUSTOKEN_COMMAND, installMinusTokenWorkflow } from './minustoken.js'
 import { createRoundSubmissionReader } from './game-results-round-reader.js'
 import { createStructuredLogger, createErrorReporter } from './game-results-runtime.js'
 import { createGameResultsSheetClient } from './game-results-sheet-client.js'
@@ -129,6 +130,7 @@ const COMMAND_DEFINITIONS = [
   LEADERBOARD_COMMAND,
   TOKENLEADERBOARD_COMMAND,
   ADDTOKEN_COMMAND,
+  MINUSTOKEN_COMMAND,
   GAME_RESULTS_MVP_COMMAND,
   GAME_RESULTS_HEALTH_COMMAND,
   WATCHPARTY_COMMAND,
@@ -525,6 +527,9 @@ installTokenLeaderboardWorkflow(client, {
   errorReporter: gameResultsErrorReporter,
 })
 installAddTokenWorkflow(client, {
+  errorReporter: gameResultsErrorReporter,
+})
+installMinusTokenWorkflow(client, {
   errorReporter: gameResultsErrorReporter,
 })
 installMusicWorkflow(client, {
