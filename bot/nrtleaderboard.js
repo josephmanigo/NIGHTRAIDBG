@@ -3,16 +3,16 @@ import {
   MessageFlags,
   EmbedBuilder,
 } from 'discord.js'
-import { midnightTokenStore } from './midnight-token-store.js'
+import { midnightNrtStore } from './midnight-nrt-store.js'
 
-export const TOKENLEADERBOARD_COMMAND = Object.freeze({
-  name: 'tokenleaderboard',
-  description: 'Show the MIDNIGHT LEADERBOARD token standings.',
+export const NRTLEADERBOARD_COMMAND = Object.freeze({
+  name: 'nrtleaderboard',
+  description: 'Show the MIDNIGHT LEADERBOARD NRT standings.',
 })
 
-export function renderTokenLeaderboardEmbed(executorUser) {
-  const leaderboard = midnightTokenStore.getLeaderboard()
-  const executorTokens = midnightTokenStore.loadAll()[executorUser.id] || 0
+export function renderNrtLeaderboardEmbed(executorUser) {
+  const leaderboard = midnightNrtStore.getLeaderboard()
+  const executorNrt = midnightNrtStore.loadAll()[executorUser.id] || 0
 
   const embed = new EmbedBuilder()
     .setTitle('MIDNIGHT LEADERBOARD')
@@ -20,20 +20,18 @@ export function renderTokenLeaderboardEmbed(executorUser) {
 
   let description = ''
   if (leaderboard.length === 0) {
-    description = 'No tokens have been awarded yet.\n\n'
+    description = 'No NRT has been awarded yet.\n\n'
   } else {
     // Limit to top 10
     const topRanked = leaderboard.slice(0, 10)
     const descriptionLines = topRanked.map((entry, index) => {
       const rank = index + 1
-      const tokenLabel = entry.balance === 1 ? 'token' : 'tokens'
-      return `${rank}. <@${entry.userId}> - ${entry.balance} ${tokenLabel}`
+      return `${rank}. <@${entry.userId}> - ${entry.balance} NRT`
     })
     description = descriptionLines.join('\n') + '\n\n'
   }
 
-  const executorTokenLabel = executorTokens === 1 ? 'token' : 'tokens'
-  description += `You have ${executorTokens} ${executorTokenLabel}.`
+  description += `You have ${executorNrt} NRT.`
 
   embed.setDescription(description)
   return embed
@@ -47,10 +45,10 @@ async function ephemeralMessage(interaction, content) {
   return interaction.reply({ ...payload, flags: MessageFlags.Ephemeral }).catch(() => undefined)
 }
 
-export function createTokenLeaderboardWorkflow(options = {}) {
+export function createNrtLeaderboardWorkflow(options = {}) {
   async function handleCommand(interaction) {
     if (!interaction.guildId) {
-      await ephemeralMessage(interaction, 'The /tokenleaderboard command only works inside the server.')
+      await ephemeralMessage(interaction, 'The /nrtleaderboard command only works inside the server.')
       return { status: 'rejected', reason: 'direct_message' }
     }
 
@@ -59,12 +57,12 @@ export function createTokenLeaderboardWorkflow(options = {}) {
         await interaction.deferReply()
       }
     } catch (deferError) {
-      console.error('/tokenleaderboard deferReply failed:', deferError)
+      console.error('/nrtleaderboard deferReply failed:', deferError)
       return { status: 'error', reason: 'defer_failed' }
     }
 
     try {
-      const embed = renderTokenLeaderboardEmbed(interaction.user)
+      const embed = renderNrtLeaderboardEmbed(interaction.user)
 
       await interaction.editReply({
         embeds: [embed],
@@ -72,9 +70,9 @@ export function createTokenLeaderboardWorkflow(options = {}) {
       })
       return { status: 'success' }
     } catch (error) {
-      console.error('/tokenleaderboard command failed:', error)
+      console.error('/nrtleaderboard command failed:', error)
       await interaction.editReply({
-        content: 'Could not load the token leaderboard at this time.',
+        content: 'Could not load the NRT leaderboard at this time.',
         allowedMentions: { parse: [] },
       }).catch(() => undefined)
       return { status: 'error', reason: error instanceof Error ? error.message : String(error) }
@@ -84,7 +82,7 @@ export function createTokenLeaderboardWorkflow(options = {}) {
   async function handleInteraction(interaction) {
     if (
       !interaction.isChatInputCommand?.() ||
-      interaction.commandName !== TOKENLEADERBOARD_COMMAND.name
+      interaction.commandName !== NRTLEADERBOARD_COMMAND.name
     ) {
       return { status: 'ignored' }
     }
@@ -94,13 +92,13 @@ export function createTokenLeaderboardWorkflow(options = {}) {
   return { handleInteraction, handleCommand }
 }
 
-export function installTokenLeaderboardWorkflow(client, options = {}) {
-  const workflow = createTokenLeaderboardWorkflow(options)
+export function installNrtLeaderboardWorkflow(client, options = {}) {
+  const workflow = createNrtLeaderboardWorkflow(options)
   client.on(Events.InteractionCreate, (interaction) => {
     workflow.handleInteraction(interaction).catch(async (reason) => {
-      options.errorReporter?.report('tokenleaderboard_command', reason)
-      console.error('/tokenleaderboard failed:', reason instanceof Error ? reason.message : reason)
-      await ephemeralMessage(interaction, 'Could not load the token leaderboard at this time.')
+      options.errorReporter?.report('nrtleaderboard_command', reason)
+      console.error('/nrtleaderboard failed:', reason instanceof Error ? reason.message : reason)
+      await ephemeralMessage(interaction, 'Could not load the NRT leaderboard at this time.')
         .catch(() => undefined)
     })
   })

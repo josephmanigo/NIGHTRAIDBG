@@ -3,41 +3,41 @@ import test from 'node:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import { ADDTOKEN_COMMAND, createAddTokenWorkflow } from './addtoken.js'
-import { MINUSTOKEN_COMMAND, createMinusTokenWorkflow } from './minustoken.js'
-import { midnightTokenStore } from './midnight-token-store.js'
+import { ADDNRT_COMMAND, createAddNrtWorkflow } from './addnrt.js'
+import { MINUSNRT_COMMAND, createMinusNrtWorkflow } from './minusnrt.js'
+import { midnightNrtStore } from './midnight-nrt-store.js'
 
 // Setup temporary file path for tests to avoid modifying production data
-const tempStorePath = path.join(os.tmpdir(), `midnight-tokens-test-actions-${Date.now()}.json`)
-const originalPath = midnightTokenStore.filePath
+const tempStorePath = path.join(os.tmpdir(), `midnight-nrt-test-actions-${Date.now()}.json`)
+const originalPath = midnightNrtStore.filePath
 
 test.beforeEach(() => {
-  midnightTokenStore.filePath = tempStorePath
+  midnightNrtStore.filePath = tempStorePath
   if (fs.existsSync(tempStorePath)) {
     fs.unlinkSync(tempStorePath)
   }
 })
 
 test.afterEach(() => {
-  midnightTokenStore.filePath = originalPath
+  midnightNrtStore.filePath = originalPath
   if (fs.existsSync(tempStorePath)) {
     fs.unlinkSync(tempStorePath)
   }
 })
 
-test('ADDTOKEN_COMMAND and MINUSTOKEN_COMMAND have correct command structures', () => {
-  assert.equal(ADDTOKEN_COMMAND.name, 'addtoken')
-  assert.equal(MINUSTOKEN_COMMAND.name, 'minustoken')
+test('ADDNRT_COMMAND and MINUSNRT_COMMAND have correct command structures', () => {
+  assert.equal(ADDNRT_COMMAND.name, 'addnrt')
+  assert.equal(MINUSNRT_COMMAND.name, 'minusnrt')
   
-  assert.equal(ADDTOKEN_COMMAND.options[0].name, 'user')
-  assert.equal(ADDTOKEN_COMMAND.options[1].name, 'points')
-  assert.equal(MINUSTOKEN_COMMAND.options[0].name, 'user')
-  assert.equal(MINUSTOKEN_COMMAND.options[1].name, 'points')
+  assert.equal(ADDNRT_COMMAND.options[0].name, 'user')
+  assert.equal(ADDNRT_COMMAND.options[1].name, 'points')
+  assert.equal(MINUSNRT_COMMAND.options[0].name, 'user')
+  assert.equal(MINUSNRT_COMMAND.options[1].name, 'points')
 })
 
-test('addtoken and minustoken reject non-Founder / non-Owner users', async () => {
-  const addWorkflow = createAddTokenWorkflow()
-  const minusWorkflow = createMinusTokenWorkflow()
+test('addnrt and minusnrt reject non-Founder / non-Owner users', async () => {
+  const addWorkflow = createAddNrtWorkflow()
+  const minusWorkflow = createMinusNrtWorkflow()
   
   const state = { replies: [], deferred: false }
   const memberWithoutFounder = {
@@ -50,7 +50,7 @@ test('addtoken and minustoken reject non-Founder / non-Owner users', async () =>
 
   const interaction = {
     isChatInputCommand: () => true,
-    commandName: 'addtoken',
+    commandName: 'addnrt',
     guildId: 'guild-123',
     guild: { ownerId: 'owner-123' },
     user: { id: 'non-founder-123' },
@@ -66,24 +66,24 @@ test('addtoken and minustoken reject non-Founder / non-Owner users', async () =>
     }
   }
 
-  // Test addtoken rejection
+  // Test addnrt rejection
   let result = await addWorkflow.handleInteraction(interaction)
   assert.equal(result.status, 'rejected')
   assert.equal(result.reason, 'not_founder')
   assert.match(state.replies[0].content, /Only the Founder can use this command/)
 
-  // Test minustoken rejection
+  // Test minusnrt rejection
   state.replies = []
-  interaction.commandName = 'minustoken'
+  interaction.commandName = 'minusnrt'
   result = await minusWorkflow.handleInteraction(interaction)
   assert.equal(result.status, 'rejected')
   assert.equal(result.reason, 'not_founder')
   assert.match(state.replies[0].content, /Only the Founder can use this command/)
 })
 
-test('addtoken and minustoken accept user with Founder role', async () => {
-  const addWorkflow = createAddTokenWorkflow()
-  const minusWorkflow = createMinusTokenWorkflow()
+test('addnrt and minusnrt accept user with Founder role', async () => {
+  const addWorkflow = createAddNrtWorkflow()
+  const minusWorkflow = createMinusNrtWorkflow()
   
   const state = { replies: [], deferred: false }
   const memberWithFounder = {
@@ -96,7 +96,7 @@ test('addtoken and minustoken accept user with Founder role', async () => {
 
   const interaction = {
     isChatInputCommand: () => true,
-    commandName: 'addtoken',
+    commandName: 'addnrt',
     guildId: 'guild-123',
     guild: { ownerId: 'owner-123' },
     user: { id: 'founder-user-123' },
@@ -116,16 +116,16 @@ test('addtoken and minustoken accept user with Founder role', async () => {
     }
   }
 
-  // 1. Add 10 tokens
+  // 1. Add 10 NRT
   let result = await addWorkflow.handleInteraction(interaction)
   assert.equal(result.status, 'success')
   assert.equal(result.newBalance, 10)
   assert.match(state.replies[0].content, /Added 10/)
 
-  // 2. Subtract 4 tokens
+  // 2. Subtract 4 NRT
   state.replies = []
   state.deferred = false
-  interaction.commandName = 'minustoken'
+  interaction.commandName = 'minusnrt'
   interaction.options.getInteger = (name) => name === 'points' ? 4 : null
   
   result = await minusWorkflow.handleInteraction(interaction)
@@ -133,7 +133,7 @@ test('addtoken and minustoken accept user with Founder role', async () => {
   assert.equal(result.newBalance, 6)
   assert.match(state.replies[0].content, /Subtracted 4/)
 
-  // 3. Subtract 10 tokens (should clamp to 0)
+  // 3. Subtract 10 NRT (should clamp to 0)
   state.replies = []
   state.deferred = false
   interaction.options.getInteger = (name) => name === 'points' ? 10 : null
@@ -141,11 +141,11 @@ test('addtoken and minustoken accept user with Founder role', async () => {
   result = await minusWorkflow.handleInteraction(interaction)
   assert.equal(result.status, 'success')
   assert.equal(result.newBalance, 0)
-  assert.match(state.replies[0].content, /Subtracted 10.*0 tokens/)
+  assert.match(state.replies[0].content, /Subtracted 10.*0 NRT/)
 })
 
-test('addtoken and minustoken accept user who is server Owner even without Founder role', async () => {
-  const addWorkflow = createAddTokenWorkflow()
+test('addnrt and minusnrt accept user who is server Owner even without Founder role', async () => {
+  const addWorkflow = createAddNrtWorkflow()
   const state = { replies: [], deferred: false }
   
   // Owner has no roles cache or doesn't have "Founder"
@@ -159,7 +159,7 @@ test('addtoken and minustoken accept user who is server Owner even without Found
 
   const interaction = {
     isChatInputCommand: () => true,
-    commandName: 'addtoken',
+    commandName: 'addnrt',
     guildId: 'guild-123',
     guild: { ownerId: 'owner-123' },
     user: { id: 'owner-123' }, // Matches guild.ownerId

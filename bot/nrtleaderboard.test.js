@@ -4,52 +4,52 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import {
-  TOKENLEADERBOARD_COMMAND,
-  createTokenLeaderboardWorkflow,
-  renderTokenLeaderboardEmbed,
-} from './tokenleaderboard.js'
-import { midnightTokenStore } from './midnight-token-store.js'
+  NRTLEADERBOARD_COMMAND,
+  createNrtLeaderboardWorkflow,
+  renderNrtLeaderboardEmbed,
+} from './nrtleaderboard.js'
+import { midnightNrtStore } from './midnight-nrt-store.js'
 
 // Setup temporary file path for tests to avoid modifying production data
-const tempStorePath = path.join(os.tmpdir(), `midnight-tokens-test-${Date.now()}.json`)
-const originalPath = midnightTokenStore.filePath
+const tempStorePath = path.join(os.tmpdir(), `midnight-nrt-test-${Date.now()}.json`)
+const originalPath = midnightNrtStore.filePath
 
 test.beforeEach(() => {
-  midnightTokenStore.filePath = tempStorePath
+  midnightNrtStore.filePath = tempStorePath
   if (fs.existsSync(tempStorePath)) {
     fs.unlinkSync(tempStorePath)
   }
 })
 
 test.afterEach(() => {
-  midnightTokenStore.filePath = originalPath
+  midnightNrtStore.filePath = originalPath
   if (fs.existsSync(tempStorePath)) {
     fs.unlinkSync(tempStorePath)
   }
 })
 
-test('TOKENLEADERBOARD_COMMAND has correct command structure', () => {
-  assert.equal(TOKENLEADERBOARD_COMMAND.name, 'tokenleaderboard')
+test('NRTLEADERBOARD_COMMAND has correct command structure', () => {
+  assert.equal(NRTLEADERBOARD_COMMAND.name, 'nrtleaderboard')
 })
 
-test('renderTokenLeaderboardEmbed renders empty and populated standings without emojis', () => {
+test('renderNrtLeaderboardEmbed renders empty and populated standings without emojis', () => {
   const executor = { id: 'exec-123' }
 
   // Test empty state
-  const emptyEmbed = renderTokenLeaderboardEmbed(executor)
+  const emptyEmbed = renderNrtLeaderboardEmbed(executor)
   const emptyData = emptyEmbed.data
   assert.equal(emptyData.title, 'MIDNIGHT LEADERBOARD')
-  assert.match(emptyData.description, /No tokens have been awarded yet/)
-  assert.match(emptyData.description, /You have 0 tokens/)
+  assert.match(emptyData.description, /No NRT has been awarded yet/)
+  assert.match(emptyData.description, /You have 0 NRT/)
   assert.ok(!emptyData.description.includes('🥇'))
 
   // Populate data
-  midnightTokenStore.addToken('user-1', 15)
-  midnightTokenStore.addToken('user-2', 8)
-  midnightTokenStore.addToken('exec-123', 5)
+  midnightNrtStore.addNrt('user-1', 15)
+  midnightNrtStore.addNrt('user-2', 8)
+  midnightNrtStore.addNrt('exec-123', 5)
 
   // Test populated state
-  const populatedEmbed = renderTokenLeaderboardEmbed(executor)
+  const populatedEmbed = renderNrtLeaderboardEmbed(executor)
   const populatedData = populatedEmbed.data
   assert.equal(populatedData.title, 'MIDNIGHT LEADERBOARD')
   
@@ -59,21 +59,21 @@ test('renderTokenLeaderboardEmbed renders empty and populated standings without 
   assert.ok(!populatedData.description.includes('🥉'))
 
   // Check structure and order
-  assert.match(populatedData.description, /1\. <@user-1> - 15 tokens/)
-  assert.match(populatedData.description, /2\. <@user-2> - 8 tokens/)
-  assert.match(populatedData.description, /3\. <@exec-123> - 5 tokens/)
+  assert.match(populatedData.description, /1\. <@user-1> - 15 NRT/)
+  assert.match(populatedData.description, /2\. <@user-2> - 8 NRT/)
+  assert.match(populatedData.description, /3\. <@exec-123> - 5 NRT/)
   
-  // Executor balance should show 5 tokens
-  assert.match(populatedData.description, /You have 5 tokens/)
+  // Executor balance should show 5 NRT
+  assert.match(populatedData.description, /You have 5 NRT/)
 })
 
-test('createTokenLeaderboardWorkflow handles interaction correctly', async () => {
-  const workflow = createTokenLeaderboardWorkflow()
+test('createNrtLeaderboardWorkflow handles interaction correctly', async () => {
+  const workflow = createNrtLeaderboardWorkflow()
   const state = { replies: [], deferred: false }
 
   const interaction = {
     isChatInputCommand: () => true,
-    commandName: 'tokenleaderboard',
+    commandName: 'nrtleaderboard',
     guildId: 'guild-123',
     user: { id: 'exec-123' },
     deferReply: async () => {

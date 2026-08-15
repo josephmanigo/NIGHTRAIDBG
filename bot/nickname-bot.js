@@ -72,9 +72,9 @@ import { createWebhookHandler } from './social-tracker/webhook-server.js'
 import { END_GAME_COMMAND, installEndGameWorkflow } from './minigame-end.js'
 import { WINNER_COMMAND, installWinnerWorkflow } from './winner.js'
 import { LEADERBOARD_COMMAND, installLeaderboardWorkflow } from './leaderboard.js'
-import { TOKENLEADERBOARD_COMMAND, installTokenLeaderboardWorkflow } from './tokenleaderboard.js'
-import { ADDTOKEN_COMMAND, installAddTokenWorkflow } from './addtoken.js'
-import { MINUSTOKEN_COMMAND, installMinusTokenWorkflow } from './minustoken.js'
+import { NRTLEADERBOARD_COMMAND, installNrtLeaderboardWorkflow } from './nrtleaderboard.js'
+import { ADDNRT_COMMAND, installAddNrtWorkflow } from './addnrt.js'
+import { MINUSNRT_COMMAND, installMinusNrtWorkflow } from './minusnrt.js'
 import { createRoundSubmissionReader } from './game-results-round-reader.js'
 import { createStructuredLogger, createErrorReporter } from './game-results-runtime.js'
 import { createGameResultsSheetClient } from './game-results-sheet-client.js'
@@ -128,9 +128,9 @@ const COMMAND_DEFINITIONS = [
   END_GAME_COMMAND,
   WINNER_COMMAND,
   LEADERBOARD_COMMAND,
-  TOKENLEADERBOARD_COMMAND,
-  ADDTOKEN_COMMAND,
-  MINUSTOKEN_COMMAND,
+  NRTLEADERBOARD_COMMAND,
+  ADDNRT_COMMAND,
+  MINUSNRT_COMMAND,
   GAME_RESULTS_MVP_COMMAND,
   GAME_RESULTS_HEALTH_COMMAND,
   WATCHPARTY_COMMAND,
@@ -523,13 +523,13 @@ installWinnerWorkflow(client, {
 installLeaderboardWorkflow(client, {
   errorReporter: gameResultsErrorReporter,
 })
-installTokenLeaderboardWorkflow(client, {
+installNrtLeaderboardWorkflow(client, {
   errorReporter: gameResultsErrorReporter,
 })
-installAddTokenWorkflow(client, {
+installAddNrtWorkflow(client, {
   errorReporter: gameResultsErrorReporter,
 })
-installMinusTokenWorkflow(client, {
+installMinusNrtWorkflow(client, {
   errorReporter: gameResultsErrorReporter,
 })
 installMusicWorkflow(client, {

@@ -4,23 +4,23 @@ import {
   MessageFlags,
   PermissionFlagsBits,
 } from 'discord.js'
-import { midnightTokenStore } from './midnight-token-store.js'
+import { midnightNrtStore } from './midnight-nrt-store.js'
 
-export const MINUSTOKEN_COMMAND = Object.freeze({
-  name: 'minustoken',
-  description: 'Subtract MIDNIGHT LEADERBOARD tokens from a user.',
+export const ADDNRT_COMMAND = Object.freeze({
+  name: 'addnrt',
+  description: 'Add MIDNIGHT LEADERBOARD NRT to a user.',
   defaultMemberPermissions: PermissionFlagsBits.Administrator,
   options: [
     {
       type: ApplicationCommandOptionType.User,
       name: 'user',
-      description: 'The user to subtract tokens from.',
+      description: 'The user to give NRT to.',
       required: true,
     },
     {
       type: ApplicationCommandOptionType.Integer,
       name: 'points',
-      description: 'The points of tokens to subtract.',
+      description: 'The points of NRT to give.',
       required: true,
     },
   ],
@@ -34,10 +34,10 @@ async function ephemeralMessage(interaction, content) {
   return interaction.reply({ ...payload, flags: MessageFlags.Ephemeral }).catch(() => undefined)
 }
 
-export function createMinusTokenWorkflow(options = {}) {
+export function createAddNrtWorkflow(options = {}) {
   async function handleCommand(interaction) {
     if (!interaction.guildId) {
-      await ephemeralMessage(interaction, 'The /minustoken command only works inside a server.')
+      await ephemeralMessage(interaction, 'The /addnrt command only works inside a server.')
       return { status: 'rejected', reason: 'direct_message' }
     }
 
@@ -55,7 +55,7 @@ export function createMinusTokenWorkflow(options = {}) {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral })
       }
     } catch (deferError) {
-      console.error('/minustoken deferReply failed:', deferError)
+      console.error('/addnrt deferReply failed:', deferError)
       return { status: 'error', reason: 'defer_failed' }
     }
 
@@ -68,16 +68,16 @@ export function createMinusTokenWorkflow(options = {}) {
     }
 
     try {
-      const newBalance = midnightTokenStore.subtractToken(user.id, points)
+      const newBalance = midnightNrtStore.addNrt(user.id, points)
       await interaction.editReply({
-        content: `Subtracted ${points} MIDNIGHT LEADERBOARD tokens from <@${user.id}>. They now have ${newBalance} tokens.`,
+        content: `Added ${points} MIDNIGHT LEADERBOARD NRT to <@${user.id}>. They now have ${newBalance} NRT.`,
         allowedMentions: { parse: [] },
       })
       return { status: 'success', userId: user.id, newBalance }
     } catch (error) {
-      console.error('/minustoken command failed:', error)
+      console.error('/addnrt command failed:', error)
       await interaction.editReply({
-        content: 'Could not subtract tokens at this time.',
+        content: 'Could not add NRT at this time.',
       }).catch(() => undefined)
       return { status: 'error', reason: error instanceof Error ? error.message : String(error) }
     }
@@ -86,7 +86,7 @@ export function createMinusTokenWorkflow(options = {}) {
   async function handleInteraction(interaction) {
     if (
       !interaction.isChatInputCommand?.() ||
-      interaction.commandName !== MINUSTOKEN_COMMAND.name
+      interaction.commandName !== ADDNRT_COMMAND.name
     ) {
       return { status: 'ignored' }
     }
@@ -96,13 +96,13 @@ export function createMinusTokenWorkflow(options = {}) {
   return { handleInteraction, handleCommand }
 }
 
-export function installMinusTokenWorkflow(client, options = {}) {
-  const workflow = createMinusTokenWorkflow(options)
+export function installAddNrtWorkflow(client, options = {}) {
+  const workflow = createAddNrtWorkflow(options)
   client.on(Events.InteractionCreate, (interaction) => {
     workflow.handleInteraction(interaction).catch(async (reason) => {
-      options.errorReporter?.report('minustoken_command', reason)
-      console.error('/minustoken failed:', reason instanceof Error ? reason.message : reason)
-      await ephemeralMessage(interaction, 'Could not subtract tokens at this time.')
+      options.errorReporter?.report('addnrt_command', reason)
+      console.error('/addnrt failed:', reason instanceof Error ? reason.message : reason)
+      await ephemeralMessage(interaction, 'Could not add NRT at this time.')
         .catch(() => undefined)
     })
   })
