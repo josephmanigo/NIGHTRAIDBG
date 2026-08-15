@@ -135,6 +135,7 @@ import { createWebhookHandler } from './social-tracker/webhook-server.js'
 import { END_GAME_COMMAND, installEndGameWorkflow } from './minigame-end.js'
 import { WINNER_COMMAND, installWinnerWorkflow } from './winner.js'
 import { LEADERBOARD_COMMAND, installLeaderboardWorkflow } from './leaderboard.js'
+import { TOKENLEADERBOARD_COMMAND, installTokenLeaderboardWorkflow } from './tokenleaderboard.js'
 import { ADDTOKEN_COMMAND, installAddTokenWorkflow } from './addtoken.js'
 import { createRoundSubmissionReader } from './game-results-round-reader.js'
 import { createStructuredLogger, createErrorReporter } from './game-results-runtime.js'
@@ -189,6 +190,7 @@ const COMMAND_DEFINITIONS = [
   END_GAME_COMMAND,
   WINNER_COMMAND,
   LEADERBOARD_COMMAND,
+  TOKENLEADERBOARD_COMMAND,
   ADDTOKEN_COMMAND,
   GAME_RESULTS_MVP_COMMAND,
   GAME_RESULTS_HEALTH_COMMAND,
@@ -580,6 +582,9 @@ installWinnerWorkflow(client, {
   errorReporter: gameResultsErrorReporter,
 })
 installLeaderboardWorkflow(client, {
+  errorReporter: gameResultsErrorReporter,
+})
+installTokenLeaderboardWorkflow(client, {
   errorReporter: gameResultsErrorReporter,
 })
 installAddTokenWorkflow(client, {

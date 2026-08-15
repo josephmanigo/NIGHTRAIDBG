@@ -12,15 +12,15 @@ export const ADDTOKEN_COMMAND = Object.freeze({
   defaultMemberPermissions: PermissionFlagsBits.Administrator,
   options: [
     {
-      type: ApplicationCommandOptionType.Integer,
-      name: 'amount',
-      description: 'The amount of tokens to give.',
-      required: true,
-    },
-    {
       type: ApplicationCommandOptionType.User,
       name: 'user',
       description: 'The user to give tokens to.',
+      required: true,
+    },
+    {
+      type: ApplicationCommandOptionType.Integer,
+      name: 'points',
+      description: 'The points of tokens to give.',
       required: true,
     },
   ],
@@ -50,7 +50,7 @@ export function createAddTokenWorkflow(options = {}) {
       return { status: 'error', reason: 'defer_failed' }
     }
 
-    const amount = interaction.options.getInteger('amount')
+    const points = interaction.options.getInteger('points')
     const user = interaction.options.getUser('user')
 
     if (!user) {
@@ -59,9 +59,9 @@ export function createAddTokenWorkflow(options = {}) {
     }
 
     try {
-      const newBalance = midnightTokenStore.addToken(user.id, amount)
+      const newBalance = midnightTokenStore.addToken(user.id, points)
       await interaction.editReply({
-        content: `Added ${amount} MIDNIGHT LEADERBOARD tokens to <@${user.id}>. They now have ${newBalance} tokens.`,
+        content: `Added ${points} MIDNIGHT LEADERBOARD tokens to <@${user.id}>. They now have ${newBalance} tokens.`,
         allowedMentions: { parse: [] },
       })
       return { status: 'success', userId: user.id, newBalance }
