@@ -62,6 +62,70 @@ import {
   GUESS_THE_EMOJI_COMMAND,
   installGuessTheEmojiWorkflow,
 } from './guess-the-emoji.js'
+/*
+ * NIGHTRAID Discord bot.
+ *
+ * Watches the nickname channel and renames anyone who chats there to the
+ * message text, as long as the text follows the channel's name format
+ * (`NIGHT • Ems`, `MRG • MIMAI | BS`, `SS • KULIT - BS HANDLER/REP`), then
+ * reacts to the message:
+ *   ✅  the nickname was changed (or already matches)
+ *   ❌  the message does not follow the name format, so nobody was renamed
+ *   ⚠️  the bot cannot rename this member (server owner, or a role above the bot)
+ *
+ * Mentioning someone renames them instead of the sender (`NIGHT • ego @yepo`
+ * sets @yepo's nickname), and several people can be renamed in one message by
+ * pairing each name with a mention. Anyone may rename themselves or mentioned
+ * members.
+ *
+ * Registers /rules in the NIGHTRAID server and answers it with the pinned
+ * content from the official rules channel (or recent messages when no rules
+ * are pinned). Slash commands also work in a voice channel's text chat.
+ *
+ * Discord only delivers channel messages over a persistent gateway
+ * connection, so this runs as its own long-lived process — it cannot live
+ * inside the Vercel serverless functions. See PHASE8_SETUP.md.
+ */
+import { createServer } from 'node:http'
+import {
+  Client,
+  Events,
+  GatewayIntentBits,
+  MessageFlags,
+  Partials,
+} from 'discord.js'
+import { ANNOUNCE_COMMAND, installAnnounceWorkflow } from './announce.js'
+import { installApplicationReview } from './application-review.js'
+import { createGameResultsBackupService } from './game-results-backup.js'
+import { resolveGameResultsConfig } from './game-results-config.js'
+import {
+  GAME_RESULTS_HEALTH_COMMAND,
+  installGameResultsHealthWorkflow,
+} from './game-results-health.js'
+import {
+  GAME_RESULTS_ADMIN_COMMANDS,
+  installGameResultsAdminWorkflow,
+} from './game-results-admin-review.js'
+import { installGameResultsIntake } from './game-results-intake.js'
+import { assertLocalOcrTestMode } from './game-results-local-reader.js'
+import { createSingleScreenshotReader } from './game-results-reader.js'
+import {
+  GAME_RESULTS_MVP_COMMAND,
+  installGameResultsMvpWorkflow,
+} from './game-results-mvp-review.js'
+import { installGameResultsReview } from './game-results-review.js'
+import {
+  GUESS_THE_NUMBER_COMMAND,
+  installGuessTheNumberWorkflow,
+} from './guess-the-number.js'
+import {
+  GUESS_THE_WORD_COMMAND,
+  installGuessTheWordWorkflow,
+} from './guess-the-word.js'
+import {
+  GUESS_THE_EMOJI_COMMAND,
+  installGuessTheEmojiWorkflow,
+} from './guess-the-emoji.js'
 import { MUSIC_COMMANDS, installMusicWorkflow } from './music-player.js'
 import { installNightyWorkflow } from './nighty.js'
 import { WATCHPARTY_COMMAND, installWatchpartyWorkflow } from './watchparty.js'
@@ -71,6 +135,7 @@ import { createWebhookHandler } from './social-tracker/webhook-server.js'
 import { END_GAME_COMMAND, installEndGameWorkflow } from './minigame-end.js'
 import { WINNER_COMMAND, installWinnerWorkflow } from './winner.js'
 import { LEADERBOARD_COMMAND, installLeaderboardWorkflow } from './leaderboard.js'
+import { ADDTOKEN_COMMAND, installAddTokenWorkflow } from './addtoken.js'
 import { createRoundSubmissionReader } from './game-results-round-reader.js'
 import { createStructuredLogger, createErrorReporter } from './game-results-runtime.js'
 import { createGameResultsSheetClient } from './game-results-sheet-client.js'
@@ -124,6 +189,7 @@ const COMMAND_DEFINITIONS = [
   END_GAME_COMMAND,
   WINNER_COMMAND,
   LEADERBOARD_COMMAND,
+  ADDTOKEN_COMMAND,
   GAME_RESULTS_MVP_COMMAND,
   GAME_RESULTS_HEALTH_COMMAND,
   WATCHPARTY_COMMAND,
@@ -514,6 +580,9 @@ installWinnerWorkflow(client, {
   errorReporter: gameResultsErrorReporter,
 })
 installLeaderboardWorkflow(client, {
+  errorReporter: gameResultsErrorReporter,
+})
+installAddTokenWorkflow(client, {
   errorReporter: gameResultsErrorReporter,
 })
 installMusicWorkflow(client, {

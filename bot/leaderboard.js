@@ -1,151 +1,38 @@
-/*
- * /leaderboard — fetch and aggregate minigame winners in channel 1534862469367992321.
- *
- * Scans channel message history for win announcements (# Guessed It), aggregates
- * win counts and game type statistics per user, and formats a ranked leaderboard.
- */
 import {
-  ApplicationCommandOptionType,
   Events,
   MessageFlags,
+  EmbedBuilder,
 } from 'discord.js'
-import {
-  DEFAULT_WINNER_CHANNEL_ID,
-  parseWinnerFromMessage,
-} from './winner.js'
+import { midnightTokenStore } from './midnight-token-store.js'
 
 export const LEADERBOARD_COMMAND = Object.freeze({
   name: 'leaderboard',
-  description: 'Show the minigame winner leaderboard for channel 1534862469367992321.',
-  options: [
-    {
-      type: ApplicationCommandOptionType.Channel,
-      name: 'channel',
-      description: 'The channel to check for winner leaderboard (defaults to 1534862469367992321).',
-      required: false,
-    },
-  ],
+  description: 'Show the MIDNIGHT LEADERBOARD token standings.',
 })
 
-export function parseLeaderboardFromMessages(messages = []) {
-  const userMap = new Map()
-
-  for (const message of messages) {
-    const winner = parseWinnerFromMessage(message)
-    if (!winner) continue
-
-    const { userId, gameType, timestamp } = winner
-    let entry = userMap.get(userId)
-    if (!entry) {
-      entry = {
-        userId,
-        totalWins: 0,
-        wordWins: 0,
-        numberWins: 0,
-        latestWinTimestamp: timestamp,
-      }
-      userMap.set(userId, entry)
-    }
-
-    entry.totalWins += 1
-    if (gameType === 'word') {
-      entry.wordWins += 1
-    } else if (gameType === 'number') {
-      entry.numberWins += 1
-    }
-
-    if (timestamp > entry.latestWinTimestamp) {
-      entry.latestWinTimestamp = timestamp
-    }
-  }
-
-  const leaderboard = Array.from(userMap.values())
-  leaderboard.sort((a, b) => {
-    if (b.totalWins !== a.totalWins) {
-      return b.totalWins - a.totalWins
-    }
-    return b.latestWinTimestamp - a.latestWinTimestamp
-  })
-
-  return leaderboard
-}
-
-export function renderLeaderboard({ leaderboard = [], targetChannelId, limit = 10 }) {
-  const lines = [
-    '# Minigame Winner Leaderboard',
-    `Channel: <#${targetChannelId}>`,
-    '',
-  ]
+export function renderLeaderboardEmbed() {
+  const leaderboard = midnightTokenStore.getLeaderboard()
 
   if (leaderboard.length === 0) {
-    lines.push('No minigame winners recorded in this channel yet.')
-    return lines.join('\n')
+    return new EmbedBuilder()
+      .setTitle('MIDNIGHT LEADERBOARD')
+      .setColor('#2b2d31')
+      .setDescription('No tokens have been awarded yet.')
   }
 
-  const topRanked = leaderboard.slice(0, limit)
-  topRanked.forEach((entry, index) => {
-    let rankBadge = `${index + 1}.`
-    if (index === 0) rankBadge = '🥇'
-    else if (index === 1) rankBadge = '🥈'
-    else if (index === 2) rankBadge = '🥉'
-
-    const winLabel = entry.totalWins === 1 ? 'win' : 'wins'
-    const breakdownParts = []
-    if (entry.wordWins > 0) breakdownParts.push(`${entry.wordWins} Word`)
-    if (entry.numberWins > 0) breakdownParts.push(`${entry.numberWins} Number`)
-    const breakdown = breakdownParts.length > 0 ? ` (${breakdownParts.join(', ')})` : ''
-
-    lines.push(`${rankBadge} <@${entry.userId}> — **${entry.totalWins} ${winLabel}**${breakdown}`)
+  // Limit to top 10
+  const topRanked = leaderboard.slice(0, 10)
+  
+  const descriptionLines = topRanked.map((entry, index) => {
+    const rank = index + 1
+    const tokenLabel = entry.balance === 1 ? 'token' : 'tokens'
+    return `${rank}. <@${entry.userId}> - **${entry.balance} ${tokenLabel}**`
   })
 
-  const totalWinsCount = leaderboard.reduce((acc, curr) => acc + curr.totalWins, 0)
-  lines.push('')
-  lines.push(`Total wins recorded: **${totalWinsCount}** across **${leaderboard.length}** unique players.`)
-
-  return lines.join('\n')
-}
-
-export async function fetchChannelLeaderboard(channel, options = {}) {
-  const fetchLimit = options.fetchLimit ?? 500
-  if (!channel?.messages?.fetch) return []
-
-  let allMessages = []
-  let lastId = null
-  let remaining = fetchLimit
-
-  while (remaining > 0) {
-    const batchSize = Math.min(remaining, 100)
-    const fetchOptions = { limit: batchSize }
-    if (lastId) {
-      fetchOptions.before = lastId
-    }
-
-    let fetchedMap
-    try {
-      fetchedMap = await channel.messages.fetch(fetchOptions)
-    } catch (error) {
-      console.error('fetchChannelLeaderboard batch error:', error)
-      break
-    }
-
-    if (!fetchedMap) break
-    const batch = Array.from(fetchedMap.values ? fetchedMap.values() : fetchedMap)
-    if (batch.length === 0) break
-
-    allMessages = allMessages.concat(batch)
-    remaining -= batch.length
-
-    const lastMsg = batch[batch.length - 1]
-    const newLastId = lastMsg?.id
-    if (!newLastId || newLastId === lastId) {
-      break
-    }
-    lastId = newLastId
-
-    if (batch.length < batchSize) break
-  }
-
-  return parseLeaderboardFromMessages(allMessages)
+  return new EmbedBuilder()
+    .setTitle('MIDNIGHT LEADERBOARD')
+    .setColor('#2b2d31')
+    .setDescription(descriptionLines.join('\n'))
 }
 
 async function ephemeralMessage(interaction, content) {
@@ -157,8 +44,6 @@ async function ephemeralMessage(interaction, content) {
 }
 
 export function createLeaderboardWorkflow(options = {}) {
-  const defaultChannelId = options.defaultChannelId ?? DEFAULT_WINNER_CHANNEL_ID
-
   async function handleCommand(interaction) {
     if (!interaction.guildId) {
       await ephemeralMessage(interaction, 'The /leaderboard command only works inside the server.')
@@ -174,40 +59,18 @@ export function createLeaderboardWorkflow(options = {}) {
       return { status: 'error', reason: 'defer_failed' }
     }
 
-    const specifiedChannel = interaction.options?.getChannel?.('channel')
-    const targetChannelId = specifiedChannel?.id ?? defaultChannelId
-
-    let channel = specifiedChannel
-    if (!channel) {
-      if (interaction.channelId === targetChannelId && interaction.channel) {
-        channel = interaction.channel
-      } else {
-        channel = await interaction.client?.channels?.fetch(targetChannelId).catch(() => null)
-      }
-    }
-
-    if (!channel) {
-      channel = interaction.channel
-    }
-
-    const effectiveChannelId = channel?.id ?? targetChannelId
-
     try {
-      const leaderboard = await fetchChannelLeaderboard(channel)
-      const content = renderLeaderboard({
-        leaderboard,
-        targetChannelId: effectiveChannelId,
-      })
+      const embed = renderLeaderboardEmbed()
 
       await interaction.editReply({
-        content,
+        embeds: [embed],
         allowedMentions: { parse: [] },
       })
-      return { status: 'success', playerCount: leaderboard.length, channelId: effectiveChannelId }
+      return { status: 'success' }
     } catch (error) {
       console.error('/leaderboard command failed:', error)
       await interaction.editReply({
-        content: 'Could not fetch leaderboard at this time.',
+        content: 'Could not load the leaderboard at this time.',
         allowedMentions: { parse: [] },
       }).catch(() => undefined)
       return { status: 'error', reason: error instanceof Error ? error.message : String(error) }
@@ -233,7 +96,7 @@ export function installLeaderboardWorkflow(client, options = {}) {
     workflow.handleInteraction(interaction).catch(async (reason) => {
       options.errorReporter?.report('leaderboard_command', reason)
       console.error('/leaderboard failed:', reason instanceof Error ? reason.message : reason)
-      await ephemeralMessage(interaction, 'Could not fetch leaderboard at this time.')
+      await ephemeralMessage(interaction, 'Could not load the leaderboard at this time.')
         .catch(() => undefined)
     })
   })
