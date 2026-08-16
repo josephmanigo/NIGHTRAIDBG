@@ -112,7 +112,7 @@ export async function fetchShopSourceMessage(client) {
 // Parses items and NRT costs dynamically from text lines
 export function parseShopItems(text) {
   if (!text) return FALLBACK_ITEMS
-  const cleanedText = text.replace(/:emoji_109:/g, '')
+  const cleanedText = text.replace(/:emoji_109:/g, '<:nrt:1538488632388751430>')
   const lines = cleanedText.split('\n').map((line) => line.trim())
   const items = []
 
@@ -152,7 +152,7 @@ export function parseShopItems(text) {
 
 // Parses the shop message content into header, footer, and items list
 export function parseShopParts(text) {
-  const defaultText = `📣 **NIGHTRAID TOKEN SHOP** 🪙\nRedeem your hard-earned NRT for exclusive rewards:`
+  const defaultText = `📣 **NIGHTRAID TOKEN SHOP** <:nrt:1538488632388751430>\nRedeem your hard-earned NRT for exclusive rewards:`
   const defaultFooter = `⚠️ Limited stock — Each person can redeem either the mouse or the keyboard, but not both.\n\nEARN. RAID. REDEEM.\nEvery event. Every guess. Every invite.\n\nStart stacking your NRT today!`
 
   if (!text) {
@@ -163,7 +163,7 @@ export function parseShopParts(text) {
     }
   }
 
-  const cleanedText = text.replace(/:emoji_109:/g, '')
+  const cleanedText = text.replace(/:emoji_109:/g, '<:nrt:1538488632388751430>')
   const items = parseShopItems(cleanedText)
   const lines = cleanedText.split('\n').map((line) => line.trim())
 
@@ -399,15 +399,18 @@ export function createNrtShopWorkflow(options = {}) {
           rows.push(currentRow)
           currentRow = new ActionRowBuilder()
         }
+        let labelName = item.label.split(' ')[0]
+        if (labelName.toLowerCase() === 'blood') {
+          labelName = 'Strike Pass'
+        } else if (labelName === '200') {
+          labelName = 'GCASH'
+        }
         const btn = new ButtonBuilder()
           .setCustomId(`nrtshop_redeem:${item.id}:${item.cost}`)
-          .setLabel(item.availability <= 0 ? `Out of Stock: ${item.label.split(' ')[0]}` : `Redeem ${item.label.split(' ')[0]}`)
-          .setStyle(ButtonStyle.Success)
+          .setLabel(item.availability <= 0 ? `Out of Stock: ${labelName}` : `Redeem ${labelName}`)
+          .setStyle(ButtonStyle.Danger)
         if (item.availability <= 0) {
           btn.setDisabled(true)
-        }
-        if (item.emoji) {
-          btn.setEmoji(item.emoji)
         }
         currentRow.addComponents(btn)
       })
@@ -703,7 +706,15 @@ export function createNrtShopWorkflow(options = {}) {
                 const customId = comp.data?.custom_id ?? comp.customId
                 if (customId === `nrtshop_redeem:${itemId}:${cost}`) {
                   const btn = ButtonBuilder.from(comp)
-                  btn.setDisabled(true).setLabel(`Out of Stock: ${targetItem.label.split(' ')[0]}`)
+                  let labelName = targetItem.label.split(' ')[0]
+                  if (labelName.toLowerCase() === 'blood') {
+                    labelName = 'Strike Pass'
+                  } else if (labelName === '200') {
+                    labelName = 'GCASH'
+                  }
+                  btn.setDisabled(true)
+                     .setLabel(`Out of Stock: ${labelName}`)
+                     .setStyle(ButtonStyle.Danger)
                   return btn
                 }
                 return ButtonBuilder.from(comp)

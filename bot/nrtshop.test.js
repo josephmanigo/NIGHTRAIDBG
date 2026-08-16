@@ -263,8 +263,9 @@ test('modal submission decrements available stock in real time and disables butt
   assert.equal(btn.data.label, 'Out of Stock: AULA')
 })
 
-test('parseShopItems and parseShopParts strip the broken :emoji_109: emoji from output', () => {
+test('parseShopItems and parseShopParts replace the broken :emoji_109: emoji with the custom NRT coin emoji', () => {
   const text = '📣 **NIGHTRAID TOKEN SHOP**\n:emoji_109:\nRedeem rewards!'
   const { headerText } = parseShopParts(text)
   assert.ok(!headerText.includes(':emoji_109:'))
+  assert.ok(headerText.includes('<:nrt:1538488632388751430>'))
 })
