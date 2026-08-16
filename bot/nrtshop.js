@@ -149,6 +149,53 @@ export function parseShopItems(text) {
   return items.length > 0 ? items : FALLBACK_ITEMS
 }
 
+// Parses the shop message content into header, footer, and items list
+export function parseShopParts(text) {
+  const defaultText = `📣 **NIGHTRAID TOKEN SHOP** 🪙\nRedeem your hard-earned NRT for exclusive rewards:`
+  const defaultFooter = `⚠️ Limited stock — Each person can redeem either the mouse or the keyboard, but not both.\n\nEARN. RAID. REDEEM.\nEvery event. Every guess. Every invite.\n\nStart stacking your NRT today!`
+
+  if (!text) {
+    return {
+      headerText: defaultText,
+      footerText: defaultFooter,
+      items: FALLBACK_ITEMS,
+    }
+  }
+
+  const items = parseShopItems(text)
+  const lines = text.split('\n').map((line) => line.trim())
+
+  let firstItemIndex = -1
+  let lastItemIndex = -1
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    if (line.includes('💰')) {
+      if (firstItemIndex === -1 && i > 0) {
+        firstItemIndex = i - 1
+      }
+      lastItemIndex = i
+    }
+  }
+
+  let headerText = defaultText
+  let footerText = defaultFooter
+
+  if (firstItemIndex !== -1 && lastItemIndex !== -1) {
+    const headerLines = lines.slice(0, firstItemIndex).map((l) => l.trim()).filter(Boolean)
+    if (headerLines.length > 0) {
+      headerText = headerLines.join('\n')
+    }
+
+    const footerLines = lines.slice(lastItemIndex + 1).map((l) => l.trim()).filter(Boolean)
+    if (footerLines.length > 0) {
+      footerText = footerLines.join('\n')
+    }
+  }
+
+  return { headerText, footerText, items }
+}
+
 // Sync changes to public congratulations channel
 export async function syncNrtPublicClaimNotice(client, { winnerId, winnerName, status, itemName }) {
   try {
@@ -314,16 +361,7 @@ export function createNrtShopWorkflow(options = {}) {
     try {
       const sourceMsg = await fetchShopSourceMessage(interaction.client)
       const content = sourceMsg?.content
-      const items = parseShopItems(content)
-
-      let shopText = content
-      if (!shopText) {
-        shopText = `📣 **NIGHTRAID TOKEN SHOP** 🪙\n\nRedeem your hard-earned NRT for exclusive rewards:\n\n`
-        items.forEach((item) => {
-          shopText += `${item.emoji || ''} ${item.label}\n💰 ${item.cost.toLocaleString()} NRT\n\n`
-        })
-        shopText += `⚠️ Limited stock — Each person can redeem either the mouse or the keyboard, but not both.`
-      }
+      const { headerText, footerText, items } = parseShopParts(content)
 
       // Download attachments from source message to re-upload (prevents link expiration)
       const files = []
@@ -341,31 +379,39 @@ export function createNrtShopWorkflow(options = {}) {
         }
       }
 
-      const rows = []
-      let currentRow = new ActionRowBuilder()
-      items.forEach((item, index) => {
-        if (index > 0 && index % 5 === 0) {
-          rows.push(currentRow)
-          currentRow = new ActionRowBuilder()
-        }
+      const headerFiles = files.slice(0, 1) // first file (banner) for header
+      const footerFiles = files.slice(1) // rest of files (grid) for footer
+
+      // Send header (Message 1)
+      await interaction.editReply({
+        content: headerText,
+        files: headerFiles,
+        allowedMentions: { parse: [] },
+      })
+
+      // Send each shop item as a separate message (Messages 2 to N)
+      for (const item of items) {
         const btn = new ButtonBuilder()
           .setCustomId(`nrtshop_redeem:${item.id}:${item.cost}`)
-          .setLabel(`Redeem ${item.label.split(' ')[0]}`)
+          .setLabel(`Redeem`)
           .setStyle(ButtonStyle.Success)
         if (item.emoji) {
           btn.setEmoji(item.emoji)
         }
-        currentRow.addComponents(btn)
-      })
+        const row = new ActionRowBuilder().addComponents(btn)
 
-      if (currentRow.components.length > 0) {
-        rows.push(currentRow)
+        await interaction.followUp({
+          content: `${item.fullName}\n💰 ${item.cost.toLocaleString()} NRT`,
+          components: [row],
+          allowedMentions: { parse: [] },
+        })
       }
 
-      await interaction.editReply({
-        content: shopText,
-        files,
-        components: rows,
+      // Send footer (Message N+1)
+      await interaction.followUp({
+        content: footerText,
+        files: footerFiles,
+        allowedMentions: { parse: [] },
       })
 
       return { status: 'success' }

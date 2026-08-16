@@ -7,6 +7,7 @@ import {
   NRTSHOP_COMMAND,
   FALLBACK_ITEMS,
   parseShopItems,
+  parseShopParts,
   hasRedeemedMouseOrKeyboard,
   createNrtShopWorkflow,
 } from './nrtshop.js'
@@ -88,6 +89,29 @@ test('parseShopItems parses raw shop message correctly', () => {
   assert.equal(items[2].emoji, '🥇')
 })
 
+test('parseShopParts splits raw shop message into header, items, and footer correctly', () => {
+  const sampleText = `
+    📣 **NIGHTRAID TOKEN SHOP** 🪙
+    Redeem your hard-earned NRT for exclusive rewards:
+
+    ⌨️ AULA Mechanical Keyboard
+    💰 4,500 NRT — 2 available
+
+    🖱️ ATK GEAR DRAGONFLY A9 Mouse
+    💰 5,000 NRT — 2 available
+
+    ⚠️ Limited stock - Each person can redeem either the mouse or the keyboard, but not both.
+    EARN. RAID. REDEEM.
+  `
+
+  const { headerText, footerText, items } = parseShopParts(sampleText)
+  assert.equal(items.length, 2)
+  assert.match(headerText, /NIGHTRAID TOKEN SHOP/)
+  assert.match(headerText, /Redeem your hard-earned NRT/)
+  assert.match(footerText, /Limited stock/)
+  assert.match(footerText, /EARN. RAID. REDEEM/)
+})
+
 test('parseShopItems falls back correctly on null or empty content', () => {
   const items = parseShopItems(null)
   assert.deepEqual(items, FALLBACK_ITEMS)
@@ -126,6 +150,9 @@ test('createNrtShopWorkflow handleInteraction dispatches command correctly', asy
     reply: async (payload) => {
       state.replies.push(payload)
     },
+    followUp: async (payload) => {
+      state.replies.push(payload)
+    },
     client: {
       channels: {
         cache: new Map(),
@@ -136,7 +163,7 @@ test('createNrtShopWorkflow handleInteraction dispatches command correctly', asy
   const result = await workflow.handleInteraction(interaction)
   assert.equal(result.status, 'success')
   assert.equal(state.deferred, true)
-  assert.equal(state.replies.length, 1)
+  assert.equal(state.replies.length, 7) // 1 header + 5 items + 1 footer
   assert.match(state.replies[0].content, /NIGHTRAID TOKEN SHOP/)
 })
 
