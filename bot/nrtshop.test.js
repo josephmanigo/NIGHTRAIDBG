@@ -255,3 +255,9 @@ test('modal submission decrements available stock in real time and disables butt
   assert.equal(btn.data.disabled, true)
   assert.equal(btn.data.label, 'Out of Stock')
 })
+
+test('parseShopItems and parseShopParts strip the broken :emoji_109: emoji from output', () => {
+  const text = '📣 **NIGHTRAID TOKEN SHOP**\n:emoji_109:\nRedeem rewards!'
+  const { headerText } = parseShopParts(text)
+  assert.ok(!headerText.includes(':emoji_109:'))
+})

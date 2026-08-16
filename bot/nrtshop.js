@@ -112,7 +112,8 @@ export async function fetchShopSourceMessage(client) {
 // Parses items and NRT costs dynamically from text lines
 export function parseShopItems(text) {
   if (!text) return FALLBACK_ITEMS
-  const lines = text.split('\n').map((line) => line.trim())
+  const cleanedText = text.replace(/:emoji_109:/g, '')
+  const lines = cleanedText.split('\n').map((line) => line.trim())
   const items = []
 
   for (let i = 0; i < lines.length; i++) {
@@ -162,8 +163,9 @@ export function parseShopParts(text) {
     }
   }
 
-  const items = parseShopItems(text)
-  const lines = text.split('\n').map((line) => line.trim())
+  const cleanedText = text.replace(/:emoji_109:/g, '')
+  const items = parseShopItems(cleanedText)
+  const lines = cleanedText.split('\n').map((line) => line.trim())
 
   let firstItemIndex = -1
   let lastItemIndex = -1
