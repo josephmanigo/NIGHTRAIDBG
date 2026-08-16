@@ -192,3 +192,66 @@ test('createNrtShopWorkflow handleInteraction checks NRT balance on redeem butto
   assert.equal(result.reason, 'insufficient_balance')
   assert.match(state.replies[0].content, /You need at least 4,500 NRT/)
 })
+
+test('modal submission decrements available stock in real time and disables button when out of stock', async () => {
+  const workflow = createNrtShopWorkflow()
+  const state = { replies: [], editedMessage: null }
+
+  // Set up user with enough NRT balance (e.g. 5000 NRT)
+  midnightNrtStore.addNrt('user-rich', 5000)
+
+  const mockMessage = {
+    content: '⌨️ AULA Mechanical Keyboard\n💰 4,500 NRT — 1 available',
+    components: [
+      {
+        components: [
+          { customId: 'nrtshop_redeem:item_1:4500', label: 'Redeem' }
+        ]
+      }
+    ],
+    edit: async (payload) => {
+      state.editedMessage = payload
+    }
+  }
+
+  const interaction = {
+    isModalSubmit: () => true,
+    customId: 'nrtshop_modal:item_1:4500',
+    guildId: 'guild-123',
+    user: { id: 'user-rich' },
+    message: mockMessage,
+    fields: {
+      getTextInputValue: (id) => {
+        if (id === 'nrt_name') return 'John Doe'
+        if (id === 'nrt_phone') return '12345678'
+        if (id === 'nrt_address') return 'Manila'
+        return null
+      }
+    },
+    reply: async (payload) => {
+      state.replies.push(payload)
+    },
+    client: {
+      channels: {
+        cache: new Map([
+          ['1345711473476898896', { send: async () => {} }],
+          ['1535215403834544158', { send: async () => {}, messages: { fetch: async () => null } }]
+        ]),
+        fetch: async () => ({ send: async () => {}, messages: { fetch: async () => null } })
+      },
+    },
+  }
+
+  const result = await workflow.handleInteraction(interaction)
+  assert.equal(result.status, 'claimed')
+
+  // Verify message content was edited to decrement stock
+  assert.ok(state.editedMessage)
+  assert.match(state.editedMessage.content, /0 available/)
+
+  // Verify button was disabled
+  const actionRow = state.editedMessage.components[0]
+  const btn = actionRow.components[0]
+  assert.equal(btn.data.disabled, true)
+  assert.equal(btn.data.label, 'Out of Stock')
+})

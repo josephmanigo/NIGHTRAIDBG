@@ -437,6 +437,20 @@ export function createNrtShopWorkflow(options = {}) {
       return { status: 'rejected', reason: 'insufficient_balance' }
     }
 
+    // Check stock from the message content containing the button
+    const messageContent = interaction.message?.content ?? ''
+    const stockMatch = messageContent.match(/(\d+)\s*available/i)
+    if (stockMatch) {
+      const available = parseInt(stockMatch[1], 10)
+      if (available <= 0) {
+        await interaction.reply({
+          content: '❌ This item is currently out of stock.',
+          flags: MessageFlags.Ephemeral,
+        }).catch(() => undefined)
+        return { status: 'rejected', reason: 'out_of_stock' }
+      }
+    }
+
     const sourceMsg = await fetchShopSourceMessage(interaction.client)
     const items = parseShopItems(sourceMsg?.content)
     const targetItem = items.find((i) => i.id === itemId) || FALLBACK_ITEMS.find((i) => i.id === itemId)
@@ -543,6 +557,32 @@ export function createNrtShopWorkflow(options = {}) {
     const targetItem = items.find((i) => i.id === itemId) || FALLBACK_ITEMS.find((i) => i.id === itemId)
     const itemName = targetItem ? targetItem.label : itemId
 
+    // Check stock in the source message
+    if (sourceMsg?.content && targetItem) {
+      const lines = sourceMsg.content.split('\n')
+      let itemLineIndex = -1
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].includes(targetItem.label) || (targetItem.emoji && lines[i].includes(targetItem.emoji))) {
+          itemLineIndex = i
+          break
+        }
+      }
+      if (itemLineIndex !== -1 && itemLineIndex + 1 < lines.length) {
+        const nextLine = lines[itemLineIndex + 1]
+        const stockMatch = nextLine.match(/(\d+)\s*available/i)
+        if (stockMatch) {
+          const available = parseInt(stockMatch[1], 10)
+          if (available <= 0) {
+            await interaction.reply({
+              content: `❌ Sorry, **${targetItem.label}** is currently out of stock.`,
+              flags: MessageFlags.Ephemeral,
+            }).catch(() => undefined)
+            return { status: 'rejected', reason: 'out_of_stock' }
+          }
+        }
+      }
+    }
+
     const modal = new ModalBuilder()
       .setCustomId(`nrtshop_modal:${itemId}:${cost}`)
       .setTitle(`Redeem ${itemName.slice(0, 30)}`)
@@ -610,6 +650,61 @@ export function createNrtShopWorkflow(options = {}) {
 
     // Deduct NRT
     const newBalance = midnightNrtStore.subtractNrt(userId, cost)
+
+    // Update the message the user clicked on (real-time update)
+    if (interaction.message && typeof interaction.message.edit === 'function') {
+      const oldContent = interaction.message.content
+      const match = oldContent.match(/(\d+)\s*available/i)
+      if (match) {
+        const available = parseInt(match[1], 10)
+        const newAvailable = Math.max(0, available - 1)
+        const newContent = oldContent.replace(`${available} available`, `${newAvailable} available`)
+
+        let components = interaction.message.components
+        if (newAvailable === 0 && components && components.length > 0) {
+          const actionRow = components[0]
+          const btn = actionRow.components[0]
+          if (btn) {
+            const disabledBtn = ButtonBuilder.from(btn).setDisabled(true).setLabel('Out of Stock')
+            components = [new ActionRowBuilder().addComponents(disabledBtn)]
+          }
+        }
+
+        await interaction.message.edit({
+          content: newContent,
+          components: components,
+        }).catch(() => null)
+      }
+    }
+
+    // Update the persistent source message on the server (SHOP_SOURCE_MESSAGE_ID)
+    try {
+      if (sourceMsg && typeof sourceMsg.edit === 'function' && targetItem) {
+        const oldContent = sourceMsg.content
+        const lines = oldContent.split('\n')
+        let itemLineIndex = -1
+        for (let i = 0; i < lines.length; i++) {
+          if (lines[i].includes(targetItem.label) || (targetItem.emoji && lines[i].includes(targetItem.emoji))) {
+            itemLineIndex = i
+            break
+          }
+        }
+
+        if (itemLineIndex !== -1 && itemLineIndex + 1 < lines.length) {
+          const nextLine = lines[itemLineIndex + 1]
+          const match = nextLine.match(/(\d+)\s*available/i)
+          if (match) {
+            const available = parseInt(match[1], 10)
+            const newAvailable = Math.max(0, available - 1)
+            lines[itemLineIndex + 1] = nextLine.replace(`${available} available`, `${newAvailable} available`)
+            const newContent = lines.join('\n')
+            await sourceMsg.edit({ content: newContent }).catch(() => null)
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[NrtShop] Failed to update source message stock:', err)
+    }
 
     // Save claim details locally
     const claims = loadClaims()
