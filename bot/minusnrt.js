@@ -71,6 +71,66 @@ export const MINUSNRT_COMMAND = Object.freeze({
       description: 'The points of NRT to subtract from the fifth user (optional).',
       required: false,
     },
+    {
+      type: ApplicationCommandOptionType.User,
+      name: 'user6',
+      description: 'The sixth user to subtract NRT from (optional).',
+      required: false,
+    },
+    {
+      type: ApplicationCommandOptionType.Integer,
+      name: 'points6',
+      description: 'The points of NRT to subtract from the sixth user (optional).',
+      required: false,
+    },
+    {
+      type: ApplicationCommandOptionType.User,
+      name: 'user7',
+      description: 'The seventh user to subtract NRT from (optional).',
+      required: false,
+    },
+    {
+      type: ApplicationCommandOptionType.Integer,
+      name: 'points7',
+      description: 'The points of NRT to subtract from the seventh user (optional).',
+      required: false,
+    },
+    {
+      type: ApplicationCommandOptionType.User,
+      name: 'user8',
+      description: 'The eighth user to subtract NRT from (optional).',
+      required: false,
+    },
+    {
+      type: ApplicationCommandOptionType.Integer,
+      name: 'points8',
+      description: 'The points of NRT to subtract from the eighth user (optional).',
+      required: false,
+    },
+    {
+      type: ApplicationCommandOptionType.User,
+      name: 'user9',
+      description: 'The ninth user to subtract NRT from (optional).',
+      required: false,
+    },
+    {
+      type: ApplicationCommandOptionType.Integer,
+      name: 'points9',
+      description: 'The points of NRT to subtract from the ninth user (optional).',
+      required: false,
+    },
+    {
+      type: ApplicationCommandOptionType.User,
+      name: 'user10',
+      description: 'The tenth user to subtract NRT from (optional).',
+      required: false,
+    },
+    {
+      type: ApplicationCommandOptionType.Integer,
+      name: 'points10',
+      description: 'The points of NRT to subtract from the tenth user (optional).',
+      required: false,
+    },
   ],
 })
 
@@ -114,7 +174,7 @@ export function createMinusNrtWorkflow(options = {}) {
       entries.push({ user: u1, points: p1 })
     }
 
-    for (let i = 2; i <= 5; i++) {
+    for (let i = 2; i <= 10; i++) {
       const u = interaction.options.getUser(`user${i}`)
       const p = interaction.options.getInteger(`points${i}`)
       if (u) {

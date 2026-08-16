@@ -241,3 +241,78 @@ test('addnrt and minusnrt accept multiple users and values in a single call', as
   assert.match(state.replies[0].content, /Subtracted 10.*user-1/)
   assert.match(state.replies[0].content, /Subtracted 20.*user-2/)
 })
+
+test('addnrt and minusnrt accept up to 10 users and values in a single call', async () => {
+  const addWorkflow = createAddNrtWorkflow()
+  const minusWorkflow = createMinusNrtWorkflow()
+
+  const state = { replies: [], deferred: false }
+  const memberWithFounder = {
+    roles: {
+      cache: {
+        some: (fn) => fn({ name: 'Founder' })
+      }
+    }
+  }
+
+  // Mock interaction with 10 options
+  const interaction = {
+    isChatInputCommand: () => true,
+    commandName: 'addnrt',
+    guildId: 'guild-123',
+    guild: { ownerId: 'owner-123' },
+    user: { id: 'founder-123' },
+    member: memberWithFounder,
+    options: {
+      getInteger: (name) => {
+        if (name === 'points') return 10
+        const match = name.match(/^points(\d+)$/)
+        if (match) {
+          const index = parseInt(match[1], 10)
+          if (index >= 2 && index <= 10) {
+            return index * 10
+          }
+        }
+        return null
+      },
+      getUser: (name) => {
+        if (name === 'user') return { id: 'user-1' }
+        const match = name.match(/^user(\d+)$/)
+        if (match) {
+          const index = parseInt(match[1], 10)
+          if (index >= 2 && index <= 10) {
+            return { id: `user-${index}` }
+          }
+        }
+        return null
+      }
+    },
+    deferReply: async () => {},
+    editReply: async (payload) => {
+      state.replies.push(payload)
+    }
+  }
+
+  // 1. Add NRT to 10 users
+  const addResult = await addWorkflow.handleInteraction(interaction)
+  assert.equal(addResult.status, 'success')
+  assert.equal(addResult.entriesCount, 10)
+  for (let i = 1; i <= 10; i++) {
+    const expectedPoints = i * 10
+    const expectedUserId = `user-${i}`
+    assert.match(state.replies[0].content, new RegExp(`Added ${expectedPoints}.*${expectedUserId}`))
+  }
+
+  // 2. Minus NRT from 10 users
+  state.replies = []
+  interaction.commandName = 'minusnrt'
+
+  const minusResult = await minusWorkflow.handleInteraction(interaction)
+  assert.equal(minusResult.status, 'success')
+  assert.equal(minusResult.entriesCount, 10)
+  for (let i = 1; i <= 10; i++) {
+    const expectedPoints = i * 10
+    const expectedUserId = `user-${i}`
+    assert.match(state.replies[0].content, new RegExp(`Subtracted ${expectedPoints}.*${expectedUserId}`))
+  }
+})

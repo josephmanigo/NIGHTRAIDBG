@@ -71,6 +71,66 @@ export const ADDNRT_COMMAND = Object.freeze({
       description: 'The points of NRT to give to the fifth user (optional).',
       required: false,
     },
+    {
+      type: ApplicationCommandOptionType.User,
+      name: 'user6',
+      description: 'The sixth user to give NRT to (optional).',
+      required: false,
+    },
+    {
+      type: ApplicationCommandOptionType.Integer,
+      name: 'points6',
+      description: 'The points of NRT to give to the sixth user (optional).',
+      required: false,
+    },
+    {
+      type: ApplicationCommandOptionType.User,
+      name: 'user7',
+      description: 'The seventh user to give NRT to (optional).',
+      required: false,
+    },
+    {
+      type: ApplicationCommandOptionType.Integer,
+      name: 'points7',
+      description: 'The points of NRT to give to the seventh user (optional).',
+      required: false,
+    },
+    {
+      type: ApplicationCommandOptionType.User,
+      name: 'user8',
+      description: 'The eighth user to give NRT to (optional).',
+      required: false,
+    },
+    {
+      type: ApplicationCommandOptionType.Integer,
+      name: 'points8',
+      description: 'The points of NRT to give to the eighth user (optional).',
+      required: false,
+    },
+    {
+      type: ApplicationCommandOptionType.User,
+      name: 'user9',
+      description: 'The ninth user to give NRT to (optional).',
+      required: false,
+    },
+    {
+      type: ApplicationCommandOptionType.Integer,
+      name: 'points9',
+      description: 'The points of NRT to give to the ninth user (optional).',
+      required: false,
+    },
+    {
+      type: ApplicationCommandOptionType.User,
+      name: 'user10',
+      description: 'The tenth user to give NRT to (optional).',
+      required: false,
+    },
+    {
+      type: ApplicationCommandOptionType.Integer,
+      name: 'points10',
+      description: 'The points of NRT to give to the tenth user (optional).',
+      required: false,
+    },
   ],
 })
 
@@ -114,7 +174,7 @@ export function createAddNrtWorkflow(options = {}) {
       entries.push({ user: u1, points: p1 })
     }
 
-    for (let i = 2; i <= 5; i++) {
+    for (let i = 2; i <= 10; i++) {
       const u = interaction.options.getUser(`user${i}`)
       const p = interaction.options.getInteger(`points${i}`)
       if (u) {
