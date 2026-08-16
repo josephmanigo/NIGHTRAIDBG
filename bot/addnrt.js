@@ -8,7 +8,7 @@ import { midnightNrtStore } from './midnight-nrt-store.js'
 
 export const ADDNRT_COMMAND = Object.freeze({
   name: 'addnrt',
-  description: 'Add MIDNIGHT LEADERBOARD NRT to a user.',
+  description: 'Add NIGHTRAID TOKEN LEADERBOARD NRT to a user.',
   defaultMemberPermissions: PermissionFlagsBits.Administrator,
   options: [
     {
@@ -141,7 +141,7 @@ export function createAddNrtWorkflow(options = {}) {
         const newBalance = midnightNrtStore.addNrt(entry.user.id, entry.points)
         lastUserId = entry.user.id
         lastNewBalance = newBalance
-        results.push(`Added ${entry.points} MIDNIGHT LEADERBOARD NRT to <@${entry.user.id}>. They now have ${newBalance} NRT.`)
+        results.push(`Added ${entry.points} NIGHTRAID TOKEN LEADERBOARD NRT to <@${entry.user.id}>. They now have ${newBalance} NRT.`)
       }
 
       await interaction.editReply({

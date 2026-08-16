@@ -10,7 +10,7 @@ import { midnightNrtStore } from './midnight-nrt-store.js'
 
 export const NRTLEADERBOARD_COMMAND = Object.freeze({
   name: 'nrtleaderboard',
-  description: 'Show the MIDNIGHT LEADERBOARD NRT standings.',
+  description: 'Show the NIGHTRAID TOKEN LEADERBOARD NRT standings.',
 })
 
 export function renderNrtLeaderboardEmbed(executorUser) {
@@ -18,7 +18,7 @@ export function renderNrtLeaderboardEmbed(executorUser) {
   const executorNrt = midnightNrtStore.loadAll()[executorUser.id] || 0
 
   const embed = new EmbedBuilder()
-    .setTitle('MIDNIGHT LEADERBOARD')
+    .setTitle('NIGHTRAID TOKEN LEADERBOARD')
     .setColor('#2b2d31')
 
   let description = ''

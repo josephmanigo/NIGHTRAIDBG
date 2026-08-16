@@ -8,7 +8,7 @@ import { midnightNrtStore } from './midnight-nrt-store.js'
 
 export const MINUSNRT_COMMAND = Object.freeze({
   name: 'minusnrt',
-  description: 'Subtract MIDNIGHT LEADERBOARD NRT from a user.',
+  description: 'Subtract NIGHTRAID TOKEN LEADERBOARD NRT from a user.',
   defaultMemberPermissions: PermissionFlagsBits.Administrator,
   options: [
     {
@@ -141,7 +141,7 @@ export function createMinusNrtWorkflow(options = {}) {
         const newBalance = midnightNrtStore.subtractNrt(entry.user.id, entry.points)
         lastUserId = entry.user.id
         lastNewBalance = newBalance
-        results.push(`Subtracted ${entry.points} MIDNIGHT LEADERBOARD NRT from <@${entry.user.id}>. They now have ${newBalance} NRT.`)
+        results.push(`Subtracted ${entry.points} NIGHTRAID TOKEN LEADERBOARD NRT from <@${entry.user.id}>. They now have ${newBalance} NRT.`)
       }
 
       await interaction.editReply({

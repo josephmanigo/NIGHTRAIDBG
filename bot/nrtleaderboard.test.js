@@ -38,7 +38,7 @@ test('renderNrtLeaderboardEmbed renders empty and populated standings without em
   // Test empty state
   const emptyEmbed = renderNrtLeaderboardEmbed(executor)
   const emptyData = emptyEmbed.data
-  assert.equal(emptyData.title, 'MIDNIGHT LEADERBOARD')
+  assert.equal(emptyData.title, 'NIGHTRAID TOKEN LEADERBOARD')
   assert.match(emptyData.description, /No NRT has been awarded yet/)
   assert.match(emptyData.description, /You have 0 NRT/)
   assert.ok(!emptyData.description.includes('🥇'))
@@ -51,7 +51,7 @@ test('renderNrtLeaderboardEmbed renders empty and populated standings without em
   // Test populated state
   const populatedEmbed = renderNrtLeaderboardEmbed(executor)
   const populatedData = populatedEmbed.data
-  assert.equal(populatedData.title, 'MIDNIGHT LEADERBOARD')
+  assert.equal(populatedData.title, 'NIGHTRAID TOKEN LEADERBOARD')
   
   // Emojis should not be in the rankings
   assert.ok(!populatedData.description.includes('🥇'))
@@ -93,5 +93,5 @@ test('createNrtLeaderboardWorkflow handles interaction correctly', async () => {
   assert.equal(state.replies.length, 1)
   
   const embed = state.replies[0].embeds[0]
-  assert.equal(embed.data.title, 'MIDNIGHT LEADERBOARD')
+  assert.equal(embed.data.title, 'NIGHTRAID TOKEN LEADERBOARD')
 })
