@@ -74,7 +74,7 @@ import { WINNER_COMMAND, installWinnerWorkflow } from './winner.js'
 import { LEADERBOARD_COMMAND, installLeaderboardWorkflow } from './leaderboard.js'
 import { NRTLEADERBOARD_COMMAND, installNrtLeaderboardWorkflow } from './nrtleaderboard.js'
 import { CLEAR_GUESSING_GAME_COMMAND, installClearGuessingGameWorkflow } from './clearguessinggame.js'
-import { NRTSHOP_COMMAND, installNrtShopWorkflow } from './nrtshop.js'
+import { NRTSHOP_COMMAND, SHOPCONFIG_COMMAND, installNrtShopWorkflow } from './nrtshop.js'
 import { ADDNRT_COMMAND, installAddNrtWorkflow } from './addnrt.js'
 import { MINUSNRT_COMMAND, installMinusNrtWorkflow } from './minusnrt.js'
 import { createRoundSubmissionReader } from './game-results-round-reader.js'
@@ -133,6 +133,7 @@ const COMMAND_DEFINITIONS = [
   CLEAR_GUESSING_GAME_COMMAND,
   NRTLEADERBOARD_COMMAND,
   NRTSHOP_COMMAND,
+  SHOPCONFIG_COMMAND,
   ADDNRT_COMMAND,
   MINUSNRT_COMMAND,
   GAME_RESULTS_MVP_COMMAND,
