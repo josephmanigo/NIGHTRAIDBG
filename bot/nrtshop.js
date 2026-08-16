@@ -382,7 +382,7 @@ export function createNrtShopWorkflow(options = {}) {
       }
 
       // Reconstruct single shop text
-      let shopText = content
+      let shopText = content ? content.replace(/:emoji_109:/g, '<:nrt:1538488632388751430>') : null
       if (!shopText) {
         shopText = `${headerText}\n\n`
         items.forEach((item) => {
