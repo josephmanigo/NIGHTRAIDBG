@@ -184,3 +184,60 @@ test('addnrt and minusnrt accept user who is server Owner even without Founder r
   assert.equal(result.newBalance, 5)
   assert.match(state.replies[0].content, /Added 5/)
 })
+
+test('addnrt and minusnrt accept multiple users and values in a single call', async () => {
+  const addWorkflow = createAddNrtWorkflow()
+  const minusWorkflow = createMinusNrtWorkflow()
+
+  const state = { replies: [], deferred: false }
+  const memberWithFounder = {
+    roles: {
+      cache: {
+        some: (fn) => fn({ name: 'Founder' })
+      }
+    }
+  }
+
+  // Mock interaction with multiple options
+  const interaction = {
+    isChatInputCommand: () => true,
+    commandName: 'addnrt',
+    guildId: 'guild-123',
+    guild: { ownerId: 'owner-123' },
+    user: { id: 'founder-123' },
+    member: memberWithFounder,
+    options: {
+      getInteger: (name) => {
+        if (name === 'points') return 10
+        if (name === 'points2') return 20
+        return null
+      },
+      getUser: (name) => {
+        if (name === 'user') return { id: 'user-1' }
+        if (name === 'user2') return { id: 'user-2' }
+        return null
+      }
+    },
+    deferReply: async () => {},
+    editReply: async (payload) => {
+      state.replies.push(payload)
+    }
+  }
+
+  // 1. Add NRT to multiple users
+  const addResult = await addWorkflow.handleInteraction(interaction)
+  assert.equal(addResult.status, 'success')
+  assert.equal(addResult.entriesCount, 2)
+  assert.match(state.replies[0].content, /Added 10.*user-1/)
+  assert.match(state.replies[0].content, /Added 20.*user-2/)
+
+  // 2. Minus NRT from multiple users
+  state.replies = []
+  interaction.commandName = 'minusnrt'
+
+  const minusResult = await minusWorkflow.handleInteraction(interaction)
+  assert.equal(minusResult.status, 'success')
+  assert.equal(minusResult.entriesCount, 2)
+  assert.match(state.replies[0].content, /Subtracted 10.*user-1/)
+  assert.match(state.replies[0].content, /Subtracted 20.*user-2/)
+})

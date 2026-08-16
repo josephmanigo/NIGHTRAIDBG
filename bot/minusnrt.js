@@ -14,14 +14,62 @@ export const MINUSNRT_COMMAND = Object.freeze({
     {
       type: ApplicationCommandOptionType.User,
       name: 'user',
-      description: 'The user to subtract NRT from.',
+      description: 'The first user to subtract NRT from.',
       required: true,
     },
     {
       type: ApplicationCommandOptionType.Integer,
       name: 'points',
-      description: 'The points of NRT to subtract.',
+      description: 'The points of NRT to subtract from the first user.',
       required: true,
+    },
+    {
+      type: ApplicationCommandOptionType.User,
+      name: 'user2',
+      description: 'The second user to subtract NRT from (optional).',
+      required: false,
+    },
+    {
+      type: ApplicationCommandOptionType.Integer,
+      name: 'points2',
+      description: 'The points of NRT to subtract from the second user (optional).',
+      required: false,
+    },
+    {
+      type: ApplicationCommandOptionType.User,
+      name: 'user3',
+      description: 'The third user to subtract NRT from (optional).',
+      required: false,
+    },
+    {
+      type: ApplicationCommandOptionType.Integer,
+      name: 'points3',
+      description: 'The points of NRT to subtract from the third user (optional).',
+      required: false,
+    },
+    {
+      type: ApplicationCommandOptionType.User,
+      name: 'user4',
+      description: 'The fourth user to subtract NRT from (optional).',
+      required: false,
+    },
+    {
+      type: ApplicationCommandOptionType.Integer,
+      name: 'points4',
+      description: 'The points of NRT to subtract from the fourth user (optional).',
+      required: false,
+    },
+    {
+      type: ApplicationCommandOptionType.User,
+      name: 'user5',
+      description: 'The fifth user to subtract NRT from (optional).',
+      required: false,
+    },
+    {
+      type: ApplicationCommandOptionType.Integer,
+      name: 'points5',
+      description: 'The points of NRT to subtract from the fifth user (optional).',
+      required: false,
     },
   ],
 })
@@ -59,21 +107,48 @@ export function createMinusNrtWorkflow(options = {}) {
       return { status: 'error', reason: 'defer_failed' }
     }
 
-    const points = interaction.options.getInteger('points')
-    const user = interaction.options.getUser('user')
+    const entries = []
+    const u1 = interaction.options.getUser('user')
+    const p1 = interaction.options.getInteger('points')
+    if (u1 && p1 !== null) {
+      entries.push({ user: u1, points: p1 })
+    }
 
-    if (!user) {
-      await interaction.editReply({ content: 'Invalid user.' })
-      return { status: 'error', reason: 'invalid_user' }
+    for (let i = 2; i <= 5; i++) {
+      const u = interaction.options.getUser(`user${i}`)
+      const p = interaction.options.getInteger(`points${i}`)
+      if (u) {
+        if (p === null) {
+          await interaction.editReply({
+            content: `❌ You specified user${i} (<@${u.id}>) but did not specify points${i}.`,
+          }).catch(() => undefined)
+          return { status: 'error', reason: `missing_points_${i}` }
+        }
+        entries.push({ user: u, points: p })
+      }
+    }
+
+    if (entries.length === 0) {
+      await interaction.editReply({ content: 'Invalid users or points.' }).catch(() => undefined)
+      return { status: 'error', reason: 'invalid_arguments' }
     }
 
     try {
-      const newBalance = midnightNrtStore.subtractNrt(user.id, points)
+      const results = []
+      let lastUserId = null
+      let lastNewBalance = null
+      for (const entry of entries) {
+        const newBalance = midnightNrtStore.subtractNrt(entry.user.id, entry.points)
+        lastUserId = entry.user.id
+        lastNewBalance = newBalance
+        results.push(`Subtracted ${entry.points} MIDNIGHT LEADERBOARD NRT from <@${entry.user.id}>. They now have ${newBalance} NRT.`)
+      }
+
       await interaction.editReply({
-        content: `Subtracted ${points} MIDNIGHT LEADERBOARD NRT from <@${user.id}>. They now have ${newBalance} NRT.`,
+        content: results.join('\n'),
         allowedMentions: { parse: [] },
       })
-      return { status: 'success', userId: user.id, newBalance }
+      return { status: 'success', userId: lastUserId, newBalance: lastNewBalance, entriesCount: entries.length }
     } catch (error) {
       console.error('/minusnrt command failed:', error)
       await interaction.editReply({

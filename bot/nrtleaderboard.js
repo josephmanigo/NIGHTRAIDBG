@@ -2,6 +2,9 @@ import {
   Events,
   MessageFlags,
   EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
 } from 'discord.js'
 import { midnightNrtStore } from './midnight-nrt-store.js'
 
@@ -63,9 +66,24 @@ export function createNrtLeaderboardWorkflow(options = {}) {
 
     try {
       const embed = renderNrtLeaderboardEmbed(interaction.user)
+      const executorNrt = midnightNrtStore.loadAll()[interaction.user.id] || 0
+
+      const components = []
+      if (executorNrt >= 2000) {
+        components.push(
+          new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId('nrtleaderboard_redeem_btn')
+              .setLabel('Redeem Rewards')
+              .setStyle(ButtonStyle.Success)
+              .setEmoji('🎁'),
+          ),
+        )
+      }
 
       await interaction.editReply({
         embeds: [embed],
+        components,
         allowedMentions: { parse: [] },
       })
       return { status: 'success' }
