@@ -73,6 +73,7 @@ import { END_GAME_COMMAND, installEndGameWorkflow } from './minigame-end.js'
 import { WINNER_COMMAND, installWinnerWorkflow } from './winner.js'
 import { LEADERBOARD_COMMAND, installLeaderboardWorkflow } from './leaderboard.js'
 import { NRTLEADERBOARD_COMMAND, installNrtLeaderboardWorkflow } from './nrtleaderboard.js'
+import { CLEAR_GUESSING_GAME_COMMAND, installClearGuessingGameWorkflow } from './clearguessinggame.js'
 import { NRTSHOP_COMMAND, SHOPCONFIG_COMMAND, installNrtShopWorkflow } from './nrtshop.js'
 import { ADDNRT_COMMAND, installAddNrtWorkflow } from './addnrt.js'
 import { MINUSNRT_COMMAND, installMinusNrtWorkflow } from './minusnrt.js'
@@ -129,6 +130,7 @@ const COMMAND_DEFINITIONS = [
   END_GAME_COMMAND,
   WINNER_COMMAND,
   LEADERBOARD_COMMAND,
+  CLEAR_GUESSING_GAME_COMMAND,
   NRTLEADERBOARD_COMMAND,
   NRTSHOP_COMMAND,
   SHOPCONFIG_COMMAND,
@@ -524,6 +526,9 @@ installWinnerWorkflow(client, {
   errorReporter: gameResultsErrorReporter,
 })
 installLeaderboardWorkflow(client, {
+  errorReporter: gameResultsErrorReporter,
+})
+installClearGuessingGameWorkflow(client, {
   errorReporter: gameResultsErrorReporter,
 })
 installNrtLeaderboardWorkflow(client, {

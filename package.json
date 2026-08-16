@@ -24,6 +24,7 @@
     "test:minigame-end": "node --test bot/minigame-end.test.js",
     "test:winner": "node --test bot/winner.test.js",
     "test:leaderboard": "node --test bot/leaderboard.test.js",
+    "test:clearguessinggame": "node --test bot/clearguessinggame.test.js",
     "test:nrtleaderboard": "node --test bot/nrtleaderboard.test.js",
     "test:nrt-actions": "node --test bot/nrt-actions.test.js",
     "test:game-results-reader": "node --test bot/game-results-reader.test.js",
