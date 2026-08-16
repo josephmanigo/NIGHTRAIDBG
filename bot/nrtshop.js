@@ -29,56 +29,13 @@ export const NRTSHOP_COMMAND = Object.freeze({
   description: 'Show the NRT shop and redeem items.',
 })
 
-export const SHOPCONFIG_COMMAND = Object.freeze({
-  name: 'shopconfig',
-  description: 'Configure items, costs, and availability in the NRT shop.',
-  defaultMemberPermissions: PermissionFlagsBits.Administrator,
-  options: [
-    {
-      name: 'action',
-      description: 'The configuration action to perform.',
-      type: ApplicationCommandOptionType.String,
-      required: true,
-      choices: [
-        { name: 'Add Item', value: 'add' },
-        { name: 'Remove Item', value: 'remove' },
-        { name: 'Update Item', value: 'update' },
-      ],
-    },
-    {
-      name: 'name',
-      description: 'The name of the item to add, remove, or update.',
-      type: ApplicationCommandOptionType.String,
-      required: true,
-    },
-    {
-      name: 'cost',
-      description: 'The NRT cost for the item (for Add/Update).',
-      type: ApplicationCommandOptionType.Integer,
-      required: false,
-    },
-    {
-      name: 'availability',
-      description: 'The available stock count (for Add/Update).',
-      type: ApplicationCommandOptionType.Integer,
-      required: false,
-    },
-    {
-      name: 'emoji',
-      description: 'The emoji representing the item (for Add/Update).',
-      type: ApplicationCommandOptionType.String,
-      required: false,
-    },
-  ],
-})
-
 // Default/fallback items matching the provided screenshot details
 export const FALLBACK_ITEMS = [
-  { id: 'item_1', label: 'AULA Mechanical Keyboard', cost: 4500, emoji: '⌨️', availability: 2 },
-  { id: 'item_2', label: 'ATK GEAR DRAGONFLY A9 Mouse', cost: 5000, emoji: '🖱️', availability: 2 },
-  { id: 'item_3', label: 'IEM POPCORN BASS X9 PRO', cost: 3000, emoji: '🎧', availability: 2 },
-  { id: 'item_4', label: '200 GCash', cost: 2000, emoji: '🥇', availability: 5 },
-  { id: 'item_5', label: 'Blood Strike Premium Strike Pass', cost: 2000, emoji: '👥', availability: 2 },
+  { id: 'item_1', label: 'AULA Mechanical Keyboard', cost: 4500, emoji: '⌨️' },
+  { id: 'item_2', label: 'ATK GEAR DRAGONFLY A9 Mouse', cost: 5000, emoji: '🖱️' },
+  { id: 'item_3', label: 'IEM POPCORN BASS X9 PRO', cost: 3000, emoji: '🎧' },
+  { id: 'item_4', label: '200 GCash', cost: 2000, emoji: '🥇' },
+  { id: 'item_5', label: 'Blood Strike Premium Strike Pass', cost: 2000, emoji: '👥' },
 ]
 
 const activeNrtPublicNotices = new Map()
@@ -155,7 +112,7 @@ export async function fetchShopSourceMessage(client) {
 // Parses items and NRT costs dynamically from text lines
 export function parseShopItems(text) {
   if (!text) return FALLBACK_ITEMS
-  const cleanedText = text.replace(/:emoji_109:/g, '<:nrt:1538488632388751430>')
+  const cleanedText = text.replace(/:emoji_109:/g, '')
   const lines = cleanedText.split('\n').map((line) => line.trim())
   const items = []
 
@@ -165,8 +122,6 @@ export function parseShopItems(text) {
       const nrtMatch = line.match(/💰\s*([\d,]+)\s*NRT/i)
       if (nrtMatch) {
         const cost = parseInt(nrtMatch[1].replace(/,/g, ''), 10)
-        const stockMatch = line.match(/—\s*(\d+)\s*available/i)
-        const availability = stockMatch ? parseInt(stockMatch[1], 10) : 2
         let nameLine = ''
         if (i > 0) {
           nameLine = lines[i - 1]
@@ -186,7 +141,6 @@ export function parseShopItems(text) {
             label,
             emoji,
             cost,
-            availability,
           })
         }
       }
@@ -198,7 +152,7 @@ export function parseShopItems(text) {
 
 // Parses the shop message content into header, footer, and items list
 export function parseShopParts(text) {
-  const defaultText = `📣 **NIGHTRAID TOKEN SHOP** <:nrt:1538488632388751430>\nRedeem your hard-earned NRT for exclusive rewards:`
+  const defaultText = `📣 **NIGHTRAID TOKEN SHOP** 🪙\nRedeem your hard-earned NRT for exclusive rewards:`
   const defaultFooter = `⚠️ Limited stock — Each person can redeem either the mouse or the keyboard, but not both.\n\nEARN. RAID. REDEEM.\nEvery event. Every guess. Every invite.\n\nStart stacking your NRT today!`
 
   if (!text) {
@@ -209,7 +163,7 @@ export function parseShopParts(text) {
     }
   }
 
-  const cleanedText = text.replace(/:emoji_109:/g, '<:nrt:1538488632388751430>')
+  const cleanedText = text.replace(/:emoji_109:/g, '')
   const items = parseShopItems(cleanedText)
   const lines = cleanedText.split('\n').map((line) => line.trim())
 
@@ -443,16 +397,13 @@ export function createNrtShopWorkflow(options = {}) {
           .setCustomId(`nrtshop_redeem:${item.id}:${item.cost}`)
           .setLabel(`Redeem`)
           .setStyle(ButtonStyle.Success)
-        if (item.availability <= 0) {
-          btn.setDisabled(true).setLabel('Out of Stock')
-        }
         if (item.emoji) {
           btn.setEmoji(item.emoji)
         }
         const row = new ActionRowBuilder().addComponents(btn)
 
         await interaction.followUp({
-          content: `${item.fullName}\n💰 ${item.cost.toLocaleString()} NRT — ${item.availability} available`,
+          content: `${item.fullName}\n💰 ${item.cost.toLocaleString()} NRT`,
           components: [row],
           allowedMentions: { parse: [] },
         })
@@ -900,145 +851,10 @@ export function createNrtShopWorkflow(options = {}) {
     return { status: 'updated', winnerId, itemName, newStatus }
   }
 
-  // Shop configuration handler
-  async function handleShopConfig(interaction) {
-    if (!interaction.guildId) {
-      await interaction.reply({
-        content: 'The /shopconfig command only works inside the server.',
-        flags: MessageFlags.Ephemeral,
-      }).catch(() => undefined)
-      return { status: 'rejected', reason: 'direct_message' }
-    }
-
-    const member = interaction.member
-    const isAuthorized =
-      member?.permissions?.has?.(PermissionFlagsBits.Administrator) ||
-      member?.permissions?.has?.(PermissionFlagsBits.ManageGuild)
-
-    if (!isAuthorized) {
-      await interaction.reply({
-        content: '❌ Only administrators can configure the shop.',
-        flags: MessageFlags.Ephemeral,
-      }).catch(() => undefined)
-      return { status: 'rejected', reason: 'unauthorized' }
-    }
-
-    try {
-      await interaction.deferReply({ flags: MessageFlags.Ephemeral })
-    } catch {
-      return { status: 'error', reason: 'defer_failed' }
-    }
-
-    try {
-      const action = interaction.options.getString('action')
-      const name = interaction.options.getString('name').trim()
-      const cost = interaction.options.getInteger('cost')
-      const availability = interaction.options.getInteger('availability')
-      const emoji = interaction.options.getString('emoji')?.trim()
-
-      const sourceMsg = await fetchShopSourceMessage(interaction.client)
-      if (!sourceMsg) {
-        await interaction.editReply({
-          content: '❌ Could not fetch the NRT shop source message on the server.',
-        })
-        return { status: 'error', reason: 'source_message_not_found' }
-      }
-
-      const content = sourceMsg.content
-      const { headerText, footerText, items } = parseShopParts(content)
-
-      let updatedItems = [...items]
-
-      if (action === 'add') {
-        if (cost === null || cost === undefined) {
-          await interaction.editReply({ content: '❌ You must specify a `cost` when adding a new item.' })
-          return { status: 'rejected', reason: 'missing_cost' }
-        }
-        if (availability === null || availability === undefined) {
-          await interaction.editReply({ content: '❌ You must specify `availability` when adding a new item.' })
-          return { status: 'rejected', reason: 'missing_availability' }
-        }
-
-        const existing = updatedItems.find(
-          (item) => item.label.toLowerCase() === name.toLowerCase()
-        )
-        if (existing) {
-          await interaction.editReply({ content: `❌ An item named **${name}** already exists in the shop.` })
-          return { status: 'rejected', reason: 'already_exists' }
-        }
-
-        const newItem = {
-          id: `item_${Date.now()}`,
-          fullName: `${emoji || '🎁'} ${name}`,
-          label: name,
-          emoji: emoji || '🎁',
-          cost,
-          availability,
-        }
-        updatedItems.push(newItem)
-      } else if (action === 'remove') {
-        const existingIndex = updatedItems.findIndex(
-          (item) => item.label.toLowerCase() === name.toLowerCase()
-        )
-        if (existingIndex === -1) {
-          await interaction.editReply({ content: `❌ Could not find an item named **${name}** in the shop.` })
-          return { status: 'rejected', reason: 'not_found' }
-        }
-        updatedItems.splice(existingIndex, 1)
-      } else if (action === 'update') {
-        const item = updatedItems.find(
-          (item) => item.label.toLowerCase() === name.toLowerCase()
-        )
-        if (!item) {
-          await interaction.editReply({ content: `❌ Could not find an item named **${name}** in the shop.` })
-          return { status: 'rejected', reason: 'not_found' }
-        }
-
-        if (cost !== null && cost !== undefined) {
-          item.cost = cost
-        }
-        if (availability !== null && availability !== undefined) {
-          item.availability = availability
-        }
-        if (emoji) {
-          item.emoji = emoji
-          item.fullName = `${emoji} ${item.label}`
-        }
-      }
-
-      // Reconstruct the new content for the source message
-      let newContent = `${headerText}\n\n`
-      updatedItems.forEach((item) => {
-        newContent += `${item.emoji || ''} ${item.label}\n💰 ${item.cost.toLocaleString()} NRT — ${item.availability} available\n\n`
-      })
-      newContent += footerText
-
-      // Edit the source message on the server
-      await sourceMsg.edit({ content: newContent })
-
-      await interaction.editReply({
-        content: `✅ Successfully performed **${action}** on item **${name}**!`,
-      })
-
-      return { status: 'success', action, name }
-    } catch (error) {
-      console.error('/shopconfig command failed:', error)
-      await interaction.editReply({
-        content: `❌ Config failed: ${error instanceof Error ? error.message : String(error)}`,
-      }).catch(() => undefined)
-      return { status: 'error', reason: error instanceof Error ? error.message : String(error) }
-    }
-  }
-
   // Dispatches interaction events to specific handlers
   async function handleInteraction(interaction) {
-    if (interaction.isChatInputCommand?.()) {
-      if (interaction.commandName === NRTSHOP_COMMAND.name) {
-        return handleCommand(interaction)
-      }
-      if (interaction.commandName === SHOPCONFIG_COMMAND.name) {
-        return handleShopConfig(interaction)
-      }
+    if (interaction.isChatInputCommand?.() && interaction.commandName === NRTSHOP_COMMAND.name) {
+      return handleCommand(interaction)
     }
 
     if (interaction.isButton?.()) {

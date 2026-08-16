@@ -25,7 +25,6 @@ export const BOT_COMMANDS = [
   { name: 'leaderboard', description: 'Show the minigame winner leaderboard.', module: 'leaderboards' },
   { name: 'nrtleaderboard', description: 'Show the NRT leaderboard.', module: 'leaderboards' },
   { name: 'nrtshop', description: 'Show the NRT shop and redeem items.', module: 'leaderboards' },
-  { name: 'shopconfig', description: 'Configure items, costs, and availability in the NRT shop.', module: 'leaderboards' },
   { name: 'addnrt', description: 'Add NRT to a user.', module: 'leaderboards' },
   { name: 'minusnrt', description: 'Subtract NRT from a user.', module: 'leaderboards' },
   { name: 'music', description: 'Play music in your voice channel.', module: 'music' },
