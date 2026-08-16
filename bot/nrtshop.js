@@ -381,38 +381,45 @@ export function createNrtShopWorkflow(options = {}) {
         }
       }
 
-      const headerFiles = files.slice(0, 1) // first file (banner) for header
-      const footerFiles = files.slice(1) // rest of files (grid) for footer
+      // Reconstruct single shop text
+      let shopText = content
+      if (!shopText) {
+        shopText = `${headerText}\n\n`
+        items.forEach((item) => {
+          shopText += `${item.emoji || ''} ${item.label}\n💰 ${item.cost.toLocaleString()} NRT — ${item.availability} available\n\n`
+        })
+        shopText += footerText
+      }
 
-      // Send header (Message 1)
-      await interaction.editReply({
-        content: headerText,
-        files: headerFiles,
-        allowedMentions: { parse: [] },
-      })
-
-      // Send each shop item as a separate message (Messages 2 to N)
-      for (const item of items) {
+      // Group buttons up to 2 per action row
+      const rows = []
+      let currentRow = new ActionRowBuilder()
+      items.forEach((item, index) => {
+        if (index > 0 && index % 2 === 0) {
+          rows.push(currentRow)
+          currentRow = new ActionRowBuilder()
+        }
         const btn = new ButtonBuilder()
           .setCustomId(`nrtshop_redeem:${item.id}:${item.cost}`)
-          .setLabel(`Redeem`)
+          .setLabel(item.availability <= 0 ? `Out of Stock: ${item.label.split(' ')[0]}` : `Redeem ${item.label.split(' ')[0]}`)
           .setStyle(ButtonStyle.Success)
+        if (item.availability <= 0) {
+          btn.setDisabled(true)
+        }
         if (item.emoji) {
           btn.setEmoji(item.emoji)
         }
-        const row = new ActionRowBuilder().addComponents(btn)
+        currentRow.addComponents(btn)
+      })
 
-        await interaction.followUp({
-          content: `${item.fullName}\n💰 ${item.cost.toLocaleString()} NRT`,
-          components: [row],
-          allowedMentions: { parse: [] },
-        })
+      if (currentRow.components.length > 0) {
+        rows.push(currentRow)
       }
 
-      // Send footer (Message N+1)
-      await interaction.followUp({
-        content: footerText,
-        files: footerFiles,
+      await interaction.editReply({
+        content: shopText,
+        files: files,
+        components: rows,
         allowedMentions: { parse: [] },
       })
 
@@ -439,24 +446,38 @@ export function createNrtShopWorkflow(options = {}) {
       return { status: 'rejected', reason: 'insufficient_balance' }
     }
 
-    // Check stock from the message content containing the button
-    const messageContent = interaction.message?.content ?? ''
-    const stockMatch = messageContent.match(/(\d+)\s*available/i)
-    if (stockMatch) {
-      const available = parseInt(stockMatch[1], 10)
-      if (available <= 0) {
-        await interaction.reply({
-          content: '❌ This item is currently out of stock.',
-          flags: MessageFlags.Ephemeral,
-        }).catch(() => undefined)
-        return { status: 'rejected', reason: 'out_of_stock' }
-      }
-    }
-
     const sourceMsg = await fetchShopSourceMessage(interaction.client)
     const items = parseShopItems(sourceMsg?.content)
     const targetItem = items.find((i) => i.id === itemId) || FALLBACK_ITEMS.find((i) => i.id === itemId)
     const itemName = targetItem ? targetItem.label : itemId
+
+    // Check stock from the message content containing the button
+    let available = targetItem ? targetItem.availability : 0
+    if (interaction.message?.content && targetItem) {
+      const lines = interaction.message.content.split('\n')
+      let itemLineIndex = -1
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].includes(targetItem.label) || (targetItem.emoji && lines[i].includes(targetItem.emoji))) {
+          itemLineIndex = i
+          break
+        }
+      }
+      if (itemLineIndex !== -1 && itemLineIndex + 1 < lines.length) {
+        const nextLine = lines[itemLineIndex + 1]
+        const stockMatch = nextLine.match(/(\d+)\s*available/i)
+        if (stockMatch) {
+          available = parseInt(stockMatch[1], 10)
+        }
+      }
+    }
+
+    if (available <= 0) {
+      await interaction.reply({
+        content: '❌ This item is currently out of stock.',
+        flags: MessageFlags.Ephemeral,
+      }).catch(() => undefined)
+      return { status: 'rejected', reason: 'out_of_stock' }
+    }
 
     // Stock rule: Keyboard or Mouse, but not both
     const isMouseOrKeyboard =
@@ -654,28 +675,49 @@ export function createNrtShopWorkflow(options = {}) {
     const newBalance = midnightNrtStore.subtractNrt(userId, cost)
 
     // Update the message the user clicked on (real-time update)
-    if (interaction.message && typeof interaction.message.edit === 'function') {
+    if (interaction.message && typeof interaction.message.edit === 'function' && targetItem) {
       const oldContent = interaction.message.content
-      const match = oldContent.match(/(\d+)\s*available/i)
-      if (match) {
-        const available = parseInt(match[1], 10)
-        const newAvailable = Math.max(0, available - 1)
-        const newContent = oldContent.replace(`${available} available`, `${newAvailable} available`)
-
-        let components = interaction.message.components
-        if (newAvailable === 0 && components && components.length > 0) {
-          const actionRow = components[0]
-          const btn = actionRow.components[0]
-          if (btn) {
-            const disabledBtn = ButtonBuilder.from(btn).setDisabled(true).setLabel('Out of Stock')
-            components = [new ActionRowBuilder().addComponents(disabledBtn)]
-          }
+      const lines = oldContent.split('\n')
+      let itemLineIndex = -1
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].includes(targetItem.label) || (targetItem.emoji && lines[i].includes(targetItem.emoji))) {
+          itemLineIndex = i
+          break
         }
+      }
 
-        await interaction.message.edit({
-          content: newContent,
-          components: components,
-        }).catch(() => null)
+      if (itemLineIndex !== -1 && itemLineIndex + 1 < lines.length) {
+        const nextLine = lines[itemLineIndex + 1]
+        const match = nextLine.match(/(\d+)\s*available/i)
+        if (match) {
+          const available = parseInt(match[1], 10)
+          const newAvailable = Math.max(0, available - 1)
+          lines[itemLineIndex + 1] = nextLine.replace(`${available} available`, `${newAvailable} available`)
+          const newContent = lines.join('\n')
+
+          let components = interaction.message.components
+          if (newAvailable === 0 && components) {
+            const updatedRows = components.map((row) => {
+              const actionRow = ActionRowBuilder.from(row)
+              actionRow.components = actionRow.components.map((comp) => {
+                const customId = comp.data?.custom_id ?? comp.customId
+                if (customId === `nrtshop_redeem:${itemId}:${cost}`) {
+                  const btn = ButtonBuilder.from(comp)
+                  btn.setDisabled(true).setLabel(`Out of Stock: ${targetItem.label.split(' ')[0]}`)
+                  return btn
+                }
+                return ButtonBuilder.from(comp)
+              })
+              return actionRow
+            })
+            components = updatedRows
+          }
+
+          await interaction.message.edit({
+            content: newContent,
+            components: components,
+          }).catch(() => null)
+        }
       }
     }
 

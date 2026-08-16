@@ -163,7 +163,7 @@ test('createNrtShopWorkflow handleInteraction dispatches command correctly', asy
   const result = await workflow.handleInteraction(interaction)
   assert.equal(result.status, 'success')
   assert.equal(state.deferred, true)
-  assert.equal(state.replies.length, 7) // 1 header + 5 items + 1 footer
+  assert.equal(state.replies.length, 1) // editReply only
   assert.match(state.replies[0].content, /NIGHTRAID TOKEN SHOP/)
 })
 
@@ -204,8 +204,15 @@ test('modal submission decrements available stock in real time and disables butt
     content: '⌨️ AULA Mechanical Keyboard\n💰 4,500 NRT — 1 available',
     components: [
       {
+        type: 1, // ActionRow
         components: [
-          { customId: 'nrtshop_redeem:item_1:4500', label: 'Redeem' }
+          {
+            type: 2, // Button
+            style: 3, // Success
+            custom_id: 'nrtshop_redeem:item_1:4500',
+            label: 'Redeem AULA',
+            customId: 'nrtshop_redeem:item_1:4500'
+          }
         ]
       }
     ],
@@ -253,7 +260,7 @@ test('modal submission decrements available stock in real time and disables butt
   const actionRow = state.editedMessage.components[0]
   const btn = actionRow.components[0]
   assert.equal(btn.data.disabled, true)
-  assert.equal(btn.data.label, 'Out of Stock')
+  assert.equal(btn.data.label, 'Out of Stock: AULA')
 })
 
 test('parseShopItems and parseShopParts strip the broken :emoji_109: emoji from output', () => {
