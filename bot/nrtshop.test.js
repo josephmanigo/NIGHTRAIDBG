@@ -7,6 +7,8 @@ import {
   NRTSHOP_COMMAND,
   SHOPCONFIG_COMMAND,
   FALLBACK_ITEMS,
+  NRT_COIN_EMOJI,
+  cleanShopText,
   parseShopItems,
   parseShopParts,
   hasRedeemedMouseOrKeyboard,
@@ -269,6 +271,33 @@ test('parseShopItems and parseShopParts replace the broken :emoji_109: emoji wit
   const { headerText } = parseShopParts(text)
   assert.ok(!headerText.includes(':emoji_109:'))
   assert.ok(headerText.includes('<:nrt:1538488632388751430>'))
+})
+
+test('cleanShopText strips malformed <1538419182993932409> emoji ID from shop text', () => {
+  // Case 1: bare <1538419182993932409>
+  assert.equal(cleanShopText('SHOP <1538419182993932409>'), 'SHOP ')
+
+  // Case 2: custom emoji format with the wrong ID
+  assert.equal(
+    cleanShopText('SHOP <:nrt:1538419182993932409>'),
+    `SHOP ${NRT_COIN_EMOJI}`,
+  )
+
+  // Case 3: header like the real bug: <🪙1538419182993932409>
+  const result = cleanShopText('📣 **NIGHTRAID TOKEN SHOP** <🪙1538419182993932409>')
+  assert.ok(!result.includes('1538419182993932409'), 'should not contain the broken ID')
+
+  // Case 4: :emoji_109: still works
+  assert.equal(
+    cleanShopText('test :emoji_109: end'),
+    `test ${NRT_COIN_EMOJI} end`,
+  )
+
+  // Case 5: already valid emoji is preserved
+  assert.equal(
+    cleanShopText(`test ${NRT_COIN_EMOJI} end`),
+    `test ${NRT_COIN_EMOJI} end`,
+  )
 })
 
 test('SHOPCONFIG_COMMAND has correct command structure', () => {

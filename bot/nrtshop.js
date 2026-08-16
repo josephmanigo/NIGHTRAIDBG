@@ -21,6 +21,34 @@ import { midnightNrtStore } from './midnight-nrt-store.js'
 export const ADMIN_CLAIM_CHANNEL_ID = '1345711473476898896'
 export const PUBLIC_CLAIM_CHANNEL_ID = '1535215403834544158'
 export const SHOP_SOURCE_MESSAGE_ID = '1538470940441051146'
+export const NRT_COIN_EMOJI = '<:nrt:1538488632388751430>'
+
+/**
+ * Normalizes and cleans shop text to strip malformed emoji fragments or old IDs like <1538419182993932409>.
+ */
+export function cleanShopText(text) {
+  if (!text) return ''
+  let cleaned = String(text)
+
+  // Remove malformed nested/trailing ID artifacts: <<:nrt:...>1538419182993932409> or < <:nrt:...> 1538419182993932409>
+  cleaned = cleaned.replace(/<*\s*(<a?:[a-zA-Z0-9_]+:\d+>)\s*1538419182993932409\s*>*|<<:nrt:\d+>1538419182993932409>/gi, '$1')
+
+  // Replace old emoji IDs or broken placeholders with valid custom NRT coin emoji
+  cleaned = cleaned.replace(/<a?:[a-zA-Z0-9_]*:1538419182993932409>/gi, NRT_COIN_EMOJI)
+  cleaned = cleaned.replace(/<a?:emoji_109:\d+>/gi, NRT_COIN_EMOJI)
+  cleaned = cleaned.replace(/:emoji_109:/gi, NRT_COIN_EMOJI)
+
+  // Remove any remaining stray 1538419182993932409 fragments (e.g. <1538419182993932409> or 1538419182993932409>)
+  cleaned = cleaned.replace(/<*1538419182993932409>*/g, '')
+
+  // Fix any double angle brackets around valid custom emojis like <<:nrt:123>>
+  cleaned = cleaned.replace(/<+(<a?:[a-zA-Z0-9_]+:\d+>)>+/g, '$1')
+
+  // Trim trailing spaces per line
+  cleaned = cleaned.replace(/[ \t]+\n/g, '\n')
+
+  return cleaned
+}
 
 const CLAIMS_FILE_PATH = path.join(process.cwd(), 'data', 'nrt-claims.json')
 
@@ -155,7 +183,7 @@ export async function fetchShopSourceMessage(client) {
 // Parses items and NRT costs dynamically from text lines
 export function parseShopItems(text) {
   if (!text) return FALLBACK_ITEMS
-  const cleanedText = text.replace(/:emoji_109:/g, '<:nrt:1538488632388751430>')
+  const cleanedText = cleanShopText(text)
   const lines = cleanedText.split('\n').map((line) => line.trim())
   const items = []
 
@@ -198,7 +226,7 @@ export function parseShopItems(text) {
 
 // Parses the shop message content into header, footer, and items list
 export function parseShopParts(text) {
-  const defaultText = `📣 **NIGHTRAID TOKEN SHOP** <:nrt:1538488632388751430>\nRedeem your hard-earned NRT for exclusive rewards:`
+  const defaultText = `📣 **NIGHTRAID TOKEN SHOP** ${NRT_COIN_EMOJI}\nRedeem your hard-earned NRT for exclusive rewards:`
   const defaultFooter = `⚠️ Limited stock — Each person can redeem either the mouse or the keyboard, but not both.\n\nEARN. RAID. REDEEM.\nEvery event. Every guess. Every invite.\n\nStart stacking your NRT today!`
 
   if (!text) {
@@ -209,7 +237,7 @@ export function parseShopParts(text) {
     }
   }
 
-  const cleanedText = text.replace(/:emoji_109:/g, '<:nrt:1538488632388751430>')
+  const cleanedText = cleanShopText(text)
   const items = parseShopItems(cleanedText)
   const lines = cleanedText.split('\n').map((line) => line.trim())
 
@@ -428,7 +456,7 @@ export function createNrtShopWorkflow(options = {}) {
       }
 
       // Reconstruct single shop text
-      let shopText = content ? content.replace(/:emoji_109:/g, '<:nrt:1538488632388751430>') : null
+      let shopText = content ? cleanShopText(content) : null
       if (!shopText) {
         shopText = `${headerText}\n\n`
         items.forEach((item) => {
