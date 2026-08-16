@@ -5,6 +5,7 @@ import path from 'node:path'
 import os from 'node:os'
 import {
   NRTSHOP_COMMAND,
+  SHOPCONFIG_COMMAND,
   FALLBACK_ITEMS,
   parseShopItems,
   parseShopParts,
@@ -256,8 +257,113 @@ test('modal submission decrements available stock in real time and disables butt
   assert.equal(btn.data.label, 'Out of Stock')
 })
 
-test('parseShopItems and parseShopParts strip the broken :emoji_109: emoji from output', () => {
+test('parseShopItems and parseShopParts replace the broken :emoji_109: emoji with the custom NRT coin emoji', () => {
   const text = '📣 **NIGHTRAID TOKEN SHOP**\n:emoji_109:\nRedeem rewards!'
   const { headerText } = parseShopParts(text)
   assert.ok(!headerText.includes(':emoji_109:'))
+  assert.ok(headerText.includes('<:nrt:1538488632388751430>'))
+})
+
+test('SHOPCONFIG_COMMAND has correct command structure', () => {
+  assert.equal(SHOPCONFIG_COMMAND.name, 'shopconfig')
+  assert.equal(SHOPCONFIG_COMMAND.options[0].name, 'action')
+  assert.equal(SHOPCONFIG_COMMAND.options[1].name, 'name')
+})
+
+test('createNrtShopWorkflow handleInteraction handles shopconfig command actions', async () => {
+  const workflow = createNrtShopWorkflow()
+  const state = { replies: [], editedMessage: null }
+
+  // 1. Mock source message on the client
+  const mockSourceMessage = {
+    content: '📣 **NIGHTRAID TOKEN SHOP** <:nrt:1538488632388751430>\nRedeem your hard-earned NRT:\n\n⌨️ AULA Keyboard\n💰 4,500 NRT — 2 available\n\n⚠️ Footer',
+    edit: async (payload) => {
+      state.editedMessage = payload
+    }
+  }
+
+  const clientMock = {
+    channels: {
+      cache: new Map(),
+      fetch: async () => ({
+        isTextBased: () => true,
+        messages: {
+          fetch: async () => mockSourceMessage
+        }
+      })
+    }
+  }
+
+  // 2. Set up interaction options helper
+  let currentAction = 'add'
+  let currentCost = 6000
+  let currentAvailability = 3
+  let currentName = 'New Gaming Chair'
+
+  const memberAdmin = {
+    permissions: {
+      has: () => true
+    }
+  }
+
+  const interaction = {
+    isChatInputCommand: () => true,
+    commandName: 'shopconfig',
+    guildId: 'guild-123',
+    member: memberAdmin,
+    options: {
+      getString: (name) => {
+        if (name === 'action') return currentAction
+        if (name === 'name') return currentName
+        if (name === 'emoji') return '💺'
+        return null
+      },
+      getInteger: (name) => {
+        if (name === 'cost') return currentCost
+        if (name === 'availability') return currentAvailability
+        return null
+      }
+    },
+    deferReply: async () => {},
+    editReply: async (payload) => {
+      state.replies.push(payload)
+    },
+    client: clientMock
+  }
+
+  // 3. Test ADD item
+  const addResult = await workflow.handleInteraction(interaction)
+  assert.equal(addResult.status, 'success')
+  assert.equal(addResult.action, 'add')
+  assert.equal(addResult.name, 'New Gaming Chair')
+
+  // Verify the edited source message text contains the new item
+  assert.ok(state.editedMessage.content.includes('New Gaming Chair'))
+  assert.ok(state.editedMessage.content.includes('💺'))
+  assert.ok(state.editedMessage.content.includes('6,000 NRT — 3 available'))
+
+  // 4. Test UPDATE item
+  state.editedMessage = null
+  currentAction = 'update'
+  currentName = 'AULA Keyboard'
+  currentCost = 4000
+  currentAvailability = 5
+
+  const updateResult = await workflow.handleInteraction(interaction)
+  assert.equal(updateResult.status, 'success')
+  assert.equal(updateResult.action, 'update')
+  assert.equal(updateResult.name, 'AULA Keyboard')
+  assert.ok(state.editedMessage.content.includes('AULA Keyboard'))
+  assert.ok(state.editedMessage.content.includes('4,000 NRT — 5 available'))
+
+  // 5. Test REMOVE item
+  state.editedMessage = null
+  currentAction = 'remove'
+  currentName = 'AULA Keyboard'
+
+  const removeResult = await workflow.handleInteraction(interaction)
+  assert.equal(removeResult.status, 'success')
+  assert.equal(removeResult.action, 'remove')
+  assert.equal(removeResult.name, 'AULA Keyboard')
+  assert.ok(!state.editedMessage.content.includes('AULA Keyboard'))
 })
