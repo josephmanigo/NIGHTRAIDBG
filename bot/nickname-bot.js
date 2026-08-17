@@ -93,6 +93,14 @@ import { containsJoinNRKeyword, formatJoinNRReply, fetchAndFormatJoinNRReply } f
 import { installScrimAutomation } from './scrim-automation.js'
 import { createDiscordBotDashboardService } from './dashboard-service.js'
 
+// PermissionFlagsBits values are BigInts in discord.js v14, and several
+// command definitions store them in defaultMemberPermissions. The dashboard
+// service JSON.stringifies those definitions to compute a fingerprint, which
+// throws "Do not know how to serialize a BigInt" without this polyfill.
+BigInt.prototype.toJSON = function toJSON() {
+  return this.toString()
+}
+
 const required = (name) => {
   const value = process.env[name]?.trim()
   if (!value) throw new Error(`Missing required environment variable: ${name}`)
@@ -397,6 +405,9 @@ const client = new Client({
   ],
   partials: [Partials.Channel, Partials.Message],
 })
+// The bot installs ~25 interactionCreate and ~11 messageCreate handlers across
+// its workflow modules, well above Node's default EventEmitter limit of 10.
+client.setMaxListeners(30)
 
 const scrimAutomation = installScrimAutomation(client)
 installApplicationReview(client)
