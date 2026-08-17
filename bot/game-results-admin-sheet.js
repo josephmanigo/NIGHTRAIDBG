@@ -477,9 +477,10 @@ export function createGameResultsAdministrativeSheetService(options = {}) {
     })
   }
 
-  async function inspectAllRounds() {
+  async function inspectAllRounds(existingState) {
+    const state = existingState ?? await sheetClient.readState()
     return inspectAdministrativeSheetState({
-      state: await sheetClient.readState(),
+      state,
       sheetConfig: sheetClient.config,
     })
   }
@@ -562,7 +563,8 @@ export function createGameResultsAdministrativeSheetService(options = {}) {
         'The score inputs or protected formulas changed after the all-round preview.',
       )
     }
-    const configured = await configureEmptySlotDisplay(fresh, inspectAllRounds)
+    // configureEmptySlotDisplay may call inspectAllRounds again — let it fetch fresh
+    const configured = await configureEmptySlotDisplay(fresh, () => inspectAllRounds())
     fresh = configured.inspection
     const values = targetValues instanceof Map
       ? targetValues

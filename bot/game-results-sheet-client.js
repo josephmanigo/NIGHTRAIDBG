@@ -472,7 +472,8 @@ export function createGameResultsSheetClient(options = {}) {
     if (!response.ok) {
       throw new Error(`Google Sheets preflight read failed: ${await responseError(response)}`)
     }
-    return response.json()
+    const text = await response.text()
+    return JSON.parse(text)
   }
 
   async function updateCells(requests) {
@@ -670,7 +671,8 @@ export function createGameResultsMvpSheetClient(options = {}) {
     if (!response.ok) {
       throw new Error(`Google Sheets MVP read failed: ${await responseError(response)}`)
     }
-    return response.json()
+    const text = await response.text()
+    return JSON.parse(text)
   }
 
   async function updateCells(requests) {

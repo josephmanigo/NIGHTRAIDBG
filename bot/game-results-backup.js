@@ -45,6 +45,11 @@ export function createGameResultsBackupService(options = {}) {
       databasePath: path.basename(databasePath),
     }
     const serialized = JSON.stringify(payload, null, 2)
+    // Release large table data — only the serialized string is needed from here.
+    // This frees ~30-60 MB before the file write and checksum operations.
+    if (payload.tables) {
+      for (const key of Object.keys(payload.tables)) payload.tables[key] = null
+    }
     const checksum = createHash('sha256').update(serialized).digest('hex')
     const base = `game-results-${safeTimestamp()}-${randomUUID().slice(0, 8)}`
     const temporary = path.join(backupDirectory, `${base}.tmp`)

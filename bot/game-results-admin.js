@@ -405,15 +405,17 @@ export function createGameResultsAdminService(options = {}) {
     return store.findAdminOperationById(operationId)
   }
 
-  async function postMutation(actorUserId, operationKind, round) {
+  async function postMutation(actorUserId, operationKind, round, { skipMvpPreview = false } = {}) {
     const reason = `${operationKind} changed production Round ${round}`
     const invalidatedMvpReviews = await store.invalidateMvpReviews({
       actorUserId,
       reason,
     }).catch(() => null)
-    const mvpPreview = await mvpService.previewCurrent()
-      .then(outputFromMvpPreview)
-      .catch((error) => ({ unavailable: compactError(error) }))
+    const mvpPreview = skipMvpPreview
+      ? { skipped: true, reason: 'clear_all_rounds' }
+      : await mvpService.previewCurrent()
+        .then(outputFromMvpPreview)
+        .catch((error) => ({ unavailable: compactError(error) }))
     return { invalidated_mvp_reviews: invalidatedMvpReviews, mvp_preview: mvpPreview }
   }
 
@@ -473,6 +475,10 @@ export function createGameResultsAdminService(options = {}) {
         if (!isDeepStrictEqual(inspection.beforeSnapshot, claimed.beforeSnapshot)) {
           throw new Error('The score sheet changed after the all-round clear preview.')
         }
+        // Release large preview data — no longer needed after verification.
+        // Keep beforeSnapshot alive for the error-recovery restore path below.
+        const restoreSnapshot = claimed.beforeSnapshot
+        claimed.preview = null
         const cleared = await sheetService.clearAllRounds({ inspection })
         sheetWriteApplied = true
         afterSnapshot = cleared.verification.afterSnapshot
@@ -492,7 +498,7 @@ export function createGameResultsAdminService(options = {}) {
           const current = await sheetService.inspectAllRounds()
           await sheetService.restoreAllRounds({
             inspection: current,
-            restoreSnapshot: claimed.beforeSnapshot,
+            restoreSnapshot,
           })
           for (const source of deletedSources.reverse()) {
             await store.restoreRoundHistory({
@@ -616,6 +622,7 @@ export function createGameResultsAdminService(options = {}) {
         actorUserId,
         claimed.operationKind,
         clearAllRounds ? 'all four rounds' : claimed.round,
+        { skipMvpPreview: clearAllRounds },
       )
       return store.completeAdminOperation({
         operationId: claimed.operationId,
