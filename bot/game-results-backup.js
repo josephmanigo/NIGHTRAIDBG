@@ -38,18 +38,38 @@ export function createGameResultsBackupService(options = {}) {
 
   async function backupNow(reason = 'manual') {
     await mkdir(backupDirectory, { recursive: true })
-    const snapshot = await store.exportBackupSnapshot()
-    const payload = {
-      ...snapshot,
+
+    // Stream the backup table-by-table to avoid holding all 7 tables in
+    // memory simultaneously. Each table is fetched, serialized, and released
+    // before the next one is fetched, keeping peak memory low.
+    const header = JSON.stringify({
+      schema: 'nightraid.game-results-backup.v1',
+      provider: 'supabase',
+      createdAt: new Date().toISOString(),
       backupReason: reason,
       databasePath: path.basename(databasePath),
+    })
+    let serialized
+    let backupCreatedAt = new Date().toISOString()
+    if (store.exportBackupSnapshotStreamed) {
+      const parts = await store.exportBackupSnapshotStreamed()
+      const tablesJson = parts.reduce((acc, val, i) =>
+        acc + (i % 2 === 0 ? `${i > 0 ? ',' : ''}"${val}":` : val), '')
+      serialized = `${header.slice(0, -1)},"tables":{${tablesJson}}}`
+    } else {
+      const snapshot = await store.exportBackupSnapshot()
+      backupCreatedAt = snapshot.createdAt ?? backupCreatedAt
+      const payload = {
+        ...snapshot,
+        backupReason: reason,
+        databasePath: path.basename(databasePath),
+      }
+      serialized = JSON.stringify(payload, null, 2)
+      if (payload.tables) {
+        for (const key of Object.keys(payload.tables)) payload.tables[key] = null
+      }
     }
-    const serialized = JSON.stringify(payload, null, 2)
-    // Release large table data — only the serialized string is needed from here.
-    // This frees ~30-60 MB before the file write and checksum operations.
-    if (payload.tables) {
-      for (const key of Object.keys(payload.tables)) payload.tables[key] = null
-    }
+
     const checksum = createHash('sha256').update(serialized).digest('hex')
     const base = `game-results-${safeTimestamp()}-${randomUUID().slice(0, 8)}`
     const temporary = path.join(backupDirectory, `${base}.tmp`)
@@ -66,7 +86,7 @@ export function createGameResultsBackupService(options = {}) {
       filename,
       databaseCopy,
       checksum,
-      createdAt: payload.createdAt ?? new Date().toISOString(),
+      createdAt: backupCreatedAt,
       reason,
     }
     logger.info('GAME_RESULTS_DATABASE_BACKUP_CREATED', {

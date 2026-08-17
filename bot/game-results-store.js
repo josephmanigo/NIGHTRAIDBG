@@ -1180,6 +1180,30 @@ export function createSupabaseGameResultsStore(options = {}) {
     }
   }
 
+  async function exportBackupSnapshotStreamed() {
+    const tables = [
+      SUBMISSIONS_TABLE,
+      SCREENSHOTS_TABLE,
+      SHEET_WRITE_AUDITS_TABLE,
+      'game_result_history_snapshots',
+      'game_result_player_history',
+      MVP_REVIEWS_TABLE,
+      ADMIN_OPERATIONS_TABLE,
+    ]
+    const parts = []
+    for (const table of tables) {
+      const { data, error } = await client
+        .from(table)
+        .select('*')
+      if (error) {
+        throw new Error(safeDatabaseError(error, `Could not back up ${table}.`))
+      }
+      parts.push(JSON.stringify(table))
+      parts.push(JSON.stringify(data ?? []))
+    }
+    return parts
+  }
+
   return {
     initialize,
     initializeMvp,
@@ -1224,5 +1248,6 @@ export function createSupabaseGameResultsStore(options = {}) {
     listRecoverableSubmissions,
     healthCheck,
     exportBackupSnapshot,
+    exportBackupSnapshotStreamed,
   }
 }

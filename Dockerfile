@@ -7,7 +7,8 @@ ENV NODE_ENV=production \
     GAME_RESULTS_OCR_VERIFICATION=off \
     GAME_RESULTS_VISION_TIMEOUT_MS=45000 \
     SCORE_SHEET_MODE=production \
-    PRODUCTION_WORKSHEET=New
+    PRODUCTION_WORKSHEET=New \
+    GAME_RESULTS_SKIP_STARTUP_BACKUP=true
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \

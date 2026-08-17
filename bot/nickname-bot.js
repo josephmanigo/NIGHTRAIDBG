@@ -612,6 +612,10 @@ installGameResultsHealthWorkflow(client, {
 })
 
 client.once(Events.ClientReady, () => {
+  if (process.env.GAME_RESULTS_SKIP_STARTUP_BACKUP === 'true') {
+    gameResultsBackupService.schedule()
+    return
+  }
   gameResultsBackupService.backupNow('startup')
     .then(() => gameResultsBackupService.schedule())
     .catch((reason) => {

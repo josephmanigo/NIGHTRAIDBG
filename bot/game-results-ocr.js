@@ -1,6 +1,7 @@
-import englishData from '@tesseract.js-data/eng'
-import { createWorker, OEM, PSM } from 'tesseract.js'
-
+// tesseract.js and its English data pack consume ~50-100 MB of memory.
+// The production bot uses Gemini for screenshot reading and has
+// GAME_RESULTS_OCR_VERIFICATION=off, so these modules must not load at
+// import time. They are imported dynamically on first use instead.
 const TSV_COLUMNS = [
   'level',
   'page',
@@ -168,6 +169,8 @@ export function createTesseractGameResultOcrReader(options = {}) {
   let workerPromise
 
   async function worker() {
+    const { default: englishData } = await import('@tesseract.js-data/eng')
+    const { createWorker, OEM, PSM } = await import('tesseract.js')
     const workerOptions = {
       langPath: englishData.langPath,
       gzip: englishData.gzip,
