@@ -1024,6 +1024,15 @@ export function createNightyWorkflow(options = {}) {
 
   async function handleMessage(message) {
     if (message.author?.bot || !message.inGuild?.()) return { status: 'ignored' }
+    // Nighty never replies in the nickname channel — those messages are for
+    // the nickname bot to process. Configurable via NIGHTY_IGNORE_CHANNEL_IDS
+    // (comma-separated channel IDs).
+    const ignoreChannelIds = String(
+      process.env.NIGHTY_IGNORE_CHANNEL_IDS || '1247438931788828723',
+    ).split(',').map((id) => id.trim()).filter(Boolean)
+    if (message.channelId && ignoreChannelIds.includes(message.channelId)) {
+      return { status: 'ignored' }
+    }
     const parsed = parseNightyCommand(message.content)
     if (!parsed) return { status: 'ignored' }
     if (parsed.command === 'help') {
