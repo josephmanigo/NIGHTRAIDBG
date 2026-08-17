@@ -369,6 +369,9 @@ export function createGameResultsAdminWorkflow(options = {}) {
   }
 
   async function handleButton(interaction, parsed) {
+    if (!interaction.deferred && !interaction.replied) {
+      await interaction.deferUpdate().catch(() => undefined)
+    }
     const operation = await service.findOperation(parsed.operationId)
     if (!operation) {
       await ephemeral(interaction, 'This persistent administrative preview could not be loaded.')
@@ -394,10 +397,9 @@ export function createGameResultsAdminWorkflow(options = {}) {
     }
     if (parsed.action === 'cancel') {
       const cancelled = await service.cancelOperation(operation, interaction.user.id)
-      await interaction.update(messagePayload(cancelled))
+      await interaction.editReply(messagePayload(cancelled))
       return { status: 'cancelled', operation: cancelled }
     }
-    await interaction.deferUpdate()
     try {
       const completed = await service.executeOperation(
         operation,
