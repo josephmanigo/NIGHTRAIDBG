@@ -233,6 +233,17 @@ export function createGameResultsIntake(options = {}) {
   const pendingSubmissions = new Map()
   const officialSubmissions = new Map()
   const deletedMessageIds = new Set()
+  // officialSubmissions grows with every screenshot submission and only shrinks
+  // when the Discord message is deleted. Cap it to prevent unbounded memory
+  // growth on Render's 512 MB tier — the oldest entry is evicted at 500.
+  const MAX_OFFICIAL_SUBMISSIONS = 500
+  function rememberOfficialSubmission(messageId, submission) {
+    officialSubmissions.set(messageId, submission)
+    if (officialSubmissions.size > MAX_OFFICIAL_SUBMISSIONS) {
+      const oldest = officialSubmissions.keys().next().value
+      officialSubmissions.delete(oldest)
+    }
+  }
   const rateLimiter =
     options.rateLimiter
     ?? createSlidingWindowRateLimiter({
@@ -276,7 +287,7 @@ export function createGameResultsIntake(options = {}) {
       round,
     })
     pendingSubmissions.delete(message.id)
-    officialSubmissions.set(message.id, officialSubmission)
+    rememberOfficialSubmission(message.id, officialSubmission)
     const duplicateNotice =
       duplicateCount > 0
         ? ` ${duplicateCount} exact duplicate screenshot${duplicateCount === 1 ? ' was' : 's were'} skipped.`
@@ -404,7 +415,7 @@ export function createGameResultsIntake(options = {}) {
             content: `This submission is already stored for **Round ${existing.round}**.`,
             allowedMentions: { parse: [], repliedUser: true },
           })
-          officialSubmissions.set(message.id, existing)
+          rememberOfficialSubmission(message.id, existing)
           return { status: 'already_recorded', submission: existing }
         }
         if (labeledRound) {
@@ -524,7 +535,7 @@ export function createGameResultsIntake(options = {}) {
       round: selection.round,
     })
     pendingSubmissions.delete(selection.messageId)
-    officialSubmissions.set(selection.messageId, officialSubmission)
+    rememberOfficialSubmission(selection.messageId, officialSubmission)
 
     await interaction.update({
       content: [
@@ -617,7 +628,7 @@ export function createGameResultsIntake(options = {}) {
         recovered += 1
         continue
       }
-      officialSubmissions.set(submission.messageId, submission)
+      rememberOfficialSubmission(submission.messageId, submission)
       const approvedAutomaticRetry = (
         submission.status === 'approved_for_writing'
         && submission.reviewPayload?.automatic_tally === true

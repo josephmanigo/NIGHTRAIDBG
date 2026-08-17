@@ -47,7 +47,7 @@ export async function fetchChannelWinnerMessages(channel, fetchLimit = 500) {
 
   while (remaining > 0) {
     const batchSize = Math.min(remaining, 100)
-    const fetchOptions = { limit: batchSize }
+    const fetchOptions = { limit: batchSize, cache: false }
     if (lastId) {
       fetchOptions.before = lastId
     }

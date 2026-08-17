@@ -500,7 +500,7 @@ function boardBelongsToCurrentCycle(message) {
 async function findLiveBoard(channel, botUserId) {
   const [pins, recent] = await Promise.all([
     channel.messages.fetchPins({ limit: 50 }),
-    channel.messages.fetch({ limit: 100 }),
+    channel.messages.fetch({ limit: 100, cache: false }),
   ])
   const candidates = new Map(recent)
   for (const item of pins.items) candidates.set(item.message.id, item.message)
@@ -510,7 +510,7 @@ async function findLiveBoard(channel, botUserId) {
 }
 
 async function findLiveWaitlists(channel, botUserId, board) {
-  const recent = await channel.messages.fetch({ limit: 100 })
+  const recent = await channel.messages.fetch({ limit: 100, cache: false })
   const cycleMessageId = boardCycleMessageId(board)
   return [...recent.values()]
     .filter(
@@ -608,7 +608,7 @@ async function syncBoard() {
 async function reconstructCurrentCycle() {
   closeRegistration()
   const registrationChannel = await readableChannel(REGISTRATION_CHANNEL_ID)
-  const messages = [...(await registrationChannel.messages.fetch({ limit: 100 })).values()].sort(
+  const messages = [...(await registrationChannel.messages.fetch({ limit: 100, cache: false })).values()].sort(
     (left, right) => left.createdTimestamp - right.createdTimestamp,
   )
   const latestBanner = [...messages].reverse().find(isScrimBanner)
@@ -650,8 +650,8 @@ async function replayMessagesSince(timestamp) {
   const registrationChannel = await readableChannel(REGISTRATION_CHANNEL_ID)
   const cancelChannel = await readableChannel(CANCEL_SLOT_CHANNEL_ID)
   const [registrationMessages, cancelMessages] = await Promise.all([
-    registrationChannel.messages.fetch({ limit: 100 }),
-    cancelChannel.messages.fetch({ limit: 100 }),
+    registrationChannel.messages.fetch({ limit: 100, cache: false }),
+    cancelChannel.messages.fetch({ limit: 100, cache: false }),
   ])
   const events = [
     ...[...registrationMessages.values()].map((message) => ({ type: 'registration', message })),

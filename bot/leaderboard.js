@@ -115,7 +115,7 @@ export async function fetchChannelLeaderboard(channel, options = {}) {
 
   while (remaining > 0) {
     const batchSize = Math.min(remaining, 100)
-    const fetchOptions = { limit: batchSize }
+    const fetchOptions = { limit: batchSize, cache: false }
     if (lastId) {
       fetchOptions.before = lastId
     }

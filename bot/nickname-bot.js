@@ -29,6 +29,7 @@ import {
   GatewayIntentBits,
   MessageFlags,
   Partials,
+  Sweepers,
 } from 'discord.js'
 import { ANNOUNCE_COMMAND, installAnnounceWorkflow } from './announce.js'
 import { installApplicationReview } from './application-review.js'
@@ -342,7 +343,7 @@ async function fetchRulesMessages(channel) {
   const pinnedMessages = pins.items.map((item) => item.message)
   if (pinnedMessages.length > 0) return pinnedMessages
 
-  const recentMessages = await channel.messages.fetch({ limit: 100 })
+  const recentMessages = await channel.messages.fetch({ limit: 100, cache: false })
   return [...recentMessages.values()].filter(
     (message) => !(message.author.id === client.user?.id && message.interactionMetadata?.commandName === RULES_COMMAND_NAME),
   )
@@ -404,6 +405,28 @@ const client = new Client({
     GatewayIntentBits.GuildVoiceStates,
   ],
   partials: [Partials.Channel, Partials.Message],
+  // Without sweepers, Discord.js caches every message, thread, and user
+  // forever. On Render's 512 MB tier this causes OOM-restart loops on busy
+  // servers. Sweep cached messages older than 15 minutes every 5 minutes,
+  // and drop archived threads and inactive users periodically.
+  sweepers: {
+    messages: {
+      interval: 300,
+      lifetime: 900,
+    },
+    threads: {
+      interval: 3600,
+      lifetime: 14400,
+      filter: Sweepers.filterByLifetime({
+        lifetime: 14400,
+        getComparisonTimestamp: (e) => e.archiveTimestamp ?? 0,
+      }),
+    },
+    users: {
+      interval: 3600,
+      filter: () => (user) => user.id !== client.user?.id,
+    },
+  },
 })
 // The bot installs ~25 interactionCreate and ~11 messageCreate handlers across
 // its workflow modules, well above Node's default EventEmitter limit of 10.
