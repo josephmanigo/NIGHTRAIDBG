@@ -977,90 +977,36 @@ export class SocialTrackerService {
         this._lastTikTokEventAt = new Date().toISOString()
       }
 
-      // 2. LIVE -> STILL LIVE (update message if needed)
+      // 2. LIVE -> STILL LIVE (only update state, do NOT re-fetch/edit the
+      //    Discord message every poll cycle — that causes double fetches and
+      //    unnecessary API calls every 10 seconds while the creator is live.)
       else if (liveStatusAvailable && isCurrentlyLive && wasLive) {
-        const liveStartedAt = record.live_started_at || currentData.live?.startedAt || new Date().toISOString()
         const peakViewers = Math.max(
           0,
           Number(record.peak_viewers) || 0,
           Number(currentData.live?.viewers) || 0,
         )
-        const liveTitle = currentData.live?.title || record.live_title || `${currentData.displayName || record.username} is live!`
-        if (record.live_message_id && record.live_notifications) {
-          const channel = await client.channels.fetch(record.discord_channel_id).catch(() => null)
-          if (channel && channel.isTextBased?.()) {
-            const targetMsg = await channel.messages.fetch(record.live_message_id).catch(() => null)
-            if (targetMsg) {
-              const updatedPayload = this.notificationService.createLiveEmbed(currentData, {
-                startedAt: liveStartedAt,
-                peakViewers,
-              })
-              await targetMsg.edit(updatedPayload).catch(() => null)
-            }
-          }
-        }
         this.store.updateRecord(record.id, {
-          live_started_at: liveStartedAt,
           peak_viewers: peakViewers,
-          live_title: liveTitle,
           offline_observations: 0,
           offline_first_seen_at: null,
           ...(currentLiveId && currentLiveId !== record.last_live_id ? { last_live_id: currentLiveId } : {}),
         })
       }
 
-      // 3. LIVE -> OFFLINE (Stream Ended)
+      // 3. LIVE -> OFFLINE (silently update state — no Discord message fetch,
+      //    no "Stream Ended" embed, no announcement. The live card stays as-is.)
       else if (liveStatusAvailable && !isCurrentlyLive && wasLive) {
-        const requiredChecks = record.platform === 'tiktok' ? this.tiktokOfflineConfirmations : 1
-        const offlineObservations = (Number(record.offline_observations) || 0) + 1
-        const offlineFirstSeenAt = record.offline_first_seen_at || new Date().toISOString()
-
-        if (offlineObservations < requiredChecks) {
-          this.store.updateRecord(record.id, {
-            offline_observations: offlineObservations,
-            offline_first_seen_at: offlineFirstSeenAt,
-          })
-          console.warn(
-            `[SocialTracker] Offline check ${offlineObservations}/${requiredChecks} for ${record.username}; preserving the live card until confirmed.`,
-          )
-        } else {
-          console.log(`[SocialTracker] Creator ${record.username} (${record.platform}) went OFFLINE after ${offlineObservations} confirmations.`)
-          const endedAt = new Date().toISOString()
-          const liveStartedAt = record.live_started_at || record.last_event_at || endedAt
-          const peakViewers = Math.max(
-            0,
-            Number(record.peak_viewers) || 0,
-            Number(currentData.live?.viewers) || 0,
-          )
-          const liveTitle = record.live_title || `${currentData.displayName || record.username} was live`
-          if (record.live_message_id && record.live_notifications) {
-            const channel = await client.channels.fetch(record.discord_channel_id).catch(() => null)
-            if (channel && channel.isTextBased?.()) {
-              const targetMsg = await channel.messages.fetch(record.live_message_id).catch(() => null)
-              if (targetMsg) {
-                const endedPayload = this.notificationService.createLiveEndedEmbed(currentData, {
-                  ...currentEmbedMedia(targetMsg),
-                  startedAt: liveStartedAt,
-                  endedAt,
-                  peakViewers,
-                  streamTitle: liveTitle,
-                })
-                await targetMsg.edit(endedPayload).catch(() => null)
-              }
-            }
-          }
-          this.store.updateRecord(record.id, {
-            is_live: false,
-            live_message_id: null,
-            live_started_at: null,
-            peak_viewers: 0,
-            live_title: null,
-            offline_observations: 0,
-            offline_first_seen_at: null,
-            last_event_at: endedAt,
-          })
-          this._lastTikTokEventAt = new Date().toISOString()
-        }
+        this.store.updateRecord(record.id, {
+          is_live: false,
+          live_message_id: null,
+          live_started_at: null,
+          peak_viewers: 0,
+          live_title: null,
+          offline_observations: 0,
+          offline_first_seen_at: null,
+          last_event_at: new Date().toISOString(),
+        })
       }
 
       // 4. NEW CONTENT Notifications

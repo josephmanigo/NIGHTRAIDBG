@@ -432,6 +432,17 @@ const client = new Client({
 // its workflow modules, well above Node's default EventEmitter limit of 10.
 client.setMaxListeners(30)
 
+// Deduplicate messages across gateway reconnects/replays. Without this, the
+// bot can reply twice to the same message when Discord re-delivers it.
+const processedMessageIds = new Set()
+function claimMessage(messageId) {
+  if (processedMessageIds.has(messageId)) return false
+  processedMessageIds.add(messageId)
+  const timer = setTimeout(() => processedMessageIds.delete(messageId), 5 * 60 * 1_000)
+  timer.unref()
+  return true
+}
+
 const scrimAutomation = installScrimAutomation(client)
 installApplicationReview(client)
 const gameResultsLogger = createStructuredLogger()
@@ -749,6 +760,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 client.on(Events.MessageCreate, async (message) => {
   if (message.author.bot || !message.inGuild()) return
   if (GUILD_ID && message.guildId !== GUILD_ID) return
+  if (!claimMessage(message.id)) return
 
   if (containsLinkKeyword(message.content)) {
     await message.reply({

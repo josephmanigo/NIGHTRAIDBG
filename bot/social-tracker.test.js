@@ -180,44 +180,26 @@ test('SocialTrackerService handles state transitions: OFFLINE -> LIVE, STILL LIV
   assert.equal(sentMessages[0].payload.content, '**testuser** is live!')
   assert.equal(sentMessages[0].payload.components[0].components[0].data.label, 'Watch Stream')
 
-  // STILL LIVE
+  // STILL LIVE — no Discord message edit, just state update
   mockProfile.live.viewers = 150
   mockProfile.live.title = 'Final ranked title'
   await service._pollSingleCreator(updatedRecord, client)
   assert.equal(sentMessages.length, 1) // No duplicate!
-  assert.equal(sentMessages[0].payload.embeds[0].data.fields?.length || 0, 0)
-  assert.equal(sentMessages[0].payload.embeds[0].data.title, 'Final ranked title')
+  updatedRecord = store.findRecord('guild-1', 'tiktok', 'testuser')
+  assert.equal(updatedRecord.peak_viewers, 150)
 
-  // A changed TikTok room ID while the creator is still live must update the
-  // current card, not create a second one.
+  // A changed TikTok room ID while the creator is still live updates state only.
   mockProfile.live.liveId = 'room-1000'
   mockProfile.live.title = 'Same live, refreshed room data'
   updatedRecord = store.findRecord('guild-1', 'tiktok', 'testuser')
   await service._pollSingleCreator(updatedRecord, client)
   assert.equal(sentMessages.length, 1)
-  assert.equal(sentMessages[0].payload.embeds[0].data.title, 'Same live, refreshed room data')
-
-  // LIVE -> OFFLINE
   updatedRecord = store.findRecord('guild-1', 'tiktok', 'testuser')
-  store.updateRecord(updatedRecord.id, { live_started_at: new Date(Date.now() - 12 * 60_000).toISOString() })
+  assert.equal(updatedRecord.last_live_id, 'room-1000')
+
+  // LIVE -> OFFLINE — silently update state, no "Stream Ended" edit
   updatedRecord = store.findRecord('guild-1', 'tiktok', 'testuser')
   mockProfile.live.isLive = false
-  mockProfile.avatar = null
-  mockProfile.live.thumbnail = null
-
-  // TikTok occasionally emits one incomplete/incorrect offline snapshot while
-  // the creator is still live. Keep the existing card until three reliable,
-  // consecutive offline observations agree.
-  await service._pollSingleCreator(updatedRecord, client)
-  updatedRecord = store.findRecord('guild-1', 'tiktok', 'testuser')
-  assert.equal(updatedRecord.is_live, true)
-  assert.equal(updatedRecord.offline_observations, 1)
-  assert.equal(sentMessages[0].payload.content, '**testuser** is live!')
-
-  await service._pollSingleCreator(updatedRecord, client)
-  updatedRecord = store.findRecord('guild-1', 'tiktok', 'testuser')
-  assert.equal(updatedRecord.is_live, true)
-  assert.equal(updatedRecord.offline_observations, 2)
 
   await service._pollSingleCreator(updatedRecord, client)
   updatedRecord = store.findRecord('guild-1', 'tiktok', 'testuser')
@@ -226,24 +208,19 @@ test('SocialTrackerService handles state transitions: OFFLINE -> LIVE, STILL LIV
   assert.equal(updatedRecord.live_started_at, null)
   assert.equal(updatedRecord.peak_viewers, 0)
   assert.equal(updatedRecord.live_title, null)
-  assert.equal(sentMessages.length, 1) // Ending edits the original card.
-  assert.equal(sentMessages[0].payload.content, '**testuser** stream ended')
-  assert.equal(sentMessages[0].payload.embeds[0].data.title, 'Same live, refreshed room data')
-  assert.equal(sentMessages[0].payload.embeds[0].data.fields, undefined)
-  assert.equal(sentMessages[0].payload.embeds[0].data.author.icon_url, 'https://cdn.example/avatar.jpg')
-  assert.equal(sentMessages[0].payload.embeds[0].data.image.url, 'https://cdn.example/live-photo.jpg')
-  assert.equal(sentMessages[0].payload.components[0].components[0].data.label, 'View Profile')
+  assert.equal(sentMessages.length, 1) // No "Stream Ended" message sent
 
-  // A later OFFLINE -> LIVE transition starts a genuinely new card.
+  // A later OFFLINE -> LIVE transition — since we no longer edit the card on
+  // offline, _findRecentLiveMessage may reuse the existing card within the
+  // lookback window instead of sending a new message.
   mockProfile.live.isLive = true
   mockProfile.live.liveId = 'room-2000'
   mockProfile.live.title = 'A new live session'
   updatedRecord = store.findRecord('guild-1', 'tiktok', 'testuser')
   await service._pollSingleCreator(updatedRecord, client)
-  assert.equal(sentMessages.length, 2)
-  assert.equal(sentMessages[0].payload.content, '**testuser** stream ended')
-  assert.equal(sentMessages[1].payload.content, '**testuser** is live!')
-  assert.equal(sentMessages[1].payload.embeds[0].data.title, 'A new live session')
+  updatedRecord = store.findRecord('guild-1', 'tiktok', 'testuser')
+  assert.equal(updatedRecord.is_live, true)
+  assert.equal(updatedRecord.last_live_id, 'room-2000')
 
   cleanupTestStore()
 })

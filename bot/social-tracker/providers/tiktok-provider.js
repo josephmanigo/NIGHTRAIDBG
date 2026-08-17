@@ -424,7 +424,19 @@ export class SelfHostedTikTokProvider {
 
     try {
       await loadPage(liveUrl)
-      await loadPage(canonicalProfileUrl)
+
+      // Skip the profile page fetch when the live page already proved the
+      // creator is live AND we have cached content. This cuts the per-poll
+      // fetch count from 2-3 down to 1 while a creator is actively live,
+      // which is the most frequent double-fetch scenario.
+      const contentCache = this._contentCache.get(canonicalUsername)
+      const contentCacheIsFresh = contentCache
+        && Date.now() - contentCache.checkedAt < this.contentCacheMs
+      if (isLive && contentCacheIsFresh && contentCache.content) {
+        latestContent = contentCache.content
+      } else {
+        await loadPage(canonicalProfileUrl)
+      }
 
       // The profile page is routinely served as a WAF challenge, which strips
       // the upload feed while live data still comes through. The embed feed is
