@@ -22,6 +22,8 @@ export function containsJoinNRKeyword(content) {
     /apply\s+sa\s+n(?:ightraid|r)/i,
     /join\s+n(?:ightraid|r|clan)/i,
     /pa?no?\s+po\s+sumali/i,
+    /open\s+(?:pa\s+)?casual/i,
+    /open\s+(?:pa\s+)?compe/i,
   ]
 
   return patterns.some((pattern) => pattern.test(content))
