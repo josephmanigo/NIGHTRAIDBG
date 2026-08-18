@@ -252,6 +252,25 @@ export function renderPublicClaimNotice({
   ].join('\n')
 }
 
+const PUBLIC_NOTICE_MARKERS = [
+  'congratulations nightraid',
+  '__Please wait while an admin processes your reward.',
+  '__An admin is currently processing your reward.',
+  '__Your reward has been processed and sent!',
+]
+
+/* A message only counts as a winner's claim notice when it mentions the winner
+ * AND carries the notice wording/emoji. Plain mentions (an old winners list, a
+ * chat message) must never be hijacked as a notice. */
+export function isPublicClaimNoticeFor(content, winnerId) {
+  const text = String(content || '')
+  if (!text || !winnerId) return false
+  const mentionsWinner = text.includes(winnerId) || text.includes(`<@${winnerId}>`)
+  if (!mentionsWinner) return false
+  return PUBLIC_NOTICE_MARKERS.some((marker) => text.includes(marker)) ||
+    text.includes(DEFAULT_PUBLIC_CLAIM_EMOJI)
+}
+
 export function isSameDay(timestamp, referenceDate = new Date()) {
   const date = new Date(timestamp)
   const ref = new Date(referenceDate)
@@ -489,70 +508,7 @@ async function syncPublicClaimNotice(client, options, { winnerId, winnerName, st
       } catch {}
     }
 
-    // 1. Fast path: Memory cache check if we saved a bot message ID for THIS winner
-    const existingMsgId = activePublicNotices.get(winnerId)
-    if (existingMsgId && publicChannel.messages?.fetch) {
-      const existingMsg = await publicChannel.messages.fetch(existingMsgId).catch(() => null)
-      if (existingMsg && typeof existingMsg.edit === 'function') {
-        const noticeContent = renderPublicClaimNotice({
-          winnerId,
-          winnerName,
-          status,
-          prize: resolvedPrize,
-          templateContent: cachedTemplateContent,
-        })
-        await existingMsg.edit({ content: noticeContent, allowedMentions: { parse: [] } }).catch(() => null)
-        return { action: 'edited', messageId: existingMsgId }
-      }
-    }
-
-    // 2. Check candidate message IDs (configured target or template messages)
-    if (publicChannel.messages?.fetch) {
-      const candidateMsgIds = [
-        options.publicClaimMessageId,
-        process.env.DISCORD_PUBLIC_CLAIM_MESSAGE_ID,
-        '1535222637545001082',
-        '1535223055914246185',
-        DEFAULT_PUBLIC_CLAIM_MESSAGE_ID,
-      ].filter(Boolean)
-
-      for (const msgId of candidateMsgIds) {
-        const targetMsg = await publicChannel.messages.fetch(msgId).catch(() => null)
-        if (targetMsg) {
-          if (!cachedTemplateContent && targetMsg.content) {
-            cachedTemplateContent = targetMsg.content
-          }
-
-          const isExplicitTarget =
-            Boolean(options.publicClaimMessageId && options.publicClaimMessageId === msgId) ||
-            Boolean(process.env.DISCORD_PUBLIC_CLAIM_MESSAGE_ID && process.env.DISCORD_PUBLIC_CLAIM_MESSAGE_ID === msgId) ||
-            msgId === DEFAULT_PUBLIC_CLAIM_MESSAGE_ID
-
-          const belongsToWinner =
-            Boolean(targetMsg.content?.includes(winnerId)) ||
-            Boolean(winnerId && targetMsg.content?.includes(`<@${winnerId}>`)) ||
-            activePublicNotices.get(winnerId) === msgId
-
-          if (isExplicitTarget || belongsToWinner) {
-            const isBotAuthor = !botUserId || !targetMsg.author?.id || targetMsg.author?.id === botUserId
-            if (isBotAuthor && typeof targetMsg.edit === 'function') {
-              const noticeContent = renderPublicClaimNotice({
-                winnerId,
-                winnerName,
-                status,
-                prize: resolvedPrize,
-                templateContent: cachedTemplateContent,
-              })
-              await targetMsg.edit({ content: noticeContent, allowedMentions: { parse: [] } }).catch(() => null)
-              activePublicNotices.set(winnerId, msgId)
-              return { action: 'edited', messageId: msgId }
-            }
-          }
-        }
-      }
-    }
-
-    const noticeContent = renderPublicClaimNotice({
+    const buildNotice = () => renderPublicClaimNotice({
       winnerId,
       winnerName,
       status,
@@ -560,29 +516,64 @@ async function syncPublicClaimNotice(client, options, { winnerId, winnerName, st
       templateContent: cachedTemplateContent,
     })
 
-    // 3. Scan recent channel messages (up to 100) strictly for a bot message belonging to THIS winner
+    const editWinnerNotice = async (targetMsg) => {
+      await targetMsg.edit({ content: buildNotice(), allowedMentions: { parse: [] } }).catch(() => null)
+      activePublicNotices.set(winnerId, targetMsg.id)
+      return { action: 'edited', messageId: targetMsg.id }
+    }
+
+    // 1. Fast path: Memory cache check if we saved a bot message ID for THIS winner
+    const existingMsgId = activePublicNotices.get(winnerId)
+    if (existingMsgId && publicChannel.messages?.fetch) {
+      const existingMsg = await publicChannel.messages.fetch(existingMsgId).catch(() => null)
+      if (existingMsg && typeof existingMsg.edit === 'function') {
+        return editWinnerNotice(existingMsg)
+      }
+    }
+
+    // 2. Explicitly configured target message — only edit it when it already IS
+    // this winner's notice, so a template message never swallows new claims.
+    const configuredMsgId = options.publicClaimMessageId || process.env.DISCORD_PUBLIC_CLAIM_MESSAGE_ID || null
+    if (configuredMsgId && publicChannel.messages?.fetch) {
+      const targetMsg = await publicChannel.messages.fetch(configuredMsgId).catch(() => null)
+      if (targetMsg) {
+        if (!cachedTemplateContent && targetMsg.content) {
+          cachedTemplateContent = targetMsg.content
+        }
+        const isBotAuthor = !botUserId || !targetMsg.author?.id || targetMsg.author?.id === botUserId
+        if (
+          isBotAuthor &&
+          typeof targetMsg.edit === 'function' &&
+          isPublicClaimNoticeFor(targetMsg.content, winnerId)
+        ) {
+          return editWinnerNotice(targetMsg)
+        }
+      }
+    }
+
+    // 3. Scan recent channel messages (up to 100) strictly for THIS winner's own
+    // notice, so status updates edit it in place while brand-new claims fall
+    // through and post a fresh congratulations message.
     if (publicChannel.messages?.fetch && winnerId) {
       const recentMessages = await publicChannel.messages.fetch({ limit: 100 }).catch(() => null)
       if (recentMessages) {
         const list = Array.from(recentMessages.values ? recentMessages.values() : recentMessages)
         const targetMsg = list.find(
           (m) =>
+            isPublicClaimNoticeFor(m.content, winnerId) &&
             (!botUserId || m.author?.id === botUserId) &&
-            typeof m.edit === 'function' &&
-            (m.content?.includes(winnerId) || m.content?.includes(`<@${winnerId}>`)),
+            typeof m.edit === 'function',
         )
 
         if (targetMsg) {
-          await targetMsg.edit({ content: noticeContent, allowedMentions: { parse: [] } }).catch(() => null)
-          activePublicNotices.set(winnerId, targetMsg.id)
-          return { action: 'edited', messageId: targetMsg.id }
+          return editWinnerNotice(targetMsg)
         }
       }
     }
 
     // 4. Send a NEW independent message for THIS winner in the public channel and save its ID
     if (publicChannel.send) {
-      const sent = await publicChannel.send({ content: noticeContent, allowedMentions: { parse: [] } }).catch((err) => {
+      const sent = await publicChannel.send({ content: buildNotice(), allowedMentions: { parse: [] } }).catch((err) => {
         console.error(`Failed to send public claim notice to channel ${publicChannelId}:`, err)
         return null
       })

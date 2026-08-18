@@ -380,11 +380,13 @@ test('claim prize button handles non-winner vs winner and modal submit with dual
 
   // Modal submit with client mock channels
   let adminSentPayload = null
+  let publicSentPayload = null
   let publicEditedPayload = null
 
-  const targetPublicMsg = {
+  const templatePublicMsg = {
     id: DEFAULT_PUBLIC_CLAIM_MESSAGE_ID,
     author: { id: 'bot-123' },
+    content: '✧ **template message**',
     edit: async (payload) => {
       publicEditedPayload = payload
     },
@@ -407,9 +409,13 @@ test('claim prize button handles non-winner vs winner and modal submit with dual
             id: DEFAULT_PUBLIC_CLAIM_CHANNEL_ID,
             messages: {
               fetch: async (msgId) => {
-                if (msgId === DEFAULT_PUBLIC_CLAIM_MESSAGE_ID) return targetPublicMsg
+                if (msgId === DEFAULT_PUBLIC_CLAIM_MESSAGE_ID) return templatePublicMsg
                 return null
               },
+            },
+            send: async (payload) => {
+              publicSentPayload = payload
+              return { id: 'public-notice-winner-111' }
             },
           }
         }
@@ -447,11 +453,81 @@ test('claim prize button handles non-winner vs winner and modal submit with dual
   assert.match(adminSentPayload.content, /Full Name\*\*: John Doe/)
   assert.match(adminSentPayload.content, /GCash Number\*\*: 09123456789/)
 
-  // Verify public notice updated in target message 1535223055914246185
-  assert.notEqual(publicEditedPayload, null)
-  assert.match(publicEditedPayload.content, /congratulations nightraid!/)
-  assert.match(publicEditedPayload.content, /<@winner-111>/)
-  assert.match(publicEditedPayload.content, /__Please wait while an admin processes your reward.__/)
+  // Verify public notice posted as a fresh message in the public claims channel
+  assert.notEqual(publicSentPayload, null)
+  assert.match(publicSentPayload.content, /congratulations nightraid!/)
+  assert.match(publicSentPayload.content, /<@winner-111>/)
+  assert.match(publicSentPayload.content, /__Please wait while an admin processes your reward.__/)
+  // The old template message must NOT be overwritten by a new claim
+  assert.equal(publicEditedPayload, null)
+})
+
+test('a claim whose winner is mentioned in an old public message still posts a fresh congrats notice', async () => {
+  const workflow = createTestWinnerWorkflow()
+  let modal = null
+  const sourceMessage = {
+    id: 'winner-list-source',
+    content: '🎉 <@winner-222> won **Word: VICTORY** (Prize: **100 GCash**)',
+  }
+  const buttonResult = await workflow.handleInteraction({
+    id: 'winner-list-button',
+    isButton: () => true,
+    customId: `claim_winner_prize:${Date.now() + CLAIM_PRIZE_TTL_MS}`,
+    user: { id: 'winner-222' },
+    message: sourceMessage,
+    showModal: async (shown) => { modal = shown },
+  })
+  assert.equal(buttonResult.status, 'modal_shown')
+
+  // The public channel contains an OLD bot message that merely mentions this
+  // winner (an old winners list) — it must not be edited like a notice.
+  let listEdited = null
+  const oldListMessage = {
+    id: 'old-winner-list',
+    author: { id: 'bot-123' },
+    content: '🎉 <@winner-222> won **Word: OLD** — *09:00 AM*',
+    edit: async (payload) => { listEdited = payload },
+  }
+  let sentPayload = null
+  const clientMock = {
+    user: { id: 'bot-123' },
+    channels: {
+      fetch: async (channelId) => {
+        if (channelId === DEFAULT_PUBLIC_CLAIM_CHANNEL_ID) {
+          return {
+            id: DEFAULT_PUBLIC_CLAIM_CHANNEL_ID,
+            messages: {
+              fetch: async (arg) => {
+                if (arg && typeof arg === 'object') return new Map([[oldListMessage.id, oldListMessage]])
+                return null
+              },
+            },
+            send: async (payload) => {
+              sentPayload = payload
+              return { id: 'fresh-notice-winner-222' }
+            },
+          }
+        }
+        return null
+      },
+    },
+  }
+
+  const modalResult = await workflow.handleInteraction({
+    id: 'winner-list-submit',
+    isModalSubmit: () => true,
+    customId: modal.data.custom_id,
+    user: { id: 'winner-222' },
+    client: clientMock,
+    fields: { getTextInputValue: (field) => (field === 'name' ? 'List Winner' : 'N/A') },
+    reply: async () => {},
+  })
+
+  assert.equal(modalResult.status, 'success')
+  assert.notEqual(sentPayload, null)
+  assert.match(sentPayload.content, /congratulations nightraid!/)
+  assert.match(sentPayload.content, /<@winner-222>/)
+  assert.equal(listEdited, null)
 })
 
 test('a winner can submit each prize claim only once', async () => {
@@ -513,6 +589,7 @@ test('claim status select menu updates claim status for admins and syncs public 
   const targetPublicMsg = {
     id: DEFAULT_PUBLIC_CLAIM_MESSAGE_ID,
     author: { id: 'bot-123' },
+    content: '✧ **congratulations nightraid!**\n\n🎉 <@winner-111> — ` aug 8 2026 `\n\n<:nr_status:1535222637545001082> __Please wait while an admin processes your reward.__',
     edit: async (payload) => {
       publicNoticeUpdated = payload
     },
@@ -527,8 +604,8 @@ test('claim status select menu updates claim status for admins and syncs public 
             id: DEFAULT_PUBLIC_CLAIM_CHANNEL_ID,
             messages: {
               fetch: async (msgId) => {
-                if (msgId === DEFAULT_PUBLIC_CLAIM_MESSAGE_ID) return targetPublicMsg
-                return null
+                if (msgId && typeof msgId === 'object') return new Map([[targetPublicMsg.id, targetPublicMsg]])
+                return targetPublicMsg
               },
             },
           }
