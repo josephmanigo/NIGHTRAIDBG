@@ -198,7 +198,7 @@ export function createAddNrtWorkflow(options = {}) {
       let lastUserId = null
       let lastNewBalance = null
       for (const entry of entries) {
-        const newBalance = midnightNrtStore.addNrt(entry.user.id, entry.points)
+        const newBalance = await midnightNrtStore.addNrt(entry.user.id, entry.points)
         lastUserId = entry.user.id
         lastNewBalance = newBalance
         results.push(`Added ${entry.points} NIGHTRAID TOKEN LEADERBOARD NRT to <@${entry.user.id}>. They now have ${newBalance} NRT.`)

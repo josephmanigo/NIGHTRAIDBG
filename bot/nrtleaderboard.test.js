@@ -32,11 +32,11 @@ test('NRTLEADERBOARD_COMMAND has correct command structure', () => {
   assert.equal(NRTLEADERBOARD_COMMAND.name, 'nrtleaderboard')
 })
 
-test('renderNrtLeaderboardEmbed renders empty and populated standings without emojis', () => {
+test('renderNrtLeaderboardEmbed renders empty and populated standings without emojis', async () => {
   const executor = { id: 'exec-123' }
 
   // Test empty state
-  const emptyEmbed = renderNrtLeaderboardEmbed(executor)
+  const emptyEmbed = await renderNrtLeaderboardEmbed(executor)
   const emptyData = emptyEmbed.data
   assert.equal(emptyData.title, 'NIGHTRAID TOKEN LEADERBOARD')
   assert.match(emptyData.description, /No NRT has been awarded yet/)
@@ -49,7 +49,7 @@ test('renderNrtLeaderboardEmbed renders empty and populated standings without em
   midnightNrtStore.addNrt('exec-123', 5)
 
   // Test populated state
-  const populatedEmbed = renderNrtLeaderboardEmbed(executor)
+  const populatedEmbed = await renderNrtLeaderboardEmbed(executor)
   const populatedData = populatedEmbed.data
   assert.equal(populatedData.title, 'NIGHTRAID TOKEN LEADERBOARD')
   

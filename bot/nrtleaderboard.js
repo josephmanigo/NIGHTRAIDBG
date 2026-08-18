@@ -13,9 +13,9 @@ export const NRTLEADERBOARD_COMMAND = Object.freeze({
   description: 'Show the NIGHTRAID TOKEN LEADERBOARD NRT standings.',
 })
 
-export function renderNrtLeaderboardEmbed(executorUser) {
-  const leaderboard = midnightNrtStore.getLeaderboard()
-  const executorNrt = midnightNrtStore.loadAll()[executorUser.id] || 0
+export async function renderNrtLeaderboardEmbed(executorUser) {
+  const leaderboard = await midnightNrtStore.getLeaderboard()
+  const executorNrt = await midnightNrtStore.getBalance(executorUser.id)
 
   const embed = new EmbedBuilder()
     .setTitle('NIGHTRAID TOKEN LEADERBOARD')
@@ -65,8 +65,8 @@ export function createNrtLeaderboardWorkflow(options = {}) {
     }
 
     try {
-      const embed = renderNrtLeaderboardEmbed(interaction.user)
-      const executorNrt = midnightNrtStore.loadAll()[interaction.user.id] || 0
+      const embed = await renderNrtLeaderboardEmbed(interaction.user)
+      const executorNrt = await midnightNrtStore.getBalance(interaction.user.id)
 
       const components = []
       if (executorNrt >= 2000) {

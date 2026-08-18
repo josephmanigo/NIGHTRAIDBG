@@ -198,7 +198,7 @@ export function createMinusNrtWorkflow(options = {}) {
       let lastUserId = null
       let lastNewBalance = null
       for (const entry of entries) {
-        const newBalance = midnightNrtStore.subtractNrt(entry.user.id, entry.points)
+        const newBalance = await midnightNrtStore.subtractNrt(entry.user.id, entry.points)
         lastUserId = entry.user.id
         lastNewBalance = newBalance
         results.push(`Subtracted ${entry.points} NIGHTRAID TOKEN LEADERBOARD NRT from <@${entry.user.id}>. They now have ${newBalance} NRT.`)

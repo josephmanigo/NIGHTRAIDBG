@@ -513,7 +513,7 @@ export function createNrtShopWorkflow(options = {}) {
   // Redeem button click handler
   async function handleRedeemButton(interaction, itemId, cost) {
     const userId = interaction.user.id
-    const balance = midnightNrtStore.loadAll()[userId] || 0
+    const balance = await midnightNrtStore.getBalance(userId)
 
     if (balance < cost) {
       await interaction.reply({
@@ -606,7 +606,7 @@ export function createNrtShopWorkflow(options = {}) {
   // Leaderboard button handler
   async function handleLeaderboardButton(interaction) {
     const userId = interaction.user.id
-    const balance = midnightNrtStore.loadAll()[userId] || 0
+    const balance = await midnightNrtStore.getBalance(userId)
 
     const sourceMsg = await fetchShopSourceMessage(interaction.client)
     const items = parseShopItems(sourceMsg?.content)
@@ -717,7 +717,7 @@ export function createNrtShopWorkflow(options = {}) {
   // Modal submission handler
   async function handleModalSubmit(interaction, itemId, cost) {
     const userId = interaction.user.id
-    const balance = midnightNrtStore.loadAll()[userId] || 0
+    const balance = await midnightNrtStore.getBalance(userId)
 
     if (balance < cost) {
       await interaction.reply({
@@ -749,7 +749,7 @@ export function createNrtShopWorkflow(options = {}) {
     const address = interaction.fields?.getTextInputValue?.('nrt_address')?.trim() || ''
 
     // Deduct NRT
-    const newBalance = midnightNrtStore.subtractNrt(userId, cost)
+    const newBalance = await midnightNrtStore.subtractNrt(userId, cost)
 
     // Update the message the user clicked on (real-time update)
     if (interaction.message && typeof interaction.message.edit === 'function' && targetItem) {
