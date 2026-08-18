@@ -887,6 +887,51 @@ test('19. TikTok self-hosted scrape error or rate limit preserves previous state
   cleanupTestStore()
 })
 
+test('19b. TikTok worker logs a repeated block only once', async () => {
+  const store = makeStore()
+  const service = makeService(store, { TIKTOK_PROVIDER: 'self-hosted', TIKTOK_STATUS_CACHE_MS: '0' })
+  const { client } = makeMockClient()
+  service._client = client
+
+  store.addTrackedCreator({
+    guildId: 'guild-1', discordChannelId: 'chan-1', platform: 'tiktok',
+    profileUrl: 'https://www.tiktok.com/@ratelimited', username: 'ratelimited',
+  })
+  const rec = store.findRecord('guild-1', 'tiktok', 'ratelimited')
+
+  service.adapters.tiktok.getProfile = async () => ({
+    success: false,
+    rateLimited: true,
+    error: 'TikTok served a WAF challenge page',
+  })
+
+  const warnings = []
+  const originalWarn = console.warn
+  console.warn = (line) => warnings.push(String(line))
+  try {
+    await service._pollSingleCreator(rec, client)
+    await service._pollSingleCreator(rec, client)
+    await service._pollSingleCreator(rec, client)
+  } finally {
+    console.warn = originalWarn
+  }
+
+  const tiktokWarnings = warnings.filter((line) => line.includes('Scrape error/rate limited'))
+  assert.equal(tiktokWarnings.length, 1)
+
+  // A recovered creator stops the log entirely.
+  service.adapters.tiktok.getProfile = async () => ({
+    success: true,
+    platform: 'tiktok', username: 'ratelimited', displayName: 'Ratelimited',
+    profileUrl: 'https://www.tiktok.com/@ratelimited',
+    live: { isLive: false, liveId: null, statusAvailable: true },
+    latestContent: null,
+  })
+  await service._pollSingleCreator(rec, client)
+  assert.equal(service._lastCreatorErrorLogs.has(rec.id), false)
+  cleanupTestStore()
+})
+
 test('20. TikTok /tracker-status reports Self-hosted mode, Polling, and 10 seconds interval', () => {
   const store = makeStore()
   const service = makeService(store, { TIKTOK_PROVIDER: 'self-hosted', TIKTOK_POLL_INTERVAL_SECONDS: '10' })
@@ -1020,6 +1065,67 @@ test('TikTok self-hosted provider rejects challenge pages instead of reporting a
   assert.equal(result.success, false)
   assert.equal(result.rateLimited, true)
   assert.match(result.error, /challenge page/i)
+})
+
+test('TikTok provider backs off after a block instead of hammering the challenge page', async () => {
+  const provider = new SelfHostedTikTokProvider({ TIKTOK_BACKOFF_MS: '1000' })
+  const challengePage = '<html><title>Security check</title><div>Verify to continue</div></html>'
+  let fetches = 0
+  const fetchImpl = async () => {
+    fetches += 1
+    return { ok: true, status: 200, text: async () => challengePage }
+  }
+
+  const first = await provider.getProfile('https://www.tiktok.com/@blockeduser', fetchImpl)
+  const second = await provider.getProfile('https://www.tiktok.com/@blockeduser', fetchImpl)
+
+  assert.equal(first.success, false)
+  assert.equal(second.success, false)
+  assert.equal(second.rateLimited, true)
+  // The first call tries live + profile + embed; the second call must not
+  // touch the network at all while the backoff window is active.
+  assert.equal(fetches, 3)
+  assert.match(second.error, /blocked this creator/i)
+})
+
+test('TikTok provider clears its backoff and serves the last good result during a window', async () => {
+  const provider = new SelfHostedTikTokProvider({ TIKTOK_BACKOFF_MS: '1000' })
+  const challengePage = '<html><title>Security check</title><div>Verify to continue</div></html>'
+  const profilePage = `<script id="SIGI_STATE">${JSON.stringify({
+    __DEFAULT_SCOPE__: {
+      'webapp.user-detail': {
+        userInfo: { user: { uniqueId: 'gooduser' } },
+      },
+    },
+  })}</script>`
+
+  let blocked = true
+  const fetchImpl = async () => ({
+    ok: true,
+    status: 200,
+    text: async () => (blocked ? challengePage : profilePage),
+  })
+
+  const first = await provider.getProfile('https://www.tiktok.com/@gooduser', fetchImpl)
+  assert.equal(first.success, false)
+
+  // Wait for the backoff window to expire, then a real fetch succeeds and
+  // clears the cooldown.
+  await new Promise((resolve) => setTimeout(resolve, 1100))
+  blocked = false
+  const recovered = await provider.getProfile('https://www.tiktok.com/@gooduser', fetchImpl)
+  assert.equal(recovered.success, true)
+
+  // A fresh block registers a new window...
+  blocked = true
+  const reblocked = await provider.getProfile('https://www.tiktok.com/@gooduser', fetchImpl)
+  assert.equal(reblocked.success, false)
+
+  // ...and while that window is active the last good snapshot is served from
+  // cache, so a WAF challenge can never look like the creator went offline.
+  const cached = await provider.getProfile('https://www.tiktok.com/@gooduser', fetchImpl)
+  assert.equal(cached.success, true)
+  assert.equal(cached.latestContent, recovered.latestContent)
 })
 
 test('TikTok upload IDs resolve to their real upload time', () => {

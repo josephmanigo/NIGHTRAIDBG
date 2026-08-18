@@ -111,6 +111,7 @@ export class SocialTrackerService {
     this._statusRequests = new Map()
     this._statusCache = new Map()
     this._creatorTransitions = new Map()
+    this._lastCreatorErrorLogs = new Map()
 
     // Runtime stats
     this._startedAt = null
@@ -918,11 +919,20 @@ export class SocialTrackerService {
 
       // Scrape error / rate limit handling: DO NOT crash, DO NOT falsely mark creator offline
       if (currentData.success === false || currentData.rateLimited) {
-        console.warn(
-          `[TikTokWorker] Scrape error/rate limited for creator ${record.username} (${record.platform}): ${currentData.error || 'Preserving previous state'}`,
-        )
+        const errorText = currentData.error || 'Preserving previous state'
+        const lastLog = this._lastCreatorErrorLogs.get(record.id)
+        const now = Date.now()
+        // A creator being blocked shows the same error every poll cycle; log
+        // only when the message changes or roughly every 10 minutes.
+        if (!lastLog || lastLog.error !== errorText || now - lastLog.at > 10 * 60 * 1000) {
+          this._lastCreatorErrorLogs.set(record.id, { error: errorText, at: now })
+          console.warn(
+            `[TikTokWorker] Scrape error/rate limited for creator ${record.username} (${record.platform}): ${errorText}`,
+          )
+        }
         return
       }
+      this._lastCreatorErrorLogs.delete(record.id)
 
       const isCurrentlyLive = Boolean(currentData.live?.isLive)
       const currentLiveId = currentData.live?.liveId || null

@@ -9,6 +9,57 @@ const JSON_SCRIPT_PATTERN = /<script\b[^>]*\bid=["'](?:__UNIVERSAL_DATA_FOR_REHY
 // looks exactly like "this creator has never posted".
 const CHALLENGE_PAGE_PATTERN = /_wafchallengeid|waforiginalreid|<title>[^<]{0,80}(?:security check|verify to continue|captcha)/i
 
+// A rotating set of current browser fingerprints. TikTok's WAF fingerprints
+// plain datacenter requests and serves a challenge page; rotating realistic
+// headers keeps a long-lived bot process from looking like a scraper.
+const BROWSER_FINGERPRINTS = Object.freeze([
+  Object.freeze({
+    ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    secChUa: '"Not_A Brand";v="24", "Chromium";v="131", "Google Chrome";v="131"',
+    platform: '"Windows"',
+  }),
+  Object.freeze({
+    ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+    secChUa: '"Not_A Brand";v="24", "Chromium";v="133", "Google Chrome";v="133"',
+    platform: '"Windows"',
+  }),
+  Object.freeze({
+    ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0',
+    secChUa: '"Not_A Brand";v="24", "Chromium";v="131", "Microsoft Edge";v="131"',
+    platform: '"Windows"',
+  }),
+  Object.freeze({
+    ua: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.3 Safari/605.1.15',
+    secChUa: null,
+    platform: '"macOS"',
+  }),
+])
+
+function browserRequestHeaders() {
+  const fingerprint = BROWSER_FINGERPRINTS[Math.floor(Math.random() * BROWSER_FINGERPRINTS.length)]
+  const headers = {
+    'User-Agent': fingerprint.ua,
+    Accept:
+      'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Accept-Encoding': 'gzip, deflate',
+    'Cache-Control': 'no-cache',
+    Pragma: 'no-cache',
+    Referer: 'https://www.tiktok.com/',
+    'Upgrade-Insecure-Requests': '1',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'none',
+    'Sec-Fetch-User': '?1',
+    'sec-ch-ua-mobile': '?0',
+  }
+  if (fingerprint.secChUa) headers['sec-ch-ua'] = fingerprint.secChUa
+  if (fingerprint.platform) headers['sec-ch-ua-platform'] = fingerprint.platform
+  return headers
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
 export function isTikTokChallengePage(html) {
   return CHALLENGE_PAGE_PATTERN.test(String(html || ''))
 }
@@ -326,6 +377,37 @@ export class SelfHostedTikTokProvider {
       : 60_000
     this._contentCache = new Map()
     this._loggedUploadSourceBlock = new Set()
+
+    // When TikTok blocks a request (WAF challenge, 429/403/503), hammering the
+    // endpoint every poll cycle only deepens the block. Each creator backs off
+    // exponentially until TikTok serves real pages again.
+    const requestedBackoff = Number.parseInt(
+      config.TIKTOK_BACKOFF_MS || process.env.TIKTOK_BACKOFF_MS || '120000',
+      10,
+    )
+    this.backoffBaseMs = Number.isFinite(requestedBackoff)
+      ? Math.min(Math.max(requestedBackoff, 1_000), 300_000)
+      : 120_000
+    this.backoffMaxMs = 30 * 60 * 1000
+    this._blockCooldowns = new Map()
+    this._lastGoodResults = new Map()
+  }
+
+  _cooldownDelayMs(strikes) {
+    return Math.min(this.backoffBaseMs * 2 ** Math.min(strikes - 1, 6), this.backoffMaxMs)
+  }
+
+  markTikTokBlocked(username) {
+    const previous = this._blockCooldowns.get(username)
+    const strikes = (previous?.strikes || 0) + 1
+    this._blockCooldowns.set(username, {
+      strikes,
+      until: Date.now() + this._cooldownDelayMs(strikes),
+    })
+  }
+
+  markTikTokRecovered(username) {
+    this._blockCooldowns.delete(username)
   }
 
   async getProfile(profileUrl, fetchImpl = fetch) {
@@ -342,11 +424,21 @@ export class SelfHostedTikTokProvider {
     const liveUrl = `https://www.tiktok.com/@${canonicalUsername}/live`
     const embedUrl = `https://www.tiktok.com/embed/@${canonicalUsername}`
 
-    const headers = {
-      'User-Agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      'Accept-Language': 'en-US,en;q=0.9',
+    // Backoff window: TikTok is actively blocking this creator. Serve the last
+    // good snapshot without touching the network; a repeated scrape cannot
+    // answer a WAF challenge and only lengthens the block.
+    const cooldown = this._blockCooldowns.get(canonicalUsername)
+    if (cooldown && Date.now() < cooldown.until) {
+      const lastGood = this._lastGoodResults.get(canonicalUsername)
+      if (lastGood) return lastGood
+      return {
+        success: false,
+        platform: 'tiktok',
+        username: canonicalUsername,
+        profileUrl: canonicalProfileUrl,
+        rateLimited: true,
+        error: `TikTok blocked this creator until ${new Date(cooldown.until).toISOString()}`,
+      }
     }
 
     let isLive = false
@@ -362,6 +454,7 @@ export class SelfHostedTikTokProvider {
     let rateLimited = false
     let scrapeError = null
     let uploadSourceBlocked = false
+    let blockedThisCall = false
 
     const mergePageData = (pageData) => {
       if (!pageData) return
@@ -384,7 +477,7 @@ export class SelfHostedTikTokProvider {
     }
 
     const requestOptions = () => ({
-      headers,
+      headers: browserRequestHeaders(),
       redirect: 'follow',
       signal: AbortSignal.timeout(this.requestTimeoutMs),
     })
@@ -400,6 +493,7 @@ export class SelfHostedTikTokProvider {
 
       if (res.status === 429 || res.status === 403 || res.status === 503) {
         rateLimited = true
+        blockedThisCall = true
         if (!scrapeError) scrapeError = `HTTP ${res.status} (Rate limited / blocked)`
         return false
       }
@@ -413,6 +507,7 @@ export class SelfHostedTikTokProvider {
         // A 200 OK challenge page is a block, not an empty profile. Reporting
         // it as "no uploads" is what silently suppressed upload alerts.
         rateLimited = true
+        blockedThisCall = true
         if (!scrapeError) scrapeError = 'TikTok served a WAF challenge page'
         return false
       }
@@ -435,6 +530,9 @@ export class SelfHostedTikTokProvider {
       if (isLive && contentCacheIsFresh && contentCache.content) {
         latestContent = contentCache.content
       } else {
+        // A tiny randomized pause spreads requests instead of bursting them
+        // in lockstep, which trips TikTok's rate limiter less often.
+        await sleep(150 + Math.random() * 250)
         await loadPage(canonicalProfileUrl)
       }
 
@@ -445,6 +543,7 @@ export class SelfHostedTikTokProvider {
         const cached = this._contentCache.get(canonicalUsername)
         const cacheIsFresh = cached && Date.now() - cached.checkedAt < this.contentCacheMs
         if (!cacheIsFresh) {
+          await sleep(150 + Math.random() * 250)
           const embedOk = await loadPage(embedUrl)
           if (latestContent) this._loggedUploadSourceBlock.delete(canonicalUsername)
           else uploadSourceBlocked = !embedOk
@@ -474,6 +573,7 @@ export class SelfHostedTikTokProvider {
     }
 
     if (!parsedPublicData) {
+      if (blockedThisCall) this.markTikTokBlocked(canonicalUsername)
       return {
         success: false,
         platform: 'tiktok',
@@ -484,7 +584,7 @@ export class SelfHostedTikTokProvider {
       }
     }
 
-    return {
+    const result = {
       success: true,
       platform: 'tiktok',
       username: canonicalUsername,
@@ -503,6 +603,10 @@ export class SelfHostedTikTokProvider {
       },
       latestContent,
     }
+
+    this.markTikTokRecovered(canonicalUsername)
+    this._lastGoodResults.set(canonicalUsername, result)
+    return result
   }
 
   async getCurrentLiveStatus(profileData, fetchImpl = fetch) {
