@@ -45,6 +45,7 @@ export class MidnightNrtStore {
     this.clientResolved = client !== undefined
     if (this.clientResolved) this.client = client || null
     this.seedPromise = null
+    this.usingFallback = false
   }
 
   /* Lazily resolves the Supabase client. Returns null (file mode) when the
@@ -125,10 +126,14 @@ export class MidnightNrtStore {
         for (const row of data || []) {
           balances[String(row.user_id)] = Number(row.balance) || 0
         }
+        this.usingFallback = false
         return balances
       } catch (reason) {
         console.error('[MidnightNrtStore] Database load failed, using file:', reason instanceof Error ? reason.message : reason)
+        this.usingFallback = true
       }
+    } else {
+      this.usingFallback = true
     }
     return this.loadFromFile()
   }
@@ -172,10 +177,14 @@ export class MidnightNrtStore {
           p_amount: Number(amount),
         })
         if (error) throw error
+        this.usingFallback = false
         return Number(data) || 0
       } catch (reason) {
         console.error('[MidnightNrtStore] Database add failed, using file:', reason instanceof Error ? reason.message : reason)
+        this.usingFallback = true
       }
+    } else {
+      this.usingFallback = true
     }
     /* File fallback runs synchronously (no await) so callers that fire and
      * forget still see the write. */
@@ -195,10 +204,14 @@ export class MidnightNrtStore {
           p_amount: -Math.abs(Number(amount)),
         })
         if (error) throw error
+        this.usingFallback = false
         return Number(data) || 0
       } catch (reason) {
         console.error('[MidnightNrtStore] Database subtract failed, using file:', reason instanceof Error ? reason.message : reason)
+        this.usingFallback = true
       }
+    } else {
+      this.usingFallback = true
     }
     /* File fallback runs synchronously (no await) so callers that fire and
      * forget still see the write. */

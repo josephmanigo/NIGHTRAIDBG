@@ -34,7 +34,7 @@ export async function renderNrtLeaderboardEmbed(executorUser) {
       const rank = index + 1
       const line = `${rank}. <@${entry.userId}> - ${entry.balance} NRT`
       const footerText = `\n\nYou have ${executorNrt} NRT.`
-      if (currentLength + line.length + footerText.length + 50 > 4000) {
+      if (currentLength + line.length + footerText.length + 50 > 3000) {
         truncatedCount = activeLeaderboard.length - index
         description = lines.join('\n') + `\n... and ${truncatedCount} more users.\n\n`
         break
@@ -48,6 +48,9 @@ export async function renderNrtLeaderboardEmbed(executorUser) {
   }
 
   description += `You have ${executorNrt} NRT.`
+  if (midnightNrtStore.usingFallback) {
+    description += '\n\n⚠️ **Warning**: The bot is currently in local file fallback mode. Please apply `database/phase25.sql` in your Supabase SQL editor to enable persistent storage, otherwise NRT data will be wiped on the next redeploy.'
+  }
 
   embed.setDescription(description)
   return embed

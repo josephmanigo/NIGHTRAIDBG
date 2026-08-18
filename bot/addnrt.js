@@ -116,8 +116,13 @@ export function createAddNrtWorkflow(options = {}) {
         results.push(`Added ${entry.points} NIGHTRAID TOKEN LEADERBOARD NRT to <@${entry.user.id}>. They now have ${newBalance} NRT.`)
       }
 
+      let replyContent = results.join('\n')
+      if (midnightNrtStore.usingFallback) {
+        replyContent += '\n\n⚠️ **Warning**: The bot is currently in local file fallback mode. Please apply `database/phase25.sql` in your Supabase SQL editor to enable persistent storage, otherwise NRT data will be wiped on the next redeploy.'
+      }
+
       await interaction.editReply({
-        content: results.join('\n'),
+        content: replyContent,
         allowedMentions: { parse: [] },
       })
       return { status: 'success', userId: lastUserId, newBalance: lastNewBalance, entriesCount: entries.length }
