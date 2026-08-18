@@ -266,7 +266,7 @@ export function extractPrizeFromText(text) {
   if (!text) return null
   const str = String(text)
 
-  const prizeLabelMatch = str.match(/Prize:\s*(?:\*\*)?([^*]+|\d+)(?:\*\*)?/i)
+  const prizeLabelMatch = str.match(/(?:\*\*)?Prize(?:\*\*)?\s*:\s*(?:\*\*)?([^*]+|\d+)(?:\*\*)?/i)
   if (prizeLabelMatch) {
     const val = prizeLabelMatch[1].trim()
     const amountMatch = val.match(/(\d+)/)

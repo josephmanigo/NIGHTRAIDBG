@@ -219,6 +219,12 @@ test('extractPrizeFromText extracts prize from announcement text or game win mes
 
   const text3 = 'Prize: **50 GCash**'
   assert.equal(extractPrizeFromText(text3), '50 GCash')
+
+  const text4 = '💸 **Prize**: 50 GCash'
+  assert.equal(extractPrizeFromText(text4), '50 GCash')
+
+  const text5 = '💸 **Prize**: VIP Role'
+  assert.equal(extractPrizeFromText(text5), 'VIP Role')
 })
 
 test('formatPublicNoticePrize formats 50 GCash, 100 GCash, 200 GCash dynamically', () => {
