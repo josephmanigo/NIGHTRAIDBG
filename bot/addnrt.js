@@ -7,129 +7,21 @@ import {
 import { midnightNrtStore } from './midnight-nrt-store.js'
 
 export const ADDNRT_COMMAND = Object.freeze({
-  name: 'addnrt',
-  description: 'Add NIGHTRAID TOKEN LEADERBOARD NRT to a user.',
+  name: 'nrtadd',
+  description: 'Add NIGHTRAID TOKEN LEADERBOARD NRT to users.',
   defaultMemberPermissions: PermissionFlagsBits.Administrator,
   options: [
     {
-      type: ApplicationCommandOptionType.User,
-      name: 'user',
-      description: 'The first user to give NRT to.',
+      type: ApplicationCommandOptionType.String,
+      name: 'users',
+      description: 'Mention the users to give NRT to (up to 20, e.g. @ego @ems).',
       required: true,
     },
     {
       type: ApplicationCommandOptionType.Integer,
       name: 'points',
-      description: 'The points of NRT to give to the first user.',
+      description: 'The points of NRT to give to each user.',
       required: true,
-    },
-    {
-      type: ApplicationCommandOptionType.User,
-      name: 'user2',
-      description: 'The second user to give NRT to (optional).',
-      required: false,
-    },
-    {
-      type: ApplicationCommandOptionType.Integer,
-      name: 'points2',
-      description: 'The points of NRT to give to the second user (optional).',
-      required: false,
-    },
-    {
-      type: ApplicationCommandOptionType.User,
-      name: 'user3',
-      description: 'The third user to give NRT to (optional).',
-      required: false,
-    },
-    {
-      type: ApplicationCommandOptionType.Integer,
-      name: 'points3',
-      description: 'The points of NRT to give to the third user (optional).',
-      required: false,
-    },
-    {
-      type: ApplicationCommandOptionType.User,
-      name: 'user4',
-      description: 'The fourth user to give NRT to (optional).',
-      required: false,
-    },
-    {
-      type: ApplicationCommandOptionType.Integer,
-      name: 'points4',
-      description: 'The points of NRT to give to the fourth user (optional).',
-      required: false,
-    },
-    {
-      type: ApplicationCommandOptionType.User,
-      name: 'user5',
-      description: 'The fifth user to give NRT to (optional).',
-      required: false,
-    },
-    {
-      type: ApplicationCommandOptionType.Integer,
-      name: 'points5',
-      description: 'The points of NRT to give to the fifth user (optional).',
-      required: false,
-    },
-    {
-      type: ApplicationCommandOptionType.User,
-      name: 'user6',
-      description: 'The sixth user to give NRT to (optional).',
-      required: false,
-    },
-    {
-      type: ApplicationCommandOptionType.Integer,
-      name: 'points6',
-      description: 'The points of NRT to give to the sixth user (optional).',
-      required: false,
-    },
-    {
-      type: ApplicationCommandOptionType.User,
-      name: 'user7',
-      description: 'The seventh user to give NRT to (optional).',
-      required: false,
-    },
-    {
-      type: ApplicationCommandOptionType.Integer,
-      name: 'points7',
-      description: 'The points of NRT to give to the seventh user (optional).',
-      required: false,
-    },
-    {
-      type: ApplicationCommandOptionType.User,
-      name: 'user8',
-      description: 'The eighth user to give NRT to (optional).',
-      required: false,
-    },
-    {
-      type: ApplicationCommandOptionType.Integer,
-      name: 'points8',
-      description: 'The points of NRT to give to the eighth user (optional).',
-      required: false,
-    },
-    {
-      type: ApplicationCommandOptionType.User,
-      name: 'user9',
-      description: 'The ninth user to give NRT to (optional).',
-      required: false,
-    },
-    {
-      type: ApplicationCommandOptionType.Integer,
-      name: 'points9',
-      description: 'The points of NRT to give to the ninth user (optional).',
-      required: false,
-    },
-    {
-      type: ApplicationCommandOptionType.User,
-      name: 'user10',
-      description: 'The tenth user to give NRT to (optional).',
-      required: false,
-    },
-    {
-      type: ApplicationCommandOptionType.Integer,
-      name: 'points10',
-      description: 'The points of NRT to give to the tenth user (optional).',
-      required: false,
     },
   ],
 })
@@ -167,30 +59,50 @@ export function createAddNrtWorkflow(options = {}) {
       return { status: 'error', reason: 'defer_failed' }
     }
 
-    const entries = []
-    const u1 = interaction.options.getUser('user')
-    const p1 = interaction.options.getInteger('points')
-    if (u1 && p1 !== null) {
-      entries.push({ user: u1, points: p1 })
+    const usersStr = interaction.options.getString('users')
+    const points = interaction.options.getInteger('points')
+
+    if (points <= 0) {
+      await interaction.editReply({
+        content: '❌ Points must be a positive integer.',
+      }).catch(() => undefined)
+      return { status: 'error', reason: 'invalid_points' }
     }
 
-    for (let i = 2; i <= 10; i++) {
-      const u = interaction.options.getUser(`user${i}`)
-      const p = interaction.options.getInteger(`points${i}`)
-      if (u) {
-        if (p === null) {
-          await interaction.editReply({
-            content: `❌ You specified user${i} (<@${u.id}>) but did not specify points${i}.`,
-          }).catch(() => undefined)
-          return { status: 'error', reason: `missing_points_${i}` }
-        }
-        entries.push({ user: u, points: p })
+    const mentionPattern = /<@!?(\d+)>/g
+    const userIds = []
+    let match
+    while ((match = mentionPattern.exec(usersStr)) !== null) {
+      if (!userIds.includes(match[1])) {
+        userIds.push(match[1])
       }
     }
 
-    if (entries.length === 0) {
-      await interaction.editReply({ content: 'Invalid users or points.' }).catch(() => undefined)
-      return { status: 'error', reason: 'invalid_arguments' }
+    if (userIds.length === 0) {
+      await interaction.editReply({
+        content: '❌ No user mentions found. Please mention the users (e.g. @ego @ems).',
+      }).catch(() => undefined)
+      return { status: 'error', reason: 'no_mentions' }
+    }
+
+    if (userIds.length > 20) {
+      await interaction.editReply({
+        content: '❌ You can mention up to 20 users maximum.',
+      }).catch(() => undefined)
+      return { status: 'error', reason: 'too_many_mentions' }
+    }
+
+    const entries = []
+    for (const userId of userIds) {
+      try {
+        const member = await interaction.guild.members.fetch(userId)
+        entries.push({ user: member.user, points })
+      } catch (err) {
+        await interaction.editReply({
+          content: `❌ Could not resolve user <@${userId}>. Make sure they are in the server.`,
+        }).catch(() => undefined)
+        return { status: 'error', reason: `invalid_user_${userId}` }
+      }
     }
 
     try {

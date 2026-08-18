@@ -6,7 +6,7 @@ const MODULE_COMMANDS = Object.freeze({
   rules: ['rules', 'nrules', 'scrimrules'],
   announcements: ['announce'],
   minigames: ['guessthenumber', 'guesstheword', 'guesstheemoji', 'endgame'],
-  leaderboards: ['winner', 'leaderboard', 'nrtleaderboard', 'nrtshop', 'shopconfig', 'addnrt', 'minusnrt'],
+  leaderboards: ['winner', 'leaderboard', 'nrtleaderboard', 'nrtshop', 'shopconfig', 'nrtadd', 'minusnrt'],
   music: ['music', 'skip', 'stop', 'queue'],
   watchparty: ['watchparty'],
   live_tools: ['live'],

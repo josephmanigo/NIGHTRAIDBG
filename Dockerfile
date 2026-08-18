@@ -25,4 +25,4 @@ RUN mkdir -p /app/game_results.db.backups \
 
 USER node
 
-CMD ["node", "bot/nickname-bot.js"]
+CMD ["node", "--max-old-space-size=384", "bot/nickname-bot.js"]

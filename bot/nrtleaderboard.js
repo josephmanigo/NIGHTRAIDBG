@@ -22,16 +22,29 @@ export async function renderNrtLeaderboardEmbed(executorUser) {
     .setColor('#2b2d31')
 
   let description = ''
-  if (leaderboard.length === 0) {
+  const activeLeaderboard = leaderboard.filter(entry => entry.balance > 0)
+  if (activeLeaderboard.length === 0) {
     description = 'No NRT has been awarded yet.\n\n'
   } else {
-    // Limit to top 10
-    const topRanked = leaderboard.slice(0, 10)
-    const descriptionLines = topRanked.map((entry, index) => {
+    const lines = []
+    let currentLength = 0
+    let truncatedCount = 0
+    for (let index = 0; index < activeLeaderboard.length; index++) {
+      const entry = activeLeaderboard[index]
       const rank = index + 1
-      return `${rank}. <@${entry.userId}> - ${entry.balance} NRT`
-    })
-    description = descriptionLines.join('\n') + '\n\n'
+      const line = `${rank}. <@${entry.userId}> - ${entry.balance} NRT`
+      const footerText = `\n\nYou have ${executorNrt} NRT.`
+      if (currentLength + line.length + footerText.length + 50 > 4000) {
+        truncatedCount = activeLeaderboard.length - index
+        description = lines.join('\n') + `\n... and ${truncatedCount} more users.\n\n`
+        break
+      }
+      lines.push(line)
+      currentLength += line.length + 1
+    }
+    if (truncatedCount === 0) {
+      description = lines.join('\n') + '\n\n'
+    }
   }
 
   description += `You have ${executorNrt} NRT.`

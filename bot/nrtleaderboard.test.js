@@ -95,3 +95,34 @@ test('createNrtLeaderboardWorkflow handles interaction correctly', async () => {
   const embed = state.replies[0].embeds[0]
   assert.equal(embed.data.title, 'NIGHTRAID TOKEN LEADERBOARD')
 })
+
+test('renderNrtLeaderboardEmbed renders all users with NRT and handles truncation', async () => {
+  const executor = { id: 'exec-123' }
+
+  // Add 15 users
+  for (let i = 1; i <= 15; i++) {
+    await midnightNrtStore.addNrt(`test-user-${i}`, i * 10)
+  }
+
+  const embed = await renderNrtLeaderboardEmbed(executor)
+  const desc = embed.data.description
+
+  // Check that all 15 are visible
+  for (let i = 1; i <= 15; i++) {
+    assert.match(desc, new RegExp(`<@test-user-${i}>`))
+  }
+  
+  // Check that they are sorted correctly (highest balance first, test-user-15 should be first)
+  assert.match(desc, /1\. <@test-user-15> - 150 NRT/)
+  
+  // Now add 150 users to trigger truncation
+  for (let i = 16; i <= 150; i++) {
+    await midnightNrtStore.addNrt(`test-user-${i}`, i * 10)
+  }
+  
+  const truncatedEmbed = await renderNrtLeaderboardEmbed(executor)
+  const truncatedDesc = truncatedEmbed.data.description
+  
+  // Should contain truncation indicator
+  assert.match(truncatedDesc, /\.\.\. and \d+ more users/)
+})
