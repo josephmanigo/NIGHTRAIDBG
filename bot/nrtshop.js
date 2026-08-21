@@ -116,21 +116,31 @@ function loadClaims() {
   try {
     if (!fs.existsSync(CLAIMS_FILE_PATH)) return []
     const parsed = JSON.parse(fs.readFileSync(CLAIMS_FILE_PATH, 'utf8'))
-    return Array.isArray(parsed) ? parsed : []
+    if (!Array.isArray(parsed)) throw new Error('NRT claim data must be a JSON array.')
+    return parsed
   } catch (err) {
     console.error('[NrtShop] Failed to load claims:', err)
-    return []
+    const error = new Error('NRT claim storage read failed.', { cause: err })
+    error.code = 'NRT_CLAIM_STORE_FAILED'
+    throw error
   }
 }
 
 function saveClaims(claims) {
+  const temporaryPath = `${CLAIMS_FILE_PATH}.${process.pid}.tmp`
   try {
     fs.mkdirSync(path.dirname(CLAIMS_FILE_PATH), { recursive: true })
-    fs.writeFileSync(CLAIMS_FILE_PATH, JSON.stringify(claims, null, 2), 'utf8')
+    fs.writeFileSync(temporaryPath, JSON.stringify(claims, null, 2), 'utf8')
+    fs.renameSync(temporaryPath, CLAIMS_FILE_PATH)
     return true
   } catch (err) {
+    try {
+      if (fs.existsSync(temporaryPath)) fs.unlinkSync(temporaryPath)
+    } catch {}
     console.error('[NrtShop] Failed to save claims:', err)
-    return false
+    const error = new Error('NRT claim storage write failed.', { cause: err })
+    error.code = 'NRT_CLAIM_STORE_FAILED'
+    throw error
   }
 }
 
@@ -272,17 +282,46 @@ export function parseShopParts(text) {
   return { headerText, footerText, items }
 }
 
+function reportNrtDeliveryFailure(options, destination, reason, error, fields = {}) {
+  const details = {
+    destination,
+    reason,
+    discordCode: error?.code ?? null,
+    discordStatus: error?.status ?? null,
+    ...fields,
+  }
+  options.errorReporter?.report?.('nrtshop_claim_delivery', error || new Error(reason), details)
+  console.error('[NrtShop] Delivery failed:', details, error instanceof Error ? error.message : error || '')
+}
+
 // Sync changes to public congratulations channel
-export async function syncNrtPublicClaimNotice(client, { winnerId, winnerName, status, itemName }) {
+export async function syncNrtPublicClaimNotice(
+  client,
+  { winnerId, winnerName, status, itemName, claimReference = null },
+  options = {},
+) {
+  const failure = (reason, error = null) => {
+    reportNrtDeliveryFailure(options, 'public', reason, error, {
+      channelId: PUBLIC_CLAIM_CHANNEL_ID,
+      winnerId,
+      claimReference,
+    })
+    return { ok: false, reason, channelId: PUBLIC_CLAIM_CHANNEL_ID, error }
+  }
+
+  if (!client?.channels) return failure('discord_client_unavailable')
+
+  let publicChannel = client.channels.cache?.get?.(PUBLIC_CLAIM_CHANNEL_ID)
+  if (!publicChannel && client.channels.fetch) {
+    try {
+      publicChannel = await client.channels.fetch(PUBLIC_CLAIM_CHANNEL_ID)
+    } catch (error) {
+      return failure('public_channel_fetch_failed', error)
+    }
+  }
+  if (!publicChannel) return failure('public_channel_not_found')
+
   try {
-    let publicChannel = client.channels.cache.get(PUBLIC_CLAIM_CHANNEL_ID)
-    if (!publicChannel) {
-      publicChannel = await client.channels.fetch(PUBLIC_CLAIM_CHANNEL_ID).catch(() => null)
-    }
-    if (!publicChannel) {
-      console.warn(`[NrtShop] Public claim channel ${PUBLIC_CLAIM_CHANNEL_ID} not found.`)
-      return
-    }
 
     const formattedDate = new Date()
       .toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
@@ -299,22 +338,28 @@ export async function syncNrtPublicClaimNotice(client, { winnerId, winnerName, s
       statusText = '__Your reward has been processed and sent!__'
     }
 
-    const content = [
+    const contentLines = [
       '✧ **congratulations nightraid!**',
       '',
       `🎉 ${nameTag} — \` ${formattedDate} \``,
       `💸 \` ${itemName} \` — \` NRT Redeemed \``,
       '',
       `${statusEmoji} ${statusText}`,
-    ].join('\n')
+    ]
+    if (claimReference) contentLines.push('', `-# Claim reference: ${claimReference}`)
+    const content = contentLines.join('\n')
 
-    const key = `${winnerId}:${itemName}`
+    const key = `${winnerId}:${claimReference || itemName}`
     const existingMsgId = activeNrtPublicNotices.get(key)
     if (existingMsgId) {
       const existingMsg = await publicChannel.messages.fetch(existingMsgId).catch(() => null)
       if (existingMsg) {
-        await existingMsg.edit({ content, allowedMentions: { parse: [] } }).catch(() => null)
-        return
+        try {
+          await existingMsg.edit({ content, allowedMentions: { parse: [] } })
+          return { ok: true, action: 'edited', messageId: existingMsg.id, channelId: PUBLIC_CLAIM_CHANNEL_ID }
+        } catch (error) {
+          return failure('public_notice_edit_failed', error)
+        }
       }
     }
 
@@ -327,24 +372,34 @@ export async function syncNrtPublicClaimNotice(client, { winnerId, winnerName, s
           (!botUserId || m.author.id === botUserId) &&
           m.content.includes(winnerId) &&
           m.content.includes(itemName) &&
-          m.content.includes('NRT Redeemed'),
+          m.content.includes('NRT Redeemed') &&
+          (!claimReference || m.content.includes(`Claim reference: ${claimReference}`)),
       )
       if (matchMsg) {
-        await matchMsg.edit({ content, allowedMentions: { parse: [] } }).catch(() => null)
+        try {
+          await matchMsg.edit({ content, allowedMentions: { parse: [] } })
+        } catch (error) {
+          return failure('public_notice_edit_failed', error)
+        }
         activeNrtPublicNotices.set(key, matchMsg.id)
-        return
+        return { ok: true, action: 'edited', messageId: matchMsg.id, channelId: PUBLIC_CLAIM_CHANNEL_ID }
       }
     }
 
-    const sent = await publicChannel.send({ content, allowedMentions: { parse: [] } }).catch((err) => {
-      console.error(`[NrtShop] Failed to send public notice to ${PUBLIC_CLAIM_CHANNEL_ID}:`, err)
-      return null
-    })
-    if (sent) {
-      activeNrtPublicNotices.set(key, sent.id)
+    if (!publicChannel.send) return failure('public_channel_not_sendable')
+    let sent
+    try {
+      sent = await publicChannel.send({ content, allowedMentions: { parse: [] } })
+    } catch (error) {
+      return failure('public_notice_send_failed', error)
     }
+    if (sent?.id) {
+      activeNrtPublicNotices.set(key, sent.id)
+      return { ok: true, action: 'sent', messageId: sent.id, channelId: PUBLIC_CLAIM_CHANNEL_ID }
+    }
+    return failure('public_notice_send_returned_no_message')
   } catch (err) {
-    console.error('[NrtShop] syncNrtPublicClaimNotice error:', err)
+    return failure('public_notice_sync_failed', err)
   }
 }
 
@@ -359,6 +414,7 @@ export function renderNrtClaimCard({
   status = 'pending',
   handledBy = null,
   claimedAt = null,
+  claimReference = null,
 }) {
   const statusLabel =
     status === 'done' ? '✅ Done' : status === 'processing' ? '⚙️ Processing' : '⏳ Pending'
@@ -383,15 +439,21 @@ export function renderNrtClaimCard({
     const epoch = Math.floor(new Date(claimedAt).getTime() / 1000)
     lines.push(`-# Submitted: <t:${epoch}:R>`)
   }
+  if (claimReference) {
+    lines.push(`-# Claim reference: ${claimReference}`)
+  }
 
   return lines.join('\n')
 }
 
 // Action row with updates select dropdown
-export function createNrtClaimStatusSelectMenu(currentStatus = 'pending') {
+export function createNrtClaimStatusSelectMenu(currentStatus = 'pending', context = {}) {
+  const customId = context.claimReference
+    ? `nrtshop_status_select:${context.claimReference}`
+    : 'nrtshop_status_select'
   return new ActionRowBuilder().addComponents(
     new StringSelectMenuBuilder()
-      .setCustomId('nrtshop_status_select')
+      .setCustomId(customId)
       .setPlaceholder('Update Redemption Status...')
       .addOptions([
         new StringSelectMenuOptionBuilder()
@@ -417,6 +479,28 @@ export function createNrtClaimStatusSelectMenu(currentStatus = 'pending') {
 }
 
 export function createNrtShopWorkflow(options = {}) {
+  const nrtStore = options.nrtStore || midnightNrtStore
+  const inFlightClaims = options.inFlightClaims || new Set()
+  let claimMutationQueue = Promise.resolve()
+
+  function serializeClaimMutation(operation) {
+    const result = claimMutationQueue.then(operation, operation)
+    claimMutationQueue = result.catch(() => undefined)
+    return result
+  }
+
+  async function ephemeral(interaction, content) {
+    const payload = { content, allowedMentions: { parse: [] } }
+    if (interaction.deferred || interaction.replied) {
+      return typeof interaction.editReply === 'function'
+        ? interaction.editReply(payload).catch(() => undefined)
+        : undefined
+    }
+    return typeof interaction.reply === 'function'
+      ? interaction.reply({ ...payload, flags: MessageFlags.Ephemeral }).catch(() => undefined)
+      : undefined
+  }
+
   // Command handler
   async function handleCommand(interaction) {
     if (!interaction.guildId) {
@@ -436,6 +520,9 @@ export function createNrtShopWorkflow(options = {}) {
 
     try {
       const sourceMsg = await fetchShopSourceMessage(interaction.client)
+      if (!sourceMsg?.content) {
+        throw new Error('NRT shop source message could not be fetched.')
+      }
       const content = sourceMsg?.content
       const { headerText, footerText, items } = parseShopParts(content)
 
@@ -513,7 +600,7 @@ export function createNrtShopWorkflow(options = {}) {
   // Redeem button click handler
   async function handleRedeemButton(interaction, itemId, cost) {
     const userId = interaction.user.id
-    const balance = await midnightNrtStore.getBalance(userId)
+    const balance = await nrtStore.getBalance(userId)
 
     if (balance < cost) {
       await interaction.reply({
@@ -524,29 +611,18 @@ export function createNrtShopWorkflow(options = {}) {
     }
 
     const sourceMsg = await fetchShopSourceMessage(interaction.client)
-    const items = parseShopItems(sourceMsg?.content)
-    const targetItem = items.find((i) => i.id === itemId) || FALLBACK_ITEMS.find((i) => i.id === itemId)
-    const itemName = targetItem ? targetItem.label : itemId
-
-    // Check stock from the message content containing the button
-    let available = targetItem ? targetItem.availability : 0
-    if (interaction.message?.content && targetItem) {
-      const lines = interaction.message.content.split('\n')
-      let itemLineIndex = -1
-      for (let i = 0; i < lines.length; i++) {
-        if (lines[i].includes(targetItem.label) || (targetItem.emoji && lines[i].includes(targetItem.emoji))) {
-          itemLineIndex = i
-          break
-        }
-      }
-      if (itemLineIndex !== -1 && itemLineIndex + 1 < lines.length) {
-        const nextLine = lines[itemLineIndex + 1]
-        const stockMatch = nextLine.match(/(\d+)\s*available/i)
-        if (stockMatch) {
-          available = parseInt(stockMatch[1], 10)
-        }
-      }
+    if (!sourceMsg?.content) {
+      await ephemeral(interaction, '❌ I could not verify the live shop inventory. Open the shop again later.')
+      return { status: 'error', reason: 'shop_source_unavailable' }
     }
+    const items = parseShopItems(sourceMsg.content)
+    const targetItem = items.find((i) => i.id === itemId)
+    if (!targetItem || targetItem.cost !== cost) {
+      await ephemeral(interaction, '❌ This item or price changed. Open the shop again to use the current listing.')
+      return { status: 'rejected', reason: targetItem ? 'stale_price' : 'item_not_found' }
+    }
+    const itemName = targetItem.label
+    const available = targetItem.availability
 
     if (available <= 0) {
       await interaction.reply({
@@ -606,10 +682,14 @@ export function createNrtShopWorkflow(options = {}) {
   // Leaderboard button handler
   async function handleLeaderboardButton(interaction) {
     const userId = interaction.user.id
-    const balance = await midnightNrtStore.getBalance(userId)
+    const balance = await nrtStore.getBalance(userId)
 
     const sourceMsg = await fetchShopSourceMessage(interaction.client)
-    const items = parseShopItems(sourceMsg?.content)
+    if (!sourceMsg?.content) {
+      await ephemeral(interaction, '❌ I could not verify the live shop inventory. Open the shop again later.')
+      return { status: 'error', reason: 'shop_source_unavailable' }
+    }
+    const items = parseShopItems(sourceMsg.content)
     const redeemableItems = items.filter((item) => balance >= item.cost)
 
     if (redeemableItems.length === 0) {
@@ -653,9 +733,17 @@ export function createNrtShopWorkflow(options = {}) {
     const cost = parseInt(costStr, 10)
 
     const sourceMsg = await fetchShopSourceMessage(interaction.client)
-    const items = parseShopItems(sourceMsg?.content)
-    const targetItem = items.find((i) => i.id === itemId) || FALLBACK_ITEMS.find((i) => i.id === itemId)
-    const itemName = targetItem ? targetItem.label : itemId
+    if (!sourceMsg?.content) {
+      await ephemeral(interaction, '❌ I could not verify the live shop inventory. Open the shop again later.')
+      return { status: 'error', reason: 'shop_source_unavailable' }
+    }
+    const items = parseShopItems(sourceMsg.content)
+    const targetItem = items.find((i) => i.id === itemId)
+    if (!targetItem || targetItem.cost !== cost) {
+      await ephemeral(interaction, '❌ This item or price changed. Open the shop again to use the current listing.')
+      return { status: 'rejected', reason: targetItem ? 'stale_price' : 'item_not_found' }
+    }
+    const itemName = targetItem.label
 
     // Check stock in the source message
     if (sourceMsg?.content && targetItem) {
@@ -717,30 +805,69 @@ export function createNrtShopWorkflow(options = {}) {
   // Modal submission handler
   async function handleModalSubmit(interaction, itemId, cost) {
     const userId = interaction.user.id
-    const balance = await midnightNrtStore.getBalance(userId)
+    if (!Number.isSafeInteger(cost) || cost <= 0 || !itemId) {
+      await ephemeral(interaction, '❌ This redemption form is invalid. Open the NRT shop again and retry.')
+      return { status: 'rejected', reason: 'invalid_redemption' }
+    }
 
-    if (balance < cost) {
-      await interaction.reply({
-        content: `❌ You no longer have enough NRT to claim this item. Needed: ${cost}, Balance: ${balance}.`,
-        flags: MessageFlags.Ephemeral,
-      }).catch(() => undefined)
-      return { status: 'rejected', reason: 'insufficient_balance' }
+    if (typeof interaction.deferReply === 'function' && !interaction.deferred && !interaction.replied) {
+      try {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral })
+      } catch (reason) {
+        options.errorReporter?.report?.('nrtshop_claim_defer', reason, { userId, itemId })
+        return { status: 'error', reason: 'defer_failed' }
+      }
     }
 
     const sourceMsg = await fetchShopSourceMessage(interaction.client)
-    const items = parseShopItems(sourceMsg?.content)
-    const targetItem = items.find((i) => i.id === itemId) || FALLBACK_ITEMS.find((i) => i.id === itemId)
-    const itemName = targetItem ? targetItem.label : itemId
+    if (!sourceMsg?.content) {
+      await ephemeral(interaction, '❌ I could not verify the live shop inventory. No NRT was deducted; please retry later.')
+      return { status: 'error', reason: 'shop_source_unavailable' }
+    }
+
+    const items = parseShopItems(sourceMsg.content)
+    const targetItem = items.find((i) => i.id === itemId)
+    if (!targetItem) {
+      await ephemeral(interaction, '❌ This shop item no longer exists. No NRT was deducted; open the shop again.')
+      return { status: 'rejected', reason: 'item_not_found' }
+    }
+    if (targetItem.cost !== cost) {
+      await ephemeral(interaction, '❌ This item price changed. No NRT was deducted; open the shop again to use the current price.')
+      return { status: 'rejected', reason: 'stale_price' }
+    }
+    if (targetItem.availability <= 0) {
+      await ephemeral(interaction, `❌ Sorry, **${targetItem.label}** is currently out of stock.`)
+      return { status: 'rejected', reason: 'out_of_stock' }
+    }
+
+    const balance = await nrtStore.getBalance(userId)
+
+    if (balance < cost) {
+      await ephemeral(interaction, `❌ You no longer have enough NRT to claim this item. Needed: ${cost}, Balance: ${balance}.`)
+      return { status: 'rejected', reason: 'insufficient_balance' }
+    }
+
+    const itemName = targetItem.label
+    let claims
+    try {
+      claims = loadClaims()
+    } catch (reason) {
+      options.errorReporter?.report?.('nrtshop_claim_store', reason, { operation: 'load', userId, itemId })
+      await ephemeral(interaction, '❌ I could not securely access redemption records. No NRT was deducted; please contact an admin.')
+      return { status: 'error', reason: 'claim_store_unavailable' }
+    }
 
     const isMouseOrKeyboard =
       itemName.toLowerCase().includes('mouse') ||
       itemName.toLowerCase().includes('keyboard')
 
-    if (isMouseOrKeyboard && hasRedeemedMouseOrKeyboard(userId)) {
-      await interaction.reply({
-        content: '❌ Limited stock — Each person can redeem either the mouse or the keyboard, but not both.',
-        flags: MessageFlags.Ephemeral,
-      }).catch(() => undefined)
+    const hasRestrictedClaim = claims.some((claim) =>
+      claim.userId === userId &&
+      claim.status !== 'cancelled' &&
+      (claim.itemName?.toLowerCase().includes('mouse') || claim.itemName?.toLowerCase().includes('keyboard'))
+    )
+    if (isMouseOrKeyboard && hasRestrictedClaim) {
+      await ephemeral(interaction, '❌ Limited stock — Each person can redeem either the mouse or the keyboard, but not both.')
       return { status: 'rejected', reason: 'stock_restriction' }
     }
 
@@ -748,8 +875,48 @@ export function createNrtShopWorkflow(options = {}) {
     const phone = interaction.fields?.getTextInputValue?.('nrt_phone')?.trim() || ''
     const address = interaction.fields?.getTextInputValue?.('nrt_address')?.trim() || ''
 
+    if (!name || !phone || !address) {
+      await ephemeral(interaction, '❌ Name, phone number, and shipping address are required. No NRT was deducted.')
+      return { status: 'rejected', reason: 'missing_claim_details' }
+    }
+
+    const claimReference = String(interaction.id || `${userId}-${itemId}-${Date.now()}`)
+    if (claims.some((claim) => claim.claimReference === claimReference)) {
+      await ephemeral(interaction, `This redemption was already submitted. Claim reference: \`${claimReference}\`.`)
+      return { status: 'rejected', reason: 'duplicate_claim' }
+    }
+
     // Deduct NRT
-    const newBalance = await midnightNrtStore.subtractNrt(userId, cost)
+    const newBalance = await nrtStore.subtractNrt(userId, cost)
+
+    const record = {
+      claimReference,
+      userId,
+      name,
+      phone,
+      address,
+      itemId,
+      itemName,
+      cost,
+      status: 'pending',
+      claimedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      handledBy: null,
+    }
+    claims.push(record)
+    try {
+      saveClaims(claims)
+    } catch (reason) {
+      options.errorReporter?.report?.('nrtshop_claim_store', reason, { operation: 'save', userId, itemId, claimReference })
+      await nrtStore.addNrt(userId, cost).catch((refundReason) => {
+        options.errorReporter?.report?.('nrtshop_claim_refund', refundReason, { userId, itemId, claimReference })
+      })
+      await ephemeral(
+        interaction,
+        '❌ I could not securely save this redemption. The NRT deduction was reversed; please contact an admin before retrying.',
+      )
+      return { status: 'error', reason: 'claim_store_unavailable' }
+    }
 
     // Update the message the user clicked on (real-time update)
     if (interaction.message && typeof interaction.message.edit === 'function' && targetItem) {
@@ -807,6 +974,7 @@ export function createNrtShopWorkflow(options = {}) {
     }
 
     // Update the persistent source message on the server (SHOP_SOURCE_MESSAGE_ID)
+    let stockUpdate = { ok: false, reason: 'stock_line_not_found' }
     try {
       if (sourceMsg && typeof sourceMsg.edit === 'function' && targetItem) {
         const oldContent = sourceMsg.content
@@ -827,38 +995,28 @@ export function createNrtShopWorkflow(options = {}) {
             const newAvailable = Math.max(0, available - 1)
             lines[itemLineIndex + 1] = nextLine.replace(`${available} available`, `${newAvailable} available`)
             const newContent = lines.join('\n')
-            await sourceMsg.edit({ content: newContent }).catch(() => null)
+            await sourceMsg.edit({ content: newContent })
+            stockUpdate = { ok: true, available: newAvailable }
           }
         }
       }
     } catch (err) {
-      console.error('[NrtShop] Failed to update source message stock:', err)
+      reportNrtDeliveryFailure(options, 'shop_inventory', 'shop_stock_update_failed', err, {
+        sourceMessageId: SHOP_SOURCE_MESSAGE_ID,
+        itemId,
+        claimReference,
+      })
+      stockUpdate = { ok: false, reason: 'shop_stock_update_failed' }
     }
-
-    // Save claim details locally
-    const claims = loadClaims()
-    const record = {
-      userId,
-      name,
-      phone,
-      address,
-      itemId,
-      itemName,
-      cost,
-      status: 'pending',
-      claimedAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      handledBy: null,
+    if (!stockUpdate.ok && stockUpdate.reason === 'stock_line_not_found') {
+      reportNrtDeliveryFailure(options, 'shop_inventory', 'shop_stock_line_not_found', null, {
+        sourceMessageId: SHOP_SOURCE_MESSAGE_ID,
+        itemId,
+        claimReference,
+      })
     }
-    claims.push(record)
-    saveClaims(claims)
 
     // Send claim card to admin channel
-    let adminChannel = interaction.client.channels.cache.get(ADMIN_CLAIM_CHANNEL_ID)
-    if (!adminChannel) {
-      adminChannel = await interaction.client.channels.fetch(ADMIN_CLAIM_CHANNEL_ID).catch(() => null)
-    }
-
     const adminContent = renderNrtClaimCard({
       userId,
       name,
@@ -868,29 +1026,88 @@ export function createNrtShopWorkflow(options = {}) {
       cost,
       status: 'pending',
       claimedAt: record.claimedAt,
+      claimReference,
     })
 
-    if (adminChannel?.send) {
-      await adminChannel.send({
-        content: adminContent,
-        components: [createNrtClaimStatusSelectMenu('pending')],
-      }).catch((err) => console.error('[NrtShop] Failed to send admin claim card:', err))
+    let adminDelivery = { ok: false, reason: 'admin_channel_not_found', channelId: ADMIN_CLAIM_CHANNEL_ID }
+    try {
+      let adminChannel = interaction.client?.channels?.cache?.get?.(ADMIN_CLAIM_CHANNEL_ID)
+      if (!adminChannel && interaction.client?.channels?.fetch) {
+        adminChannel = await interaction.client.channels.fetch(ADMIN_CLAIM_CHANNEL_ID)
+      }
+      if (adminChannel?.send) {
+        await adminChannel.send({
+          content: adminContent,
+          components: [createNrtClaimStatusSelectMenu('pending', { claimReference })],
+        })
+        adminDelivery = { ok: true, channelId: ADMIN_CLAIM_CHANNEL_ID }
+      } else {
+        reportNrtDeliveryFailure(options, 'admin', 'admin_channel_not_sendable', null, {
+          channelId: ADMIN_CLAIM_CHANNEL_ID,
+          userId,
+          claimReference,
+        })
+        adminDelivery = { ok: false, reason: 'admin_channel_not_sendable', channelId: ADMIN_CLAIM_CHANNEL_ID }
+      }
+    } catch (error) {
+      reportNrtDeliveryFailure(options, 'admin', 'admin_claim_send_failed', error, {
+        channelId: ADMIN_CLAIM_CHANNEL_ID,
+        userId,
+        claimReference,
+      })
+      adminDelivery = { ok: false, reason: 'admin_claim_send_failed', channelId: ADMIN_CLAIM_CHANNEL_ID }
     }
 
     // Sync public claim notice
-    await syncNrtPublicClaimNotice(interaction.client, {
+    const publicDelivery = await syncNrtPublicClaimNotice(interaction.client, {
       winnerId: userId,
       winnerName: `<@${userId}>`,
       status: 'pending',
       itemName,
-    })
+      claimReference,
+    }, options)
 
-    await interaction.reply({
-      content: `✅ **Redemption submitted!**\nThank you, **${name}**! You redeemed **${itemName}** for **${cost.toLocaleString()} NRT**. Your details are sent to the admins. New Balance: **${newBalance.toLocaleString()} NRT**.`,
-      flags: MessageFlags.Ephemeral,
-    }).catch(() => undefined)
+    const deliveryFailures = [
+      !stockUpdate.ok ? 'the live shop inventory' : null,
+      !adminDelivery.ok ? 'the private admin redemption card' : null,
+      !publicDelivery.ok ? `the public notice in <#${PUBLIC_CLAIM_CHANNEL_ID}>` : null,
+    ].filter(Boolean)
+    if (deliveryFailures.length > 0) {
+      await ephemeral(
+        interaction,
+        `⚠️ **Your redemption was recorded and ${cost.toLocaleString()} NRT was deducted**, but I could not deliver ` +
+        `${deliveryFailures.join(' and ')}. Do not submit it again. Give an admin this claim reference: \`${claimReference}\`.`,
+      )
+      return {
+        status: 'partial_success',
+        reason: 'claim_delivery_failed',
+        userId,
+        itemName,
+        cost,
+        newBalance,
+        claimReference,
+        stockUpdate,
+        adminDelivery,
+        publicDelivery,
+      }
+    }
 
-    return { status: 'claimed', userId, itemName, cost, newBalance }
+    await ephemeral(
+      interaction,
+      `✅ **Redemption submitted!**\nThank you, **${name}**! You redeemed **${itemName}** for **${cost.toLocaleString()} NRT**. Your details are sent to the admins. New Balance: **${newBalance.toLocaleString()} NRT**.`,
+    )
+
+    return {
+      status: 'claimed',
+      userId,
+      itemName,
+      cost,
+      newBalance,
+      claimReference,
+      stockUpdate,
+      adminDelivery,
+      publicDelivery,
+    }
   }
 
   // Admin status update handler
@@ -909,7 +1126,18 @@ export function createNrtShopWorkflow(options = {}) {
     }
 
     const newStatus = interaction.values?.[0] || 'pending'
+    if (!['pending', 'processing', 'done'].includes(newStatus)) {
+      await interaction.reply({
+        content: '❌ That redemption status is invalid.',
+        flags: MessageFlags.Ephemeral,
+      }).catch(() => undefined)
+      return { status: 'rejected', reason: 'invalid_status' }
+    }
     const content = interaction.message?.content ?? ''
+    const customId = interaction.customId ?? ''
+    const customReference = customId.match(/^nrtshop_status_select:(.+)$/)?.[1] || null
+    const contentReference = content.match(/Claim reference:\s*([^\s`]+)/i)?.[1] || null
+    const claimReference = customReference || contentReference
 
     const winnerIdMatch = content.match(/🛍️\s*<@!?([^\s>]+)>/)
     const winnerId = winnerIdMatch ? winnerIdMatch[1] : null
@@ -928,6 +1156,10 @@ export function createNrtShopWorkflow(options = {}) {
 
     const costMatch = content.match(/• \*\*Cost\*\*: `\s*([\d,]+)\s*NRT\s*`/)
     const cost = costMatch ? parseInt(costMatch[1].replace(/,/g, ''), 10) : 0
+    const submittedMatch = content.match(/Submitted:\s*<t:(\d+):R>/)
+    const claimedAt = submittedMatch
+      ? new Date(Number(submittedMatch[1]) * 1000).toISOString()
+      : new Date().toISOString()
 
     if (!winnerId) {
       await interaction.reply({
@@ -947,35 +1179,76 @@ export function createNrtShopWorkflow(options = {}) {
       cost,
       status: newStatus,
       handledBy: interaction.user.id,
-      claimedAt: new Date().toISOString(), // Fallback submission date
+      claimedAt,
+      claimReference,
     })
 
-    if (interaction.update) {
-      await interaction.update({
-        content: updatedContent,
-        components: [createNrtClaimStatusSelectMenu(newStatus)],
-      }).catch(() => undefined)
-    }
-
-    // Update database status
-    const claims = loadClaims()
-    const target = claims.find((c) => c.userId === winnerId && c.itemName === itemName && c.status !== 'cancelled')
-    if (target) {
+    // Persist status before changing Discord so the card never claims an update that was lost.
+    let claims
+    let target
+    try {
+      claims = loadClaims()
+      target = claimReference
+        ? claims.find((claim) => claim.claimReference === claimReference)
+        : claims.find((claim) => claim.userId === winnerId && claim.itemName === itemName && claim.status !== 'cancelled')
+      if (!target) {
+        await interaction.reply({
+          content: '❌ Could not find the stored redemption for this claim card.',
+          flags: MessageFlags.Ephemeral,
+        }).catch(() => undefined)
+        return { status: 'error', reason: 'claim_record_not_found' }
+      }
       target.status = newStatus
       target.updatedAt = new Date().toISOString()
       target.handledBy = interaction.user.id
       saveClaims(claims)
+    } catch (reason) {
+      options.errorReporter?.report?.('nrtshop_claim_store', reason, {
+        operation: 'status_update',
+        winnerId,
+        claimReference,
+      })
+      await interaction.reply({
+        content: '❌ Could not securely save this status update. The claim card was not changed.',
+        flags: MessageFlags.Ephemeral,
+      }).catch(() => undefined)
+      return { status: 'error', reason: 'claim_store_unavailable' }
+    }
+
+    if (interaction.update) {
+      await interaction.update({
+        content: updatedContent,
+        components: [createNrtClaimStatusSelectMenu(newStatus, { claimReference })],
+      }).catch(() => undefined)
     }
 
     // Sync public claim status notice
-    await syncNrtPublicClaimNotice(interaction.client, {
+    const publicDelivery = await syncNrtPublicClaimNotice(interaction.client, {
       winnerId,
       winnerName: `<@${winnerId}>`,
       status: newStatus,
       itemName,
-    })
+      claimReference,
+    }, options)
 
-    return { status: 'updated', winnerId, itemName, newStatus }
+    if (!publicDelivery.ok) {
+      if (typeof interaction.followUp === 'function') {
+        await interaction.followUp({
+          content: `⚠️ The redemption status was saved, but the public notice in <#${PUBLIC_CLAIM_CHANNEL_ID}> could not be updated.`,
+          flags: MessageFlags.Ephemeral,
+        }).catch(() => undefined)
+      }
+      return {
+        status: 'partial_success',
+        reason: 'public_notice_delivery_failed',
+        winnerId,
+        itemName,
+        newStatus,
+        publicDelivery,
+      }
+    }
+
+    return { status: 'updated', winnerId, itemName, newStatus, publicDelivery }
   }
 
   // Shop configuration handler
@@ -1137,8 +1410,8 @@ export function createNrtShopWorkflow(options = {}) {
       if (customId === 'nrtshop_select') {
         return handleSelectMenu(interaction)
       }
-      if (customId === 'nrtshop_status_select') {
-        return handleAdminStatusSelect(interaction)
+      if (customId.startsWith('nrtshop_status_select')) {
+        return serializeClaimMutation(() => handleAdminStatusSelect(interaction))
       }
     }
 
@@ -1148,7 +1421,23 @@ export function createNrtShopWorkflow(options = {}) {
         const parts = customId.split(':')
         const itemId = parts[1]
         const cost = parseInt(parts[2], 10)
-        return handleModalSubmit(interaction, itemId, cost)
+        const userLock = `user:${interaction.user?.id || 'unknown'}`
+        const itemLock = `item:${itemId || 'unknown'}`
+        if (inFlightClaims.has(userLock) || inFlightClaims.has(itemLock)) {
+          await ephemeral(
+            interaction,
+            '⏳ A redemption for this user or item is already being processed. Do not submit the form again.',
+          )
+          return { status: 'duplicate', reason: 'claim_in_flight' }
+        }
+        inFlightClaims.add(userLock)
+        inFlightClaims.add(itemLock)
+        try {
+          return await serializeClaimMutation(() => handleModalSubmit(interaction, itemId, cost))
+        } finally {
+          inFlightClaims.delete(userLock)
+          inFlightClaims.delete(itemLock)
+        }
       }
     }
 

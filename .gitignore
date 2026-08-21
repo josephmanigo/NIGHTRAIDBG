@@ -43,3 +43,4 @@ data/platform-subscriptions.json
 data/webhook-events-inbox.json
 data/watch-parties.json
 data/winner-claims.json
+data/nrt-claims.json

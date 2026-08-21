@@ -29,6 +29,7 @@ export const CLAIM_PRIZE_TTL_MS = 24 * 60 * 60 * 1000
 
 const CLAIM_BUTTON_PREFIX = 'claim_winner_prize'
 const CLAIM_MODAL_PREFIX = 'claim_prize_modal'
+const CLAIM_STATUS_PREFIX = 'claim_status_select'
 const claimExpirationTimers = new Map()
 
 function snowflakeTimestamp(messageId) {
@@ -119,10 +120,20 @@ function clearClaimButtonExpiration(messageId) {
   claimExpirationTimers.delete(key)
 }
 
-export function createClaimStatusSelectMenu(currentStatus = 'pending') {
+function claimStatusContext(customId) {
+  const match = String(customId || '').match(/^claim_status_select:([^:]+):([^:]+)$/)
+  return match
+    ? { sourceMessageId: match[1], winnerId: match[2] }
+    : { sourceMessageId: null, winnerId: null }
+}
+
+export function createClaimStatusSelectMenu(currentStatus = 'pending', context = {}) {
+  const customId = context.sourceMessageId && context.winnerId
+    ? `${CLAIM_STATUS_PREFIX}:${context.sourceMessageId}:${context.winnerId}`
+    : CLAIM_STATUS_PREFIX
   return new ActionRowBuilder().addComponents(
     new StringSelectMenuBuilder()
-      .setCustomId('claim_status_select')
+      .setCustomId(customId)
       .setPlaceholder('Update Claim Status...')
       .addOptions([
         new StringSelectMenuOptionBuilder()
@@ -155,6 +166,7 @@ export function renderClaimCard({
   status = 'pending',
   handledBy = null,
   claimedAt = null,
+  claimReference = null,
 }) {
   const statusLabel =
     status === 'done' ? '✅ Done' : status === 'processing' ? '⚙️ Processing' : '⏳ Pending'
@@ -174,6 +186,9 @@ export function renderClaimCard({
 
   if (claimedAt) {
     lines.push(`-# Submitted: <t:${claimedAt}:R>`)
+  }
+  if (claimReference) {
+    lines.push(`-# Claim reference: ${claimReference}`)
   }
 
   return lines.join('\n')
@@ -201,6 +216,7 @@ export function renderPublicClaimNotice({
   prize = null,
   paymentMethod = 'via gcash',
   templateContent = null,
+  claimReference = null,
 }) {
   const displayPrize = formatPublicNoticePrize(prize)
   const formattedDate =
@@ -220,9 +236,14 @@ export function renderPublicClaimNotice({
     if (lines[0]) {
       headerLine = lines[0]
     }
-    const lastLine = lines[lines.length - 1]
-    if (lastLine) {
-      const statusMatch = lastLine.match(/^([^\s_a-zA-Z0-9]+|<a?:[^:]+:\d+>)/)
+    const statusLine = [...lines].reverse().find((line) =>
+      line.includes('__Please wait while an admin processes your reward.__') ||
+      line.includes('__An admin is currently processing your reward.__') ||
+      line.includes('__Your reward has been processed and sent!__') ||
+      /<a?:[^:]+:\d+>/.test(line)
+    )
+    if (statusLine) {
+      const statusMatch = statusLine.match(/^(<a?:[^:]+:\d+>|[^\s_a-zA-Z0-9]+)/)
       if (statusMatch) {
         customStatusEmoji = statusMatch[1]
       }
@@ -242,14 +263,16 @@ export function renderPublicClaimNotice({
 
   const nameTag = nameDisplay.startsWith('<@') ? nameDisplay : `\` ${nameDisplay} \``
 
-  return [
+  const lines = [
     headerLine,
     '',
     `🎉 ${nameTag} — \` ${formattedDate} \``,
     `💸 \` ${displayPrize} \` — \` ${paymentMethod} \``,
     '',
     `${statusEmoji} ${statusText}`,
-  ].join('\n')
+  ]
+  if (claimReference) lines.push('', `-# Claim reference: ${claimReference}`)
+  return lines.join('\n')
 }
 
 const PUBLIC_NOTICE_MARKERS = [
@@ -262,11 +285,12 @@ const PUBLIC_NOTICE_MARKERS = [
 /* A message only counts as a winner's claim notice when it mentions the winner
  * AND carries the notice wording/emoji. Plain mentions (an old winners list, a
  * chat message) must never be hijacked as a notice. */
-export function isPublicClaimNoticeFor(content, winnerId) {
+export function isPublicClaimNoticeFor(content, winnerId, claimReference = null) {
   const text = String(content || '')
   if (!text || !winnerId) return false
   const mentionsWinner = text.includes(winnerId) || text.includes(`<@${winnerId}>`)
   if (!mentionsWinner) return false
+  if (claimReference && !text.includes(`Claim reference: ${claimReference}`)) return false
   return PUBLIC_NOTICE_MARKERS.some((marker) => text.includes(marker)) ||
     text.includes(DEFAULT_PUBLIC_CLAIM_EMOJI)
 }
@@ -455,34 +479,69 @@ const globalHandledWinnerInteractions = new Set()
 const globalInFlightWinnerInteractions = new Set()
 const inFlightUserClaims = new Set()
 
-async function syncPublicClaimNotice(client, options, { winnerId, winnerName, status, prize = null }) {
+function activePrizeKey(winnerId, claimReference = null) {
+  return `${winnerId}:${claimReference || 'legacy'}`
+}
+
+function publicNoticeKey(winnerId, claimReference) {
+  return `${winnerId}:${claimReference || 'legacy'}`
+}
+
+function reportClaimDeliveryFailure(options, destination, reason, error, fields = {}) {
+  const details = {
+    destination,
+    reason,
+    discordCode: error?.code ?? null,
+    discordStatus: error?.status ?? null,
+    ...fields,
+  }
+  options.errorReporter?.report?.('winner_claim_delivery', error || new Error(reason), details)
+  console.error('[WinnerClaim] Delivery failed:', details, error instanceof Error ? error.message : error || '')
+}
+
+async function syncPublicClaimNotice(
+  client,
+  options,
+  { winnerId, winnerName, status, prize = null, claimReference = null },
+) {
   const publicChannelId =
     options.publicClaimChannelId ||
     process.env.DISCORD_PUBLIC_CLAIM_CHANNEL_ID ||
     DEFAULT_PUBLIC_CLAIM_CHANNEL_ID
 
-  if (!client) return null
-
-  if (winnerId && prize) {
-    activeWinnerPrizes.set(winnerId, prize)
+  const failure = (reason, error = null) => {
+    reportClaimDeliveryFailure(options, 'public', reason, error, {
+      channelId: publicChannelId,
+      winnerId,
+      claimReference,
+    })
+    return { ok: false, reason, channelId: publicChannelId, error }
   }
 
-  let resolvedPrize = prize || activeWinnerPrizes.get(winnerId) || null
+  if (!client?.channels) return failure('discord_client_unavailable')
+
+  if (winnerId && prize) {
+    activeWinnerPrizes.set(activePrizeKey(winnerId, claimReference), prize)
+  }
+
+  let resolvedPrize = prize ||
+    activeWinnerPrizes.get(activePrizeKey(winnerId, claimReference)) ||
+    activeWinnerPrizes.get(activePrizeKey(winnerId)) ||
+    null
+
+  let publicChannel = client.channels.cache?.get?.(publicChannelId)
+  if (!publicChannel && client.channels.fetch) {
+    try {
+      publicChannel = await client.channels.fetch(publicChannelId)
+    } catch (error) {
+      return failure('public_channel_fetch_failed', error)
+    }
+  }
+  if (!publicChannel) return failure('public_channel_not_found')
 
   try {
-    let publicChannel = client.channels?.cache?.get?.(publicChannelId)
-    if (!publicChannel && client.channels?.fetch) {
-      publicChannel = await client.channels.fetch(publicChannelId).catch((err) => {
-        console.error(`Could not fetch public claim channel ${publicChannelId}:`, err)
-        return null
-      })
-    }
-    if (!publicChannel) {
-      console.warn(`Public claim channel ${publicChannelId} was not found on client.`)
-      return null
-    }
-
     const botUserId = client.user?.id
+    const noticeKey = publicNoticeKey(winnerId, claimReference)
 
     // If prize is still unresolved, attempt to find win message in channel cache
     if (!resolvedPrize && client.channels?.cache) {
@@ -499,7 +558,7 @@ async function syncPublicClaimNotice(client, options, { winnerId, winnerName, st
               const parsed = parseWinnerFromMessage(winMsg)
               if (parsed?.prize) {
                 resolvedPrize = parsed.prize
-                activeWinnerPrizes.set(winnerId, resolvedPrize)
+                activeWinnerPrizes.set(activePrizeKey(winnerId, claimReference), resolvedPrize)
                 break
               }
             }
@@ -514,16 +573,21 @@ async function syncPublicClaimNotice(client, options, { winnerId, winnerName, st
       status,
       prize: resolvedPrize,
       templateContent: cachedTemplateContent,
+      claimReference,
     })
 
     const editWinnerNotice = async (targetMsg) => {
-      await targetMsg.edit({ content: buildNotice(), allowedMentions: { parse: [] } }).catch(() => null)
-      activePublicNotices.set(winnerId, targetMsg.id)
-      return { action: 'edited', messageId: targetMsg.id }
+      try {
+        await targetMsg.edit({ content: buildNotice(), allowedMentions: { parse: [] } })
+      } catch (error) {
+        return failure('public_notice_edit_failed', error)
+      }
+      activePublicNotices.set(noticeKey, targetMsg.id)
+      return { ok: true, action: 'edited', messageId: targetMsg.id, channelId: publicChannelId }
     }
 
-    // 1. Fast path: Memory cache check if we saved a bot message ID for THIS winner
-    const existingMsgId = activePublicNotices.get(winnerId)
+    // 1. Fast path: a message saved for this exact claim, not merely this winner.
+    const existingMsgId = activePublicNotices.get(noticeKey)
     if (existingMsgId && publicChannel.messages?.fetch) {
       const existingMsg = await publicChannel.messages.fetch(existingMsgId).catch(() => null)
       if (existingMsg && typeof existingMsg.edit === 'function') {
@@ -544,7 +608,7 @@ async function syncPublicClaimNotice(client, options, { winnerId, winnerName, st
         if (
           isBotAuthor &&
           typeof targetMsg.edit === 'function' &&
-          isPublicClaimNoticeFor(targetMsg.content, winnerId)
+          isPublicClaimNoticeFor(targetMsg.content, winnerId, claimReference)
         ) {
           return editWinnerNotice(targetMsg)
         }
@@ -561,6 +625,7 @@ async function syncPublicClaimNotice(client, options, { winnerId, winnerName, st
         const targetMsg = list.find(
           (m) =>
             isPublicClaimNoticeFor(m.content, winnerId) &&
+            (!claimReference || isPublicClaimNoticeFor(m.content, winnerId, claimReference)) &&
             (!botUserId || m.author?.id === botUserId) &&
             typeof m.edit === 'function',
         )
@@ -573,19 +638,22 @@ async function syncPublicClaimNotice(client, options, { winnerId, winnerName, st
 
     // 4. Send a NEW independent message for THIS winner in the public channel and save its ID
     if (publicChannel.send) {
-      const sent = await publicChannel.send({ content: buildNotice(), allowedMentions: { parse: [] } }).catch((err) => {
-        console.error(`Failed to send public claim notice to channel ${publicChannelId}:`, err)
-        return null
-      })
-      if (sent?.id) {
-        activePublicNotices.set(winnerId, sent.id)
-        return { action: 'sent', messageId: sent.id }
+      let sent
+      try {
+        sent = await publicChannel.send({ content: buildNotice(), allowedMentions: { parse: [] } })
+      } catch (error) {
+        return failure('public_notice_send_failed', error)
       }
+      if (sent?.id) {
+        activePublicNotices.set(noticeKey, sent.id)
+        return { ok: true, action: 'sent', messageId: sent.id, channelId: publicChannelId }
+      }
+      return failure('public_notice_send_returned_no_message')
     }
   } catch (err) {
-    console.error('syncPublicClaimNotice error:', err)
+    return failure('public_notice_sync_failed', err)
   }
-  return null
+  return failure('public_channel_not_sendable')
 }
 
 export function createWinnerWorkflow(options = {}) {
@@ -696,7 +764,10 @@ export function createWinnerWorkflow(options = {}) {
 
     const extractedPrize = extractPrizeFromText(content)
     if (extractedPrize) {
-      activeWinnerPrizes.set(interaction.user.id, extractedPrize)
+      activeWinnerPrizes.set(
+        activePrizeKey(interaction.user.id, sourceContext.sourceMessageId),
+        extractedPrize,
+      )
     }
 
     if (winnerIds.size > 0 && !winnerIds.has(interaction.user.id)) {
@@ -707,7 +778,30 @@ export function createWinnerWorkflow(options = {}) {
       return { status: 'rejected', reason: 'not_winner' }
     }
 
-    const existingClaim = claimStore.get(sourceContext.sourceMessageId, interaction.user.id)
+    let existingClaim
+    let claimContext
+    try {
+      existingClaim = claimStore.get(sourceContext.sourceMessageId, interaction.user.id)
+      if (!existingClaim?.status || existingClaim.status !== 'claimed') {
+        claimContext = claimStore.open({
+          ...sourceContext,
+          winnerId: interaction.user.id,
+          winnerCount: winnerIds.size,
+          prize: extractedPrize,
+        })
+      }
+    } catch (reason) {
+      options.errorReporter?.report?.('winner_claim_store', reason, {
+        operation: 'open',
+        sourceMessageId: sourceContext.sourceMessageId,
+        winnerId: interaction.user.id,
+      })
+      await interaction.reply({
+        content: '❌ I could not securely open this claim. Nothing was marked as claimed; please contact an admin.',
+        flags: MessageFlags.Ephemeral,
+      }).catch(() => undefined)
+      return { status: 'error', reason: 'claim_store_unavailable' }
+    }
     if (existingClaim?.status === 'claimed') {
       await updateSourceClaimButton(interaction, existingClaim, 'claimed')
       await interaction.reply({
@@ -717,12 +811,6 @@ export function createWinnerWorkflow(options = {}) {
       return { status: 'rejected', reason: 'already_claimed' }
     }
 
-    const claimContext = claimStore.open({
-      ...sourceContext,
-      winnerId: interaction.user.id,
-      winnerCount: winnerIds.size,
-      prize: extractedPrize,
-    })
     const modal = new ModalBuilder()
       .setCustomId(`${CLAIM_MODAL_PREFIX}:${interaction.user.id}:${claimContext.sourceMessageId}:${claimContext.expiresAt}`)
       .setTitle('Claim Winner Prize')
@@ -784,65 +872,81 @@ export function createWinnerWorkflow(options = {}) {
     const gcash = interaction.fields?.getTextInputValue?.('gcash')?.trim() || 'N/A'
     const uid = interaction.fields?.getTextInputValue?.('uid')?.trim() || 'N/A'
 
-    let storedContext = claimStore.get(modalContext.sourceMessageId, interaction.user.id)
-    if (!storedContext) {
-      storedContext = claimStore.open({
+    if (typeof interaction.deferReply === 'function' && !interaction.deferred && !interaction.replied) {
+      try {
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral })
+      } catch (reason) {
+        options.errorReporter?.report?.('winner_claim_defer', reason, {
+          sourceMessageId: modalContext.sourceMessageId,
+          winnerId: interaction.user.id,
+        })
+        return { status: 'error', reason: 'defer_failed' }
+      }
+    }
+
+    let storedContext
+    let claimResult
+    try {
+      storedContext = claimStore.get(modalContext.sourceMessageId, interaction.user.id)
+      if (!storedContext) {
+        storedContext = claimStore.open({
+          ...modalContext,
+          winnerId: interaction.user.id,
+          winnerCount: 1,
+          prize: activeWinnerPrizes.get(
+            activePrizeKey(interaction.user.id, modalContext.sourceMessageId),
+          ) || null,
+        })
+      }
+      claimResult = claimStore.claim({
+        ...storedContext,
         ...modalContext,
         winnerId: interaction.user.id,
-        winnerCount: 1,
-        prize: activeWinnerPrizes.get(interaction.user.id) || null,
+        now: currentTime,
+        name,
+        gcash,
+        uid,
       })
+    } catch (reason) {
+      options.errorReporter?.report?.('winner_claim_store', reason, {
+        operation: 'claim',
+        sourceMessageId: modalContext.sourceMessageId,
+        winnerId: interaction.user.id,
+      })
+      await ephemeralMessage(
+        interaction,
+        '❌ I could not securely save this claim. Nothing was marked as claimed; please contact an admin.',
+      )
+      return { status: 'error', reason: 'claim_store_unavailable' }
     }
-    const claimResult = claimStore.claim({
-      ...storedContext,
-      ...modalContext,
-      winnerId: interaction.user.id,
-      now: currentTime,
-      name,
-      gcash,
-      uid,
-    })
 
     if (claimResult.status === 'expired') {
       await updateSourceClaimButton(interaction, storedContext, 'expired')
-      await interaction.reply({
-        content: 'This prize claim expired after 24 hours.',
-        flags: MessageFlags.Ephemeral,
-      }).catch(() => undefined)
+      await ephemeralMessage(interaction, 'This prize claim expired after 24 hours.')
       return { status: 'rejected', reason: 'expired' }
     }
     if (claimResult.status === 'already_claimed') {
       await updateSourceClaimButton(interaction, claimResult.claim, 'claimed')
-      await interaction.reply({
-        content: 'You already claimed this prize. It cannot be claimed again.',
-        flags: MessageFlags.Ephemeral,
-      }).catch(() => undefined)
+      await ephemeralMessage(interaction, 'You already claimed this prize. It cannot be claimed again.')
       return { status: 'rejected', reason: 'already_claimed' }
     }
 
-    const prize = claimResult.claim.prize || activeWinnerPrizes.get(interaction.user.id) || null
-    if (prize) activeWinnerPrizes.set(interaction.user.id, prize)
-
-    await interaction.reply({
-      content: `✅ **Prize claim submitted!**\nThank you, **${name}**! Your claim details have been recorded by the admins.`,
-      flags: MessageFlags.Ephemeral,
-    }).catch(() => undefined)
+    const prize = claimResult.claim.prize || activeWinnerPrizes.get(
+      activePrizeKey(interaction.user.id, modalContext.sourceMessageId),
+    ) || null
+    if (prize) {
+      activeWinnerPrizes.set(
+        activePrizeKey(interaction.user.id, modalContext.sourceMessageId),
+        prize,
+      )
+    }
 
     const adminChannelId =
       options.adminClaimChannelId ||
       process.env.DISCORD_ADMIN_CLAIM_CHANNEL_ID ||
       options.claimChannelId ||
-      process.env.DISCORD_WINNER_CLAIM_CHANNEL_ID ||
       process.env.DISCORD_LOG_CHANNEL_ID ||
       DEFAULT_ADMIN_CLAIM_CHANNEL_ID
-
-    let adminChannel = null
-    if (adminChannelId && interaction.client?.channels?.fetch) {
-      adminChannel = await interaction.client.channels.fetch(adminChannelId).catch(() => null)
-    }
-    if (!adminChannel) {
-      adminChannel = interaction.channel
-    }
 
     const claimedAt = Math.floor(currentTime / 1000)
     const claimCardContent = renderClaimCard({
@@ -853,33 +957,86 @@ export function createWinnerWorkflow(options = {}) {
       status: 'pending',
       handledBy: null,
       claimedAt,
+      claimReference: modalContext.sourceMessageId,
     })
 
-    if (adminChannel?.send) {
-      await adminChannel.send({
-        content: claimCardContent,
-        components: [createClaimStatusSelectMenu('pending')],
-      }).catch(() => undefined)
+    let adminDelivery = { ok: false, reason: 'admin_channel_not_found', channelId: adminChannelId }
+    try {
+      let adminChannel = interaction.client?.channels?.cache?.get?.(adminChannelId)
+      if (!adminChannel && adminChannelId && interaction.client?.channels?.fetch) {
+        adminChannel = await interaction.client.channels.fetch(adminChannelId)
+      }
+      if (adminChannel?.send) {
+        await adminChannel.send({
+          content: claimCardContent,
+          components: [createClaimStatusSelectMenu('pending', {
+            sourceMessageId: modalContext.sourceMessageId,
+            winnerId: interaction.user.id,
+          })],
+        })
+        adminDelivery = { ok: true, channelId: adminChannelId }
+      } else {
+        reportClaimDeliveryFailure(options, 'admin', 'admin_channel_not_sendable', null, {
+          channelId: adminChannelId,
+          sourceMessageId: modalContext.sourceMessageId,
+          winnerId: interaction.user.id,
+        })
+        adminDelivery = { ok: false, reason: 'admin_channel_not_sendable', channelId: adminChannelId }
+      }
+    } catch (error) {
+      reportClaimDeliveryFailure(options, 'admin', 'admin_claim_send_failed', error, {
+        channelId: adminChannelId,
+        sourceMessageId: modalContext.sourceMessageId,
+        winnerId: interaction.user.id,
+      })
+      adminDelivery = { ok: false, reason: 'admin_claim_send_failed', channelId: adminChannelId }
     }
 
     // Sync public status notice with space after via gcash and custom status emoji 1535222637545001082
-    await syncPublicClaimNotice(interaction.client, options, {
+    const publicDelivery = await syncPublicClaimNotice(interaction.client, options, {
       winnerId: interaction.user.id,
       winnerName: `<@${interaction.user.id}>`,
       status: 'pending',
       prize,
+      claimReference: modalContext.sourceMessageId,
     })
 
     await updateSourceClaimButton(interaction, claimResult.claim, 'claimed')
 
-    return { status: 'success', name, gcash, uid }
+    const deliveryFailures = [
+      !adminDelivery.ok ? 'the private admin claim card' : null,
+      !publicDelivery.ok ? `the public notice in <#${publicDelivery.channelId}>` : null,
+    ].filter(Boolean)
+    if (deliveryFailures.length > 0) {
+      await ephemeralMessage(
+        interaction,
+        `⚠️ **Your claim was securely recorded**, but I could not deliver ${deliveryFailures.join(' and ')}. ` +
+        `Do not submit it again. Give an admin this claim reference: \`${modalContext.sourceMessageId}\`.`,
+      )
+      return {
+        status: 'partial_success',
+        reason: 'claim_delivery_failed',
+        name,
+        gcash,
+        uid,
+        adminDelivery,
+        publicDelivery,
+      }
+    }
+
+    await ephemeralMessage(
+      interaction,
+      `✅ **Prize claim submitted!**\nThank you, **${name}**! Your claim details have been recorded by the admins.`,
+    )
+    return { status: 'success', name, gcash, uid, adminDelivery, publicDelivery }
   }
 
   async function handleStatusSelect(interaction) {
     const customId = interaction.customId ?? ''
-    if (customId !== 'claim_status_select') {
+    if (!customId.startsWith(CLAIM_STATUS_PREFIX)) {
       return { status: 'ignored' }
     }
+    const statusContext = claimStatusContext(customId)
 
     const member = interaction.member
     const isAuthorized =
@@ -899,7 +1056,9 @@ export function createWinnerWorkflow(options = {}) {
     const content = interaction.message?.content ?? ''
 
     const winnerIdMatch = content.match(/💖\s*<@!?([^\s>]+)>/)
-    const winnerId = winnerIdMatch ? winnerIdMatch[1] : interaction.user.id
+    const winnerId = statusContext.winnerId || (winnerIdMatch ? winnerIdMatch[1] : interaction.user.id)
+    const referenceMatch = content.match(/Claim reference:\s*([^\s`]+)/i)
+    const claimReference = statusContext.sourceMessageId || referenceMatch?.[1] || null
 
     const nameMatch = content.match(/• \*\*Full Name\*\*: (.*)/)
     const name = nameMatch ? nameMatch[1] : 'N/A'
@@ -921,26 +1080,58 @@ export function createWinnerWorkflow(options = {}) {
       status: newStatus,
       handledBy: interaction.user.id,
       claimedAt,
+      claimReference,
     })
 
     if (interaction.update) {
       await interaction.update({
         content: updatedContent,
-        components: [createClaimStatusSelectMenu(newStatus)],
+        components: [createClaimStatusSelectMenu(newStatus, {
+          sourceMessageId: claimReference,
+          winnerId,
+        })],
       }).catch(() => undefined)
     }
 
-    const prize = activeWinnerPrizes.get(winnerId) || null
+    let prize = activeWinnerPrizes.get(activePrizeKey(winnerId, claimReference)) || null
+    if (claimReference) {
+      try {
+        prize = claimStore.get(claimReference, winnerId)?.prize || prize
+      } catch (reason) {
+        options.errorReporter?.report?.('winner_claim_store', reason, {
+          operation: 'status_lookup',
+          sourceMessageId: claimReference,
+          winnerId,
+        })
+      }
+    }
 
     // Sync updated public status notice with space after via gcash and custom status emoji 1535222637545001082
-    await syncPublicClaimNotice(interaction.client, options, {
+    const publicDelivery = await syncPublicClaimNotice(interaction.client, options, {
       winnerId,
       winnerName: `<@${winnerId}>`,
       status: newStatus,
       prize,
+      claimReference,
     })
 
-    return { status: 'updated', newStatus, adminId: interaction.user.id }
+    if (!publicDelivery.ok) {
+      if (typeof interaction.followUp === 'function') {
+        await interaction.followUp({
+          content: `⚠️ The admin claim status was updated, but the public notice in <#${publicDelivery.channelId}> could not be updated.`,
+          flags: MessageFlags.Ephemeral,
+        }).catch(() => undefined)
+      }
+      return {
+        status: 'partial_success',
+        reason: 'public_notice_delivery_failed',
+        newStatus,
+        adminId: interaction.user.id,
+        publicDelivery,
+      }
+    }
+
+    return { status: 'updated', newStatus, adminId: interaction.user.id, publicDelivery }
   }
 
   async function handleInteraction(interaction) {
@@ -988,7 +1179,7 @@ export function createWinnerWorkflow(options = {}) {
         }
       }
 
-      if (interaction.isStringSelectMenu?.() && (interaction.customId ?? '') === 'claim_status_select') {
+      if (interaction.isStringSelectMenu?.() && (interaction.customId ?? '').startsWith(CLAIM_STATUS_PREFIX)) {
         return await handleStatusSelect(interaction)
       }
 

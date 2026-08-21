@@ -3,6 +3,12 @@ import path from 'node:path'
 
 const DEFAULT_STORE_PATH = path.join(process.cwd(), 'data', 'winner-claims.json')
 
+function claimStoreError(action, reason) {
+  const error = new Error(`Winner claim storage ${action} failed.`, { cause: reason })
+  error.code = 'WINNER_CLAIM_STORE_FAILED'
+  return error
+}
+
 function normalizeClaim(claim) {
   return {
     sourceMessageId: String(claim.sourceMessageId || ''),
@@ -31,10 +37,13 @@ export class WinnerClaimStore {
     try {
       if (!fs.existsSync(this.filePath)) return []
       const parsed = JSON.parse(fs.readFileSync(this.filePath, 'utf8'))
-      return Array.isArray(parsed) ? parsed.map(normalizeClaim) : []
+      if (!Array.isArray(parsed)) {
+        throw new Error('Winner claim data must be a JSON array.')
+      }
+      return parsed.map(normalizeClaim)
     } catch (reason) {
       console.error('[WinnerClaimStore] Failed to load claims:', reason instanceof Error ? reason.message : reason)
-      return []
+      throw claimStoreError('read', reason)
     }
   }
 
@@ -44,13 +53,18 @@ export class WinnerClaimStore {
       this.memoryClaims = normalized
       return true
     }
+    const temporaryPath = `${this.filePath}.${process.pid}.tmp`
     try {
       fs.mkdirSync(path.dirname(this.filePath), { recursive: true })
-      fs.writeFileSync(this.filePath, JSON.stringify(normalized, null, 2), 'utf8')
+      fs.writeFileSync(temporaryPath, JSON.stringify(normalized, null, 2), 'utf8')
+      fs.renameSync(temporaryPath, this.filePath)
       return true
     } catch (reason) {
+      try {
+        if (fs.existsSync(temporaryPath)) fs.unlinkSync(temporaryPath)
+      } catch {}
       console.error('[WinnerClaimStore] Failed to save claims:', reason instanceof Error ? reason.message : reason)
-      return false
+      throw claimStoreError('write', reason)
     }
   }
 

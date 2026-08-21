@@ -10,7 +10,7 @@ test('Render container runs the Gemini reader unprivileged without native OCR', 
   assert.match(dockerfile, /PRODUCTION_WORKSHEET=New/)
   assert.match(dockerfile, /npm ci --omit=dev --legacy-peer-deps/)
   assert.match(dockerfile, /^USER node$/m)
-  assert.match(dockerfile, /node", "bot\/nickname-bot\.js"/)
+  assert.match(dockerfile, /CMD \["node", "--max-old-space-size=384", "bot\/nickname-bot\.js"\]/)
   // The native OCR toolchain is gone; Gemini reads the scoreboard instead.
   assert.doesNotMatch(dockerfile, /\btesseract-ocr\b|\bpython3-venv\b/)
   // Secrets are supplied by Render at runtime, never baked into the image.

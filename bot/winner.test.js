@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import {
   CLAIM_PRIZE_TTL_MS,
   DEFAULT_ADMIN_CLAIM_CHANNEL_ID,
@@ -493,6 +496,9 @@ test('a claim whose winner is mentioned in an old public message still posts a f
     user: { id: 'bot-123' },
     channels: {
       fetch: async (channelId) => {
+        if (channelId === DEFAULT_ADMIN_CLAIM_CHANNEL_ID) {
+          return { send: async () => ({ id: 'admin-notice-winner-222' }) }
+        }
         if (channelId === DEFAULT_PUBLIC_CLAIM_CHANNEL_ID) {
           return {
             id: DEFAULT_PUBLIC_CLAIM_CHANNEL_ID,
@@ -567,6 +573,22 @@ test('a winner can submit each prize claim only once', async () => {
       getTextInputValue: (field) => field === 'name' ? 'Single Winner' : 'N/A',
     },
     channel,
+    client: {
+      channels: {
+        fetch: async (channelId) => {
+          if (channelId === DEFAULT_ADMIN_CLAIM_CHANNEL_ID) {
+            return { send: async (payload) => { adminMessages.push(payload); return { id: 'admin-single' } } }
+          }
+          if (channelId === DEFAULT_PUBLIC_CLAIM_CHANNEL_ID) {
+            return {
+              messages: { fetch: async () => null },
+              send: async () => ({ id: 'public-single' }),
+            }
+          }
+          return null
+        },
+      },
+    },
     reply: async (payload) => { replies.push(payload) },
   })
 
@@ -695,12 +717,23 @@ test('claim status select menu updates claim status for admins and syncs public 
 
 test('duplicate claim interaction with same ID or already replied is ignored as duplicate', async () => {
   const workflow = createTestWinnerWorkflow({ administratorIds: new Set(['admin-1']) })
+  const client = {
+    channels: {
+      fetch: async (channelId) => channelId === DEFAULT_ADMIN_CLAIM_CHANNEL_ID
+        ? { send: async () => ({ id: 'admin-duplicate-test' }) }
+        : {
+            messages: { fetch: async () => null },
+            send: async () => ({ id: 'public-duplicate-test' }),
+          },
+    },
+  }
 
   const interaction1 = {
     id: 'dup-claim-1',
     isModalSubmit: () => true,
     customId: 'claim_prize_modal:user-dup-1',
     user: { id: 'user-dup-1' },
+    client,
     fields: { getTextInputValue: () => 'Test Name' },
     reply: async () => {},
   }
@@ -722,4 +755,196 @@ test('duplicate claim interaction with same ID or already replied is ignored as 
   }
   const result3 = await workflow.handleInteraction(interaction2)
   assert.equal(result3.status, 'duplicate')
+})
+
+test('separate prizes for the same winner create separate public notices keyed by source message', async () => {
+  const workflow = createTestWinnerWorkflow()
+  const publicMessages = new Map()
+  const publicSends = []
+  const adminCards = []
+  const publicChannel = {
+    messages: {
+      fetch: async (value) => value && typeof value === 'object'
+        ? new Map(publicMessages)
+        : publicMessages.get(value) || null,
+    },
+    send: async (payload) => {
+      const message = {
+        id: `public-${publicSends.length + 1}`,
+        author: { id: 'bot-claims' },
+        content: payload.content,
+        edit: async (next) => { message.content = next.content },
+      }
+      publicSends.push(payload)
+      publicMessages.set(message.id, message)
+      return message
+    },
+  }
+  const client = {
+    user: { id: 'bot-claims' },
+    channels: {
+      fetch: async (channelId) => channelId === DEFAULT_ADMIN_CLAIM_CHANNEL_ID
+        ? { send: async (payload) => { adminCards.push(payload); return { id: `admin-${adminCards.length}` } } }
+        : publicChannel,
+    },
+  }
+
+  for (const [index, sourceMessageId] of ['same-winner-prize-a', 'same-winner-prize-b'].entries()) {
+    let modal
+    const button = await workflow.handleInteraction({
+      id: `same-winner-button-${index}`,
+      isButton: () => true,
+      customId: `claim_winner_prize:${Date.now() + CLAIM_PRIZE_TTL_MS}`,
+      user: { id: 'same-winner' },
+      message: {
+        id: sourceMessageId,
+        content: `<@same-winner>\nPrize: **${index === 0 ? 50 : 200} GCash**`,
+      },
+      showModal: async (value) => { modal = value },
+    })
+    assert.equal(button.status, 'modal_shown')
+
+    const submission = await workflow.handleInteraction({
+      id: `same-winner-submit-${index}`,
+      isModalSubmit: () => true,
+      customId: modal.data.custom_id,
+      user: { id: 'same-winner' },
+      client,
+      fields: { getTextInputValue: (field) => field === 'name' ? 'Repeat Winner' : 'N/A' },
+      reply: async () => {},
+    })
+    assert.equal(submission.status, 'success')
+  }
+
+  assert.equal(publicSends.length, 2)
+  assert.equal(adminCards.length, 2)
+  assert.match(publicSends[0].content, /Claim reference: same-winner-prize-a/)
+  assert.match(publicSends[1].content, /Claim reference: same-winner-prize-b/)
+  assert.match(publicSends[0].content, /` P50 `/)
+  assert.match(publicSends[1].content, /` P200 `/)
+
+  const firstNoticeBeforeStatus = publicMessages.get('public-1').content
+  const statusCustomId = adminCards[1].components[0].components[0].data.custom_id
+  let updatedAdminCard
+  const statusResult = await workflow.handleInteraction({
+    id: 'same-winner-status-second-claim',
+    isStringSelectMenu: () => true,
+    customId: statusCustomId,
+    values: ['done'],
+    user: { id: 'admin-status' },
+    member: { permissions: { has: () => true } },
+    message: { content: adminCards[1].content },
+    client,
+    update: async (payload) => { updatedAdminCard = payload },
+  })
+  assert.equal(statusResult.status, 'updated')
+  assert.equal(publicMessages.get('public-1').content, firstNoticeBeforeStatus)
+  assert.match(publicMessages.get('public-2').content, /processed and sent/i)
+  assert.match(updatedAdminCard.content, /Claim reference: same-winner-prize-b/)
+})
+
+test('a public channel send failure is reported as partial success without losing the stored claim', async () => {
+  const claimStore = new WinnerClaimStore(null)
+  const workflow = createTestWinnerWorkflow({ claimStore })
+  let modal
+  await workflow.handleInteraction({
+    id: 'delivery-failure-button',
+    isButton: () => true,
+    customId: `claim_winner_prize:${Date.now() + CLAIM_PRIZE_TTL_MS}`,
+    user: { id: 'delivery-winner' },
+    message: { id: 'delivery-source', content: '<@delivery-winner>\nPrize: **100 GCash**' },
+    showModal: async (value) => { modal = value },
+  })
+
+  let replyPayload
+  const missingPermission = Object.assign(new Error('Missing Permissions'), { code: 50013, status: 403 })
+  const result = await workflow.handleInteraction({
+    id: 'delivery-failure-submit',
+    isModalSubmit: () => true,
+    customId: modal.data.custom_id,
+    user: { id: 'delivery-winner' },
+    client: {
+      channels: {
+        fetch: async (channelId) => channelId === DEFAULT_ADMIN_CLAIM_CHANNEL_ID
+          ? { send: async () => ({ id: 'admin-delivered' }) }
+          : { messages: { fetch: async () => null }, send: async () => { throw missingPermission } },
+      },
+    },
+    fields: { getTextInputValue: (field) => field === 'name' ? 'Delivery Winner' : 'N/A' },
+    reply: async (payload) => { replyPayload = payload },
+  })
+
+  assert.equal(result.status, 'partial_success')
+  assert.equal(result.publicDelivery.reason, 'public_notice_send_failed')
+  assert.equal(result.publicDelivery.error.code, 50013)
+  assert.match(replyPayload.content, /securely recorded/i)
+  assert.match(replyPayload.content, /delivery-source/)
+  assert.equal(claimStore.get('delivery-source', 'delivery-winner').status, 'claimed')
+})
+
+test('an unavailable admin channel never leaks private claim details into the interaction channel', async () => {
+  const workflow = createTestWinnerWorkflow()
+  let modal
+  await workflow.handleInteraction({
+    id: 'private-fallback-button',
+    isButton: () => true,
+    customId: `claim_winner_prize:${Date.now() + CLAIM_PRIZE_TTL_MS}`,
+    user: { id: 'private-winner' },
+    message: { id: 'private-source', content: '<@private-winner>\nPrize: **100 GCash**' },
+    showModal: async (value) => { modal = value },
+  })
+
+  let interactionChannelSends = 0
+  const result = await workflow.handleInteraction({
+    id: 'private-fallback-submit',
+    isModalSubmit: () => true,
+    customId: modal.data.custom_id,
+    user: { id: 'private-winner' },
+    client: {
+      channels: {
+        fetch: async (channelId) => {
+          if (channelId === DEFAULT_ADMIN_CLAIM_CHANNEL_ID) throw new Error('Missing Access')
+          return {
+            messages: { fetch: async () => null },
+            send: async () => ({ id: 'public-private-winner' }),
+          }
+        },
+      },
+    },
+    channel: { send: async () => { interactionChannelSends += 1 } },
+    fields: {
+      getTextInputValue: (field) => field === 'name'
+        ? 'Private Winner'
+        : field === 'gcash' ? '09123456789' : 'SECRET-UID',
+    },
+    reply: async () => {},
+  })
+
+  assert.equal(result.status, 'partial_success')
+  assert.equal(result.adminDelivery.reason, 'admin_claim_send_failed')
+  assert.equal(interactionChannelSends, 0)
+})
+
+test('winner claim storage fails closed on corrupt data and unwritable destinations', () => {
+  const corruptPath = path.join(os.tmpdir(), `winner-claims-corrupt-${Date.now()}.json`)
+  fs.writeFileSync(corruptPath, '{not valid json', 'utf8')
+  const corruptStore = new WinnerClaimStore(corruptPath)
+  assert.throws(
+    () => corruptStore.get('source', 'winner'),
+    (error) => error?.code === 'WINNER_CLAIM_STORE_FAILED',
+  )
+  fs.unlinkSync(corruptPath)
+
+  const invalidParent = path.join(os.tmpdir(), `winner-claims-parent-${Date.now()}`)
+  fs.writeFileSync(invalidParent, 'this is a file, not a directory', 'utf8')
+  const unwritableStore = new WinnerClaimStore(path.join(invalidParent, 'claims.json'))
+  assert.throws(
+    () => unwritableStore.claim({
+      sourceMessageId: 'source',
+      winnerId: 'winner',
+      expiresAt: Date.now() + CLAIM_PRIZE_TTL_MS,
+    }),
+    (error) => error?.code === 'WINNER_CLAIM_STORE_FAILED',
+  )
+  fs.unlinkSync(invalidParent)
 })
