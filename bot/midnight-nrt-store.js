@@ -17,6 +17,7 @@ const DEFAULT_STORE_PATH = path.join(process.cwd(), 'data', 'midnight-nrt.json')
 
 function readLegacyBalances(filePath) {
   try {
+    if (!filePath) return {}
     if (!fs.existsSync(filePath)) return {}
     const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'))
     return typeof parsed === 'object' && parsed !== null ? parsed : {}
@@ -192,6 +193,97 @@ export class MidnightNrtStore {
     nrtBalances[String(userId)] = (nrtBalances[String(userId)] || 0) + Number(amount)
     this.saveToFile(nrtBalances)
     return nrtBalances[String(userId)]
+  }
+
+  /* Automatic rewards require a durable idempotency record. They deliberately
+   * do not fall back to addNrt/file mode: a local balance write cannot prove
+   * that Discord did not already deliver the same event before a redeploy. */
+  async awardOnce({
+    idempotencyKey,
+    awardType,
+    userId,
+    amount,
+    guildId,
+    channelId,
+    sourceMessageId,
+    gameType = null,
+    metadata = {},
+  } = {}) {
+    const input = {
+      idempotencyKey: String(idempotencyKey ?? '').trim(),
+      awardType: String(awardType ?? '').trim(),
+      userId: String(userId ?? '').trim(),
+      amount: Number(amount),
+      guildId: String(guildId ?? '').trim(),
+      channelId: String(channelId ?? '').trim(),
+      sourceMessageId: String(sourceMessageId ?? '').trim(),
+      gameType: gameType === null || gameType === undefined ? null : String(gameType).trim(),
+      metadata: metadata && typeof metadata === 'object' && !Array.isArray(metadata) ? metadata : {},
+    }
+    if (
+      !input.idempotencyKey
+      || !['guess_win', 'post_reaction'].includes(input.awardType)
+      || !input.userId
+      || !Number.isSafeInteger(input.amount)
+      || input.amount <= 0
+      || !input.guildId
+      || !input.channelId
+      || !input.sourceMessageId
+      || (input.awardType === 'guess_win' && !['number', 'word', 'emoji'].includes(input.gameType))
+      || (input.awardType === 'post_reaction' && input.gameType !== null)
+    ) {
+      const error = new Error('Invalid automatic NRT award input.')
+      error.code = 'NRT_AWARD_INVALID'
+      throw error
+    }
+
+    const db = this.database()
+    if (!db) {
+      const error = new Error(
+        'Automatic NRT awards require Supabase and database/phase26.sql; file fallback is not idempotent.',
+      )
+      error.code = 'NRT_AWARD_STORE_UNAVAILABLE'
+      throw error
+    }
+
+    try {
+      await this.ensureSeeded()
+      const { data, error } = await db.rpc('nrt_award_once', {
+        p_idempotency_key: input.idempotencyKey,
+        p_award_type: input.awardType,
+        p_user_id: input.userId,
+        p_amount: input.amount,
+        p_guild_id: input.guildId,
+        p_channel_id: input.channelId,
+        p_source_message_id: input.sourceMessageId,
+        p_game_type: input.gameType,
+        p_metadata: input.metadata,
+      })
+      if (error) throw error
+      const result = Array.isArray(data) ? data[0] : data
+      if (
+        !result
+        || !['awarded', 'duplicate'].includes(result.status)
+        || !Number.isFinite(Number(result.balance))
+      ) {
+        throw new Error('The nrt_award_once RPC returned an invalid result.')
+      }
+      this.usingFallback = false
+      return {
+        status: result.status,
+        amount: Number(result.award_amount ?? input.amount),
+        creditedAmount: Number(result.credited_amount ?? (result.status === 'awarded' ? input.amount : 0)),
+        balance: Number(result.balance),
+        idempotencyKey: String(result.idempotency_key ?? input.idempotencyKey),
+      }
+    } catch (reason) {
+      const error = new Error(
+        `Automatic NRT award failed; verify database/phase26.sql: ${reason instanceof Error ? reason.message : String(reason)}`,
+        { cause: reason },
+      )
+      error.code = 'NRT_AWARD_STORE_FAILED'
+      throw error
+    }
   }
 
   async subtractNrt(userId, amount) {

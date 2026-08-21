@@ -78,6 +78,7 @@ import { CLEAR_GUESSING_GAME_COMMAND, installClearGuessingGameWorkflow } from '.
 import { NRTSHOP_COMMAND, SHOPCONFIG_COMMAND, installNrtShopWorkflow } from './nrtshop.js'
 import { ADDNRT_COMMAND, installAddNrtWorkflow } from './addnrt.js'
 import { MINUSNRT_COMMAND, installMinusNrtWorkflow } from './minusnrt.js'
+import { installNrtRewardsWorkflow } from './nrt-rewards.js'
 import { createRoundSubmissionReader } from './game-results-round-reader.js'
 import { createStructuredLogger, createErrorReporter } from './game-results-runtime.js'
 import { createGameResultsSheetClient } from './game-results-sheet-client.js'
@@ -401,10 +402,11 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.GuildMessageReactions,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildVoiceStates,
   ],
-  partials: [Partials.Channel, Partials.Message],
+  partials: [Partials.Channel, Partials.Message, Partials.Reaction, Partials.User],
   // Without sweepers, Discord.js caches every message, thread, and user
   // forever. On Render's 512 MB tier this causes OOM-restart loops on busy
   // servers. Sweep cached messages older than 15 minutes every 5 minutes,
@@ -554,14 +556,21 @@ installGameResultsIntake(client, {
 installAnnounceWorkflow(client, {
   errorReporter: gameResultsErrorReporter,
 })
+const nrtRewards = installNrtRewardsWorkflow(client, {
+  guildId: GUILD_ID,
+  errorReporter: gameResultsErrorReporter,
+})
 const guessTheNumber = installGuessTheNumberWorkflow(client, {
   errorReporter: gameResultsErrorReporter,
+  onWinner: (context) => nrtRewards.awardGuessingGameWin(context),
 })
 const guessTheWord = installGuessTheWordWorkflow(client, {
   errorReporter: gameResultsErrorReporter,
+  onWinner: (context) => nrtRewards.awardGuessingGameWin(context),
 })
 const guessTheEmoji = installGuessTheEmojiWorkflow(client, {
   errorReporter: gameResultsErrorReporter,
+  onWinner: (context) => nrtRewards.awardGuessingGameWin(context),
 })
 installEndGameWorkflow(client, {
   workflows: [guessTheNumber, guessTheWord, guessTheEmoji],

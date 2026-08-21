@@ -19,6 +19,7 @@ import {
   MessageFlags,
   PermissionFlagsBits,
 } from 'discord.js'
+import { GUESS_WIN_NRT, renderNrtAwardLine } from './nrt-rewards.js'
 
 const PRIZE_LIMIT = 100
 const EMOJI_INPUT_LIMIT = 1000
@@ -243,7 +244,7 @@ export function renderEmojiGameOver({ game, endedBy }) {
   return lines.join('\n')
 }
 
-export function renderEmojiWin({ userId, game, result }) {
+export function renderEmojiWin({ userId, game, result, nrtAward = null }) {
   const tries = result.used === 1 ? '1 guess' : `${result.used} guesses`
   const secretDisplay = game.secretEmojis.join(' ')
   const lines = [
@@ -251,6 +252,8 @@ export function renderEmojiWin({ userId, game, result }) {
     `<@${userId}> found the exact emoji sequence: ${secretDisplay}`,
   ]
   if (game.prize) lines.push(`Prize: **${game.prize}**`)
+  const nrtLine = renderNrtAwardLine(nrtAward)
+  if (nrtLine) lines.push(nrtLine)
   lines.push(`-# Won with ${tries}.`)
   return lines.join('\n')
 }
@@ -264,6 +267,7 @@ async function ephemeralMessage(interaction, content) {
 
 export function createGuessTheEmojiWorkflow(options = {}) {
   const games = options.games ?? new Map()
+  const onWinner = typeof options.onWinner === 'function' ? options.onWinner : null
   const newGameId = options.gameIdImpl
     ?? (() => randomInt(0, 0xffffffff).toString(16).padStart(8, '0'))
   const randomImpl = options.randomImpl ?? Math.random
@@ -282,6 +286,31 @@ export function createGuessTheEmojiWorkflow(options = {}) {
     await message.react(emoji).catch((reason) => {
       console.error('Could not react to an emoji guess:', reason instanceof Error ? reason.message : reason)
     })
+  }
+
+  async function awardWinner(message, game, result) {
+    if (!onWinner) return null
+    try {
+      return await onWinner({
+        gameType: 'emoji',
+        game,
+        gameId: game.gameId,
+        guildId: game.guildId ?? message.guildId,
+        channelId: game.channelId ?? message.channelId,
+        sourceMessageId: message.id,
+        userId: message.author.id,
+        message,
+        result,
+      })
+    } catch (reason) {
+      options.errorReporter?.report?.('guess_the_emoji_nrt_award', reason, {
+        gameId: game.gameId,
+        winnerId: message.author.id,
+        sourceMessageId: message.id,
+      })
+      console.error('Could not award NRT for an emoji-game win:', reason instanceof Error ? reason.message : reason)
+      return { status: 'error', amount: GUESS_WIN_NRT }
+    }
   }
 
   async function handleCommand(interaction) {
@@ -352,11 +381,12 @@ export function createGuessTheEmojiWorkflow(options = {}) {
 
     if (result.status === 'correct') {
       await react(message, EMOJI_REACTIONS.correct)
+      const nrtAward = await awardWinner(message, game, result)
       await message.channel.send({
-        content: renderEmojiWin({ userId: message.author.id, game, result }),
+        content: renderEmojiWin({ userId: message.author.id, game, result, nrtAward }),
         allowedMentions: { parse: [] },
       })
-      return { status: 'won', gameId: game.gameId, winnerId: game.winnerId }
+      return { status: 'won', gameId: game.gameId, winnerId: game.winnerId, nrtAward }
     }
 
     await react(message, result.reaction)

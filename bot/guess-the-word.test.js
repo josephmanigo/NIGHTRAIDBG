@@ -58,11 +58,18 @@ function commandInteraction({
   }
 }
 
-function guessMessage({ userId = 'player-1', content = 'nightraid', bot = false } = {}) {
+function guessMessage({
+  id = 'guess-message-1',
+  userId = 'player-1',
+  content = 'nightraid',
+  bot = false,
+} = {}) {
   const state = { reactions: [], sent: [] }
   return {
     state,
+    id,
     author: { id: userId, bot },
+    guildId: 'guild-1',
     channelId: CHANNEL_ID,
     content,
     react: async (emoji) => {
@@ -76,12 +83,12 @@ function guessMessage({ userId = 'player-1', content = 'nightraid', bot = false 
   }
 }
 
-function workflowWith(existing = null) {
+function workflowWith(existing = null, options = {}) {
   const games = new Map()
   if (existing) games.set(existing.channelId, existing)
   return {
     games,
-    workflow: createGuessTheWordWorkflow({ games, gameIdImpl: () => GAME_ID }),
+    workflow: createGuessTheWordWorkflow({ games, gameIdImpl: () => GAME_ID, ...options }),
   }
 }
 
@@ -241,6 +248,43 @@ test('the winning guess is ticked and announced', async () => {
   assert.match(winner.state.sent[0].content, /# Guessed It/)
   assert.match(winner.state.sent[0].content, /\*\*blood strike\*\*/)
   assert.match(winner.state.sent[0].content, /Prize: \*\*500 diamonds\*\*/)
+})
+
+test('a word-game winner receives one 50 NRT award and the win message confirms it', async () => {
+  const awardCalls = []
+  const { workflow } = workflowWith(game({ word: 'blood strike' }), {
+    onWinner: async (context) => {
+      awardCalls.push(context)
+      return { status: 'awarded', amount: 50, balance: 150 }
+    },
+  })
+  const winner = guessMessage({ id: 'word-winning-message', userId: 'player-50', content: 'blood strike' })
+  const result = await workflow.handleMessage(winner)
+
+  assert.equal(result.nrtAward.status, 'awarded')
+  assert.equal(awardCalls.length, 1)
+  assert.equal(awardCalls[0].gameType, 'word')
+  assert.equal(awardCalls[0].sourceMessageId, 'word-winning-message')
+  assert.equal(awardCalls[0].userId, 'player-50')
+  assert.match(winner.state.sent[0].content, /NRT Reward: \*\*\+50 NRT\*\*/)
+
+  const replay = await workflow.handleMessage(winner)
+  assert.equal(replay.status, 'ignored')
+  assert.equal(awardCalls.length, 1)
+})
+
+test('a word-game win stays final and reports honestly if the NRT callback fails', async () => {
+  const errors = []
+  const { workflow } = workflowWith(game(), {
+    onWinner: async () => { throw new Error('database offline') },
+    errorReporter: { report: (...args) => errors.push(args) },
+  })
+  const winner = guessMessage({ id: 'word-failed-award', content: 'bloodstrike' })
+  const result = await workflow.handleMessage(winner)
+  assert.equal(result.status, 'won')
+  assert.equal(result.nrtAward.status, 'error')
+  assert.match(winner.state.sent[0].content, /could not be confirmed/)
+  assert.equal(errors[0][0], 'guess_the_word_nrt_award')
 })
 
 test('sentences and bot messages are left alone', async () => {

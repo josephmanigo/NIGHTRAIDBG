@@ -65,11 +65,18 @@ function commandInteraction({
   }
 }
 
-function guessMessage({ userId = 'player-1', content = '🥰 🫡 🐱 💚 😺 🛡️ 🎯', bot = false } = {}) {
+function guessMessage({
+  id = 'guess-message-1',
+  userId = 'player-1',
+  content = '🥰 🫡 🐱 💚 😺 🛡️ 🎯',
+  bot = false,
+} = {}) {
   const state = { reactions: [], sent: [] }
   return {
     state,
+    id,
     author: { id: userId, bot },
+    guildId: 'guild-1',
     channelId: CHANNEL_ID,
     content,
     inGuild: () => true,
@@ -231,6 +238,27 @@ test('player guessing correct sequence receives reaction and victory message', a
   assert.equal(winRes.status, 'won')
   assert.equal(winMsg.state.reactions.includes('✅'), true)
   assert.match(winMsg.state.sent[0].content, /# Guessed It!/)
+})
+
+test('an emoji-game winner receives one 50 NRT award', async () => {
+  const games = new Map()
+  const awardCalls = []
+  const workflow = createGuessTheEmojiWorkflow({
+    games,
+    gameIdImpl: () => GAME_ID,
+    onWinner: async (context) => {
+      awardCalls.push(context)
+      return { status: 'awarded', amount: 50, balance: 250 }
+    },
+  })
+  await workflow.handleInteraction(commandInteraction())
+  const winner = guessMessage({ id: 'emoji-winning-message', userId: 'emoji-winner' })
+  const result = await workflow.handleMessage(winner)
+  assert.equal(result.nrtAward.status, 'awarded')
+  assert.equal(awardCalls.length, 1)
+  assert.equal(awardCalls[0].gameType, 'emoji')
+  assert.equal(awardCalls[0].sourceMessageId, 'emoji-winning-message')
+  assert.match(winner.state.sent[0].content, /NRT Reward: \*\*\+50 NRT\*\*/)
 })
 
 test('endGame allows host or admin to terminate game', async () => {

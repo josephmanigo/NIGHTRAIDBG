@@ -20,6 +20,7 @@ import {
   MessageFlags,
   PermissionFlagsBits,
 } from 'discord.js'
+import { GUESS_WIN_NRT, renderNrtAwardLine } from './nrt-rewards.js'
 
 const WORD_PART_LIMIT = 32
 const WORD_LIMIT = WORD_PART_LIMIT * 2 + 1
@@ -202,13 +203,15 @@ export function renderWordGameOver({ game, endedBy }) {
   return lines.join('\n')
 }
 
-export function renderWordWin({ userId, game, result }) {
+export function renderWordWin({ userId, game, result, nrtAward = null }) {
   const tries = result.used === 1 ? '1 guess' : `${result.used} guesses`
   const lines = [
     '# Guessed It',
     `<@${userId}> found the word: **${game.secret}**.`,
   ]
   if (game.prize) lines.push(`Prize: **${game.prize}**`)
+  const nrtLine = renderNrtAwardLine(nrtAward)
+  if (nrtLine) lines.push(nrtLine)
   lines.push(`-# Won with ${tries}.`)
   return lines.join('\n')
 }
@@ -222,6 +225,7 @@ async function ephemeralMessage(interaction, content) {
 
 export function createGuessTheWordWorkflow(options = {}) {
   const games = options.games ?? new Map()
+  const onWinner = typeof options.onWinner === 'function' ? options.onWinner : null
   const newGameId = options.gameIdImpl
     ?? (() => randomInt(0, 0xffffffff).toString(16).padStart(8, '0'))
 
@@ -239,6 +243,31 @@ export function createGuessTheWordWorkflow(options = {}) {
     await message.react(emoji).catch((reason) => {
       console.error('Could not react to a guess:', reason instanceof Error ? reason.message : reason)
     })
+  }
+
+  async function awardWinner(message, game, result) {
+    if (!onWinner) return null
+    try {
+      return await onWinner({
+        gameType: 'word',
+        game,
+        gameId: game.gameId,
+        guildId: game.guildId ?? message.guildId,
+        channelId: game.channelId ?? message.channelId,
+        sourceMessageId: message.id,
+        userId: message.author.id,
+        message,
+        result,
+      })
+    } catch (reason) {
+      options.errorReporter?.report?.('guess_the_word_nrt_award', reason, {
+        gameId: game.gameId,
+        winnerId: message.author.id,
+        sourceMessageId: message.id,
+      })
+      console.error('Could not award NRT for a word-game win:', reason instanceof Error ? reason.message : reason)
+      return { status: 'error', amount: GUESS_WIN_NRT }
+    }
   }
 
   async function handleCommand(interaction) {
@@ -313,11 +342,12 @@ export function createGuessTheWordWorkflow(options = {}) {
     }
     if (result.status === 'correct') {
       await react(message, WORD_REACTIONS.correct)
+      const nrtAward = await awardWinner(message, game, result)
       await message.channel.send({
-        content: renderWordWin({ userId: message.author.id, game, result }),
+        content: renderWordWin({ userId: message.author.id, game, result, nrtAward }),
         allowedMentions: { parse: [] },
       })
-      return { status: 'won', gameId: game.gameId, winnerId: game.winnerId }
+      return { status: 'won', gameId: game.gameId, winnerId: game.winnerId, nrtAward }
     }
 
     await react(message, WORD_REACTIONS.wrong)

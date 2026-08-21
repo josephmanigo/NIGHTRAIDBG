@@ -24,6 +24,7 @@ import {
   MessageFlags,
   PermissionFlagsBits,
 } from 'discord.js'
+import { GUESS_WIN_NRT, renderNrtAwardLine } from './nrt-rewards.js'
 
 const PRIZE_LIMIT = 100
 
@@ -178,13 +179,15 @@ export function renderGameOver({ game, endedBy }) {
   return lines.join('\n')
 }
 
-export function renderWin({ userId, game, result }) {
+export function renderWin({ userId, game, result, nrtAward = null }) {
   const tries = result.used === 1 ? '1 guess' : `${result.used} guesses`
   const lines = [
     '# Guessed It',
     `<@${userId}> found the number: **${game.secret}**.`,
   ]
   if (game.prize) lines.push(`Prize: **${game.prize}**`)
+  const nrtLine = renderNrtAwardLine(nrtAward)
+  if (nrtLine) lines.push(nrtLine)
   lines.push(`-# Won with ${tries}.`)
   return lines.join('\n')
 }
@@ -199,6 +202,7 @@ async function ephemeralMessage(interaction, content) {
 export function createGuessTheNumberWorkflow(options = {}) {
   const games = options.games ?? new Map()
   const randomImpl = options.randomImpl ?? randomInt
+  const onWinner = typeof options.onWinner === 'function' ? options.onWinner : null
   const newGameId = options.gameIdImpl
     ?? (() => randomInt(0, 0xffffffff).toString(16).padStart(8, '0'))
 
@@ -216,6 +220,31 @@ export function createGuessTheNumberWorkflow(options = {}) {
     await message.react(emoji).catch((reason) => {
       console.error('Could not react to a guess:', reason instanceof Error ? reason.message : reason)
     })
+  }
+
+  async function awardWinner(message, game, result) {
+    if (!onWinner) return null
+    try {
+      return await onWinner({
+        gameType: 'number',
+        game,
+        gameId: game.gameId,
+        guildId: game.guildId ?? message.guildId,
+        channelId: game.channelId ?? message.channelId,
+        sourceMessageId: message.id,
+        userId: message.author.id,
+        message,
+        result,
+      })
+    } catch (reason) {
+      options.errorReporter?.report?.('guess_the_number_nrt_award', reason, {
+        gameId: game.gameId,
+        winnerId: message.author.id,
+        sourceMessageId: message.id,
+      })
+      console.error('Could not award NRT for a number-game win:', reason instanceof Error ? reason.message : reason)
+      return { status: 'error', amount: GUESS_WIN_NRT }
+    }
   }
 
   async function handleCommand(interaction) {
@@ -281,11 +310,12 @@ export function createGuessTheNumberWorkflow(options = {}) {
     }
     if (result.status === 'correct') {
       await react(message, GUESS_REACTIONS.correct)
+      const nrtAward = await awardWinner(message, game, result)
       await message.channel.send({
-        content: renderWin({ userId: message.author.id, game, result }),
+        content: renderWin({ userId: message.author.id, game, result, nrtAward }),
         allowedMentions: { parse: [] },
       })
-      return { status: 'won', gameId: game.gameId, winnerId: game.winnerId }
+      return { status: 'won', gameId: game.gameId, winnerId: game.winnerId, nrtAward }
     }
 
     await react(message, GUESS_REACTIONS[result.status])

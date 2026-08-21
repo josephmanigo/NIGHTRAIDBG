@@ -10,6 +10,7 @@ import { MidnightNrtStore } from './midnight-nrt-store.js'
  * nrt_adjust_balance RPC. */
 function createMockDatabase() {
   const table = new Map()
+  const awards = new Map()
 
   const client = {
     seededRows: () => Array.from(table.entries())
@@ -36,14 +37,51 @@ function createMockDatabase() {
         },
       }
     },
-    rpc: (fn, { p_user_id, p_amount }) => {
-      assert.equal(fn, 'nrt_adjust_balance')
-      const next = Math.max(0, (table.get(p_user_id) || 0) + Number(p_amount))
+    rpc: (fn, input) => {
+      const { p_user_id, p_amount } = input
+      if (fn === 'nrt_adjust_balance') {
+        const next = Math.max(0, (table.get(p_user_id) || 0) + Number(p_amount))
+        table.set(p_user_id, next)
+        return Promise.resolve({ data: next, error: null })
+      }
+      assert.equal(fn, 'nrt_award_once')
+      const existing = awards.get(input.p_idempotency_key)
+      if (existing) {
+        const same = existing.p_award_type === input.p_award_type
+          && existing.p_user_id === input.p_user_id
+          && existing.p_amount === input.p_amount
+          && existing.p_guild_id === input.p_guild_id
+          && existing.p_channel_id === input.p_channel_id
+          && existing.p_source_message_id === input.p_source_message_id
+          && existing.p_game_type === input.p_game_type
+        if (!same) return Promise.resolve({ data: null, error: new Error('conflicting award key') })
+        return Promise.resolve({
+          data: {
+            status: 'duplicate',
+            award_amount: existing.p_amount,
+            credited_amount: 0,
+            balance: table.get(existing.p_user_id) || 0,
+            idempotency_key: input.p_idempotency_key,
+          },
+          error: null,
+        })
+      }
+      awards.set(input.p_idempotency_key, { ...input })
+      const next = (table.get(p_user_id) || 0) + Number(p_amount)
       table.set(p_user_id, next)
-      return Promise.resolve({ data: next, error: null })
+      return Promise.resolve({
+        data: {
+          status: 'awarded',
+          award_amount: Number(p_amount),
+          credited_amount: Number(p_amount),
+          balance: next,
+          idempotency_key: input.p_idempotency_key,
+        },
+        error: null,
+      })
     },
   }
-  return { client, table }
+  return { client, table, awards }
 }
 
 test('database mode keeps NRT balances across a redeploy (fresh store, no file)', async () => {
@@ -104,4 +142,91 @@ test('database failures fall back to the file so the bot keeps working', async (
   assert.equal(await store.subtractNrt('user-x', 100), 0)
   assert.deepEqual((await store.getLeaderboard())[0], { userId: 'user-x', balance: 0 })
   fs.rmSync(tempPath)
+})
+
+test('automatic rewards are durable and credit each idempotency key exactly once', async () => {
+  const { client, awards } = createMockDatabase()
+  const firstDeploy = new MidnightNrtStore(null, client)
+  const award = {
+    idempotencyKey: 'post_reaction:message-1:user-1',
+    awardType: 'post_reaction',
+    userId: 'user-1',
+    amount: 10,
+    guildId: 'guild-1',
+    channelId: 'channel-1',
+    sourceMessageId: 'message-1',
+  }
+
+  assert.deepEqual(await firstDeploy.awardOnce(award), {
+    status: 'awarded',
+    amount: 10,
+    creditedAmount: 10,
+    balance: 10,
+    idempotencyKey: award.idempotencyKey,
+  })
+  assert.equal((await firstDeploy.awardOnce(award)).status, 'duplicate')
+  assert.equal(await firstDeploy.getBalance('user-1'), 10)
+
+  const secondDeploy = new MidnightNrtStore(null, client)
+  const replay = await secondDeploy.awardOnce(award)
+  assert.equal(replay.status, 'duplicate')
+  assert.equal(replay.balance, 10)
+  assert.equal(awards.size, 1)
+})
+
+test('concurrent automatic reward deliveries still credit only once', async () => {
+  const { client, awards } = createMockDatabase()
+  const store = new MidnightNrtStore(null, client)
+  const award = {
+    idempotencyKey: 'guess_win:word:winning-message',
+    awardType: 'guess_win',
+    userId: 'winner-1',
+    amount: 50,
+    guildId: 'guild-1',
+    channelId: 'game-channel',
+    sourceMessageId: 'winning-message',
+    gameType: 'word',
+    metadata: { game_id: 'game-1' },
+  }
+
+  const results = await Promise.all([store.awardOnce(award), store.awardOnce(award)])
+  assert.deepEqual(results.map((result) => result.status).sort(), ['awarded', 'duplicate'])
+  assert.equal(await store.getBalance('winner-1'), 50)
+  assert.equal(awards.size, 1)
+})
+
+test('an automatic reward key cannot be reused with conflicting data', async () => {
+  const { client } = createMockDatabase()
+  const store = new MidnightNrtStore(null, client)
+  const award = {
+    idempotencyKey: 'post_reaction:message-2:user-2',
+    awardType: 'post_reaction',
+    userId: 'user-2',
+    amount: 10,
+    guildId: 'guild-1',
+    channelId: 'channel-1',
+    sourceMessageId: 'message-2',
+  }
+  await store.awardOnce(award)
+  await assert.rejects(
+    store.awardOnce({ ...award, userId: 'different-user' }),
+    (error) => error?.code === 'NRT_AWARD_STORE_FAILED' && /conflicting award key/.test(error.message),
+  )
+})
+
+test('automatic rewards fail closed when durable storage is unavailable', async () => {
+  const store = new MidnightNrtStore(null, null)
+  await assert.rejects(
+    store.awardOnce({
+      idempotencyKey: 'post_reaction:message-3:user-3',
+      awardType: 'post_reaction',
+      userId: 'user-3',
+      amount: 10,
+      guildId: 'guild-1',
+      channelId: 'channel-1',
+      sourceMessageId: 'message-3',
+    }),
+    (error) => error?.code === 'NRT_AWARD_STORE_UNAVAILABLE',
+  )
+  assert.equal(await store.getBalance('user-3'), 0)
 })

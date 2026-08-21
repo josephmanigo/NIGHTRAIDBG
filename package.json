@@ -27,6 +27,8 @@
     "test:clearguessinggame": "node --test bot/clearguessinggame.test.js",
     "test:nrtleaderboard": "node --test bot/nrtleaderboard.test.js",
     "test:nrt-actions": "node --test bot/nrt-actions.test.js",
+    "test:nrt-store": "node --test bot/midnight-nrt-store.test.js",
+    "test:nrt-rewards": "node --test bot/nrt-rewards.test.js",
     "test:game-results-reader": "node --test bot/game-results-reader.test.js",
     "test:game-results-local": "node --test bot/game-results-local-reader.test.js",
     "test:game-results-scoreboard": "node --test bot/game-results-scoreboard-commands.test.js",
