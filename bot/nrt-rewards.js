@@ -96,7 +96,13 @@ export function createNrtRewardsWorkflow(options = {}) {
     if (options.reactionChannelIds) return configuredChannelIds(options.reactionChannelIds)
     if (options.reactionChannelId) return configuredChannelIds(options.reactionChannelId)
     if (process.env.NRT_REACTION_CHANNEL_IDS) return configuredChannelIds(process.env.NRT_REACTION_CHANNEL_IDS)
-    if (process.env.NRT_REACTION_CHANNEL_ID) return configuredChannelIds(process.env.NRT_REACTION_CHANNEL_ID)
+    if (process.env.NRT_REACTION_CHANNEL_ID) {
+      const legacyChannelIds = configuredChannelIds(process.env.NRT_REACTION_CHANNEL_ID)
+      if (legacyChannelIds.size === 1 && legacyChannelIds.has(DEFAULT_NRT_REACTION_CHANNEL_ID)) {
+        return new Set(DEFAULT_NRT_REACTION_CHANNEL_IDS)
+      }
+      return legacyChannelIds
+    }
     return new Set(DEFAULT_NRT_REACTION_CHANNEL_IDS)
   })()
   const targetChannelId = Array.from(targetChannelIds)[0] || DEFAULT_NRT_REACTION_CHANNEL_ID

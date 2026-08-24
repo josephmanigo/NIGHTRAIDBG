@@ -5,6 +5,7 @@ import test from 'node:test'
 import { Events } from 'discord.js'
 import {
   DEFAULT_NRT_REACTION_CHANNEL_ID,
+  DEFAULT_NRT_REACTION_CHANNEL_IDS,
   GUESS_WIN_NRT,
   POST_REACTION_NRT,
   createNrtRewardsWorkflow,
@@ -184,6 +185,24 @@ test('liking a post in both default channels 1208607689953779712 and 12086090034
   assert.equal(res2.status, 'awarded')
   assert.equal(res2.amount, 10)
   assert.equal(store.balances.get('user-alpha'), 20)
+})
+
+test('the legacy original-channel environment setting enables both default reward channels', () => {
+  const previousChannelId = process.env.NRT_REACTION_CHANNEL_ID
+  const previousChannelIds = process.env.NRT_REACTION_CHANNEL_IDS
+
+  try {
+    process.env.NRT_REACTION_CHANNEL_ID = DEFAULT_NRT_REACTION_CHANNEL_ID
+    delete process.env.NRT_REACTION_CHANNEL_IDS
+
+    const workflow = createNrtRewardsWorkflow({ store: createAwardStore(), guildId: GUILD_ID })
+    assert.deepEqual([...workflow.targetChannelIds], [...DEFAULT_NRT_REACTION_CHANNEL_IDS])
+  } finally {
+    if (previousChannelId === undefined) delete process.env.NRT_REACTION_CHANNEL_ID
+    else process.env.NRT_REACTION_CHANNEL_ID = previousChannelId
+    if (previousChannelIds === undefined) delete process.env.NRT_REACTION_CHANNEL_IDS
+    else process.env.NRT_REACTION_CHANNEL_IDS = previousChannelIds
+  }
 })
 
 test('partial reactions, messages, and users are fetched before eligibility checks', async () => {

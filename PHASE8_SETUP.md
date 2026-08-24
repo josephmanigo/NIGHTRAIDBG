@@ -63,7 +63,7 @@ In the NIGHTRAID server, the bot's role needs:
 
 - **Manage Nicknames**
 - **View Channel**, **Read Message History**, and **Add Reactions** in the nickname channel
-- **View Channel** and **Read Message History** in the NRT reaction-reward channel
+- **View Channel** and **Read Message History** in both NRT reaction-reward channels
 
 Discord's role hierarchy still applies: drag the bot's role **above** the member roles it should rename. The server owner can never be renamed by a bot — the bot marks those messages with ⚠️.
 
@@ -76,7 +76,7 @@ The bot reads:
 | `DISCORD_BOT_TOKEN` | Yes | Already configured for the rest of the system. |
 | `DISCORD_NICKNAME_CHANNEL_ID` | Yes | The nickname channel's ID. |
 | `DISCORD_GUILD_ID` | Yes for `/rules` | The NIGHTRAID server ID. |
-| `NRT_REACTION_CHANNEL_ID` | No | Channel whose posts award 10 NRT per reacting member. Defaults to `1208607689953779712`. |
+| `NRT_REACTION_CHANNEL_IDS` | No | Comma-separated channels whose posts award 10 NRT per reacting member. Defaults to `1208607689953779712,1208609003404533780`. |
 | `DISCORD_RULES_CHANNEL_ID` | No | Overrides the default NIGHTRAID rules channel (`1208605026868535387`). |
 | `SCRIM_REGISTRATION_OPENER_IDS` | No | Extra Discord user IDs allowed to open a scrim cycle with a GIF, separated by commas. EMS is already allowed. |
 | `GAME_RESULTS_CHANNEL_ID` | No | Screenshot intake channel. Defaults to `1532004107404050534`. |
@@ -244,13 +244,13 @@ Guessing-game wins and post reactions feed the existing `/nrtleaderboard` balanc
 | Win `/guessthenumber` | 50 NRT | Winning Discord message |
 | Win `/guesstheword` | 50 NRT | Winning Discord message |
 | Win `/guesstheemoji` | 50 NRT | Winning Discord message |
-| React to a post in `NRT_REACTION_CHANNEL_ID` | 10 NRT | Reacting member plus post |
+| React to a post in `NRT_REACTION_CHANNEL_IDS` | 10 NRT | Reacting member plus post |
 
 A member earns only **10 NRT total per post**, even when they add several different emoji. Removing every reaction does not subtract the award or restore eligibility, so removing and reacting again earns nothing. Different members can each earn 10 NRT on the same post, and the same member can earn another 10 NRT on a different post. Bot reactions and self-reactions are ignored. Posts directly in the configured channel and posts in child/forum threads under it are eligible. Existing reactions are not backfilled; the bot handles reaction-add events received after deployment.
 
 This anti-spam rule is enforced in Supabase rather than process memory. Before deploying the bot code, apply `database/phase25.sql`, then `database/phase26.sql`. Phase 26 records the source event and balance change in one transaction, making gateway replays, concurrent deliveries, and bot restarts duplicate-safe. Automatic rewards deliberately fail closed when that RPC is unavailable; they never fall back to a duplicate-prone local increment. Keep `SUPABASE_URL` and `SUPABASE_SECRET_KEY` configured on the long-running bot.
 
-The Discord client enables the non-privileged Guild Message Reactions gateway intent in code. The bot still needs **View Channel** and **Read Message History** in the configured reward channel so uncached reaction messages can be fetched.
+The Discord client enables the non-privileged Guild Message Reactions gateway intent in code. The bot still needs **View Channel** and **Read Message History** in each configured reward channel so uncached reaction messages can be fetched.
 
 Run the reward tests with:
 
