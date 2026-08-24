@@ -158,14 +158,25 @@ export function createNrtRewardsWorkflow(options = {}) {
       const sourceMessageId = String(message?.id ?? '').trim()
       context = { userId, sourceMessageId }
 
-      if (!userId || reactor?.bot) return { status: 'ignored', reason: 'bot_or_missing_user' }
+      if (!userId || reactor?.bot) {
+        console.log('[NRT rewards] Reaction ignored: bot or missing user')
+        return { status: 'ignored', reason: 'bot_or_missing_user' }
+      }
       const guildId = String(message?.guildId ?? message?.guild?.id ?? '').trim()
-      if (!guildId) return { status: 'ignored', reason: 'direct_message' }
-      if (targetGuildId && guildId !== targetGuildId) return { status: 'ignored', reason: 'wrong_guild' }
+      if (!guildId) {
+        console.log('[NRT rewards] Reaction ignored: direct message')
+        return { status: 'ignored', reason: 'direct_message' }
+      }
+      if (targetGuildId && guildId !== targetGuildId) {
+        console.log(`[NRT rewards] Reaction ignored: wrong guild (${guildId} !== ${targetGuildId})`)
+        return { status: 'ignored', reason: 'wrong_guild' }
+      }
       if (targetChannelIds.size === 0 || !isTargetChannel(message, targetChannelIds)) {
+        console.log(`[NRT rewards] Reaction ignored: channel ${message?.channelId} not in target channels [${Array.from(targetChannelIds).join(', ')}]`)
         return { status: 'ignored', reason: 'wrong_channel' }
       }
       if (excludeSelfReactions && String(message?.author?.id ?? '') === userId) {
+        console.log(`[NRT rewards] Reaction ignored: user ${userId} reacted to their own message (self_reaction)`)
         return { status: 'ignored', reason: 'self_reaction' }
       }
 
@@ -188,6 +199,7 @@ export function createNrtRewardsWorkflow(options = {}) {
           first_observed_emoji: emojiIdentifier,
         },
       })
+      console.log(`[NRT rewards] Reaction processed: user=${userId}, message=${sourceMessageId}, status=${result.status}, balance=${result.balance}`)
       return { ...result, userId, sourceMessageId }
     } catch (reason) {
       report(options, 'nrt_post_reaction_award', reason, context)

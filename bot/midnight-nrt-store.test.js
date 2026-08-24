@@ -214,19 +214,26 @@ test('an automatic reward key cannot be reused with conflicting data', async () 
   )
 })
 
-test('automatic rewards fail closed when durable storage is unavailable', async () => {
+test('automatic rewards seamlessly fall back to local store when database is unavailable', async () => {
   const store = new MidnightNrtStore(null, null)
-  await assert.rejects(
-    store.awardOnce({
-      idempotencyKey: 'post_reaction:message-3:user-3',
-      awardType: 'post_reaction',
-      userId: 'user-3',
-      amount: 10,
-      guildId: 'guild-1',
-      channelId: 'channel-1',
-      sourceMessageId: 'message-3',
-    }),
-    (error) => error?.code === 'NRT_AWARD_STORE_UNAVAILABLE',
-  )
-  assert.equal(await store.getBalance('user-3'), 0)
+  const award = {
+    idempotencyKey: 'post_reaction:message-3:user-3',
+    awardType: 'post_reaction',
+    userId: 'user-3',
+    amount: 10,
+    guildId: 'guild-1',
+    channelId: 'channel-1',
+    sourceMessageId: 'message-3',
+  }
+
+  const res1 = await store.awardOnce(award)
+  assert.equal(res1.status, 'awarded')
+  assert.equal(res1.balance, 10)
+  assert.equal(await store.getBalance('user-3'), 10)
+
+  const res2 = await store.awardOnce(award)
+  assert.equal(res2.status, 'duplicate')
+  assert.equal(res2.creditedAmount, 0)
+  assert.equal(res2.balance, 10)
+  assert.equal(await store.getBalance('user-3'), 10)
 })

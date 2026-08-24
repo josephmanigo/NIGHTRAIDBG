@@ -41,7 +41,9 @@ function writeLegacyBalances(filePath, nrtBalances) {
 export class MidnightNrtStore {
   constructor(filePath = DEFAULT_STORE_PATH, client = undefined) {
     this.filePath = filePath
+    this.awardsFilePath = filePath ? path.join(path.dirname(filePath), 'midnight-nrt-awards.json') : null
     this.memoryNrt = {}
+    this.memoryAwards = {}
     this.client = null
     this.clientResolved = client !== undefined
     if (this.clientResolved) this.client = client || null
@@ -100,6 +102,33 @@ export class MidnightNrtStore {
   }
 
   /* Synchronous file-mode helpers. */
+  loadAwardsFromFile() {
+    if (!this.awardsFilePath) return { ...this.memoryAwards }
+    try {
+      if (!fs.existsSync(this.awardsFilePath)) return {}
+      const parsed = JSON.parse(fs.readFileSync(this.awardsFilePath, 'utf8'))
+      return typeof parsed === 'object' && parsed !== null ? parsed : {}
+    } catch (reason) {
+      console.error('[MidnightNrtStore] Failed to load awards:', reason instanceof Error ? reason.message : reason)
+      return {}
+    }
+  }
+
+  saveAwardsToFile(awards) {
+    if (!this.awardsFilePath) {
+      this.memoryAwards = { ...awards }
+      return true
+    }
+    try {
+      fs.mkdirSync(path.dirname(this.awardsFilePath), { recursive: true })
+      fs.writeFileSync(this.awardsFilePath, JSON.stringify(awards, null, 2), 'utf8')
+      return true
+    } catch (reason) {
+      console.error('[MidnightNrtStore] Failed to save awards:', reason instanceof Error ? reason.message : reason)
+      return false
+    }
+  }
+
   loadFromFile() {
     if (!this.filePath) return { ...this.memoryNrt }
     return readLegacyBalances(this.filePath)
@@ -238,51 +267,93 @@ export class MidnightNrtStore {
     }
 
     const db = this.database()
-    if (!db) {
-      const error = new Error(
-        'Automatic NRT awards require Supabase and database/phase26.sql; file fallback is not idempotent.',
-      )
-      error.code = 'NRT_AWARD_STORE_UNAVAILABLE'
-      throw error
+    if (db) {
+      try {
+        await this.ensureSeeded()
+        const { data, error } = await db.rpc('nrt_award_once', {
+          p_idempotency_key: input.idempotencyKey,
+          p_award_type: input.awardType,
+          p_user_id: input.userId,
+          p_amount: input.amount,
+          p_guild_id: input.guildId,
+          p_channel_id: input.channelId,
+          p_source_message_id: input.sourceMessageId,
+          p_game_type: input.gameType,
+          p_metadata: input.metadata,
+        })
+        if (error) {
+          if (String(error.message || '').includes('conflicting') || String(error.message || '').includes('Invalid')) {
+            const err = new Error(`Automatic NRT award failed: ${error.message}`)
+            err.code = 'NRT_AWARD_STORE_FAILED'
+            throw err
+          }
+          throw error
+        }
+        const result = Array.isArray(data) ? data[0] : data
+        if (
+          !result
+          || !['awarded', 'duplicate'].includes(result.status)
+          || !Number.isFinite(Number(result.balance))
+        ) {
+          throw new Error('The nrt_award_once RPC returned an invalid result.')
+        }
+        this.usingFallback = false
+        return {
+          status: result.status,
+          amount: Number(result.award_amount ?? input.amount),
+          creditedAmount: Number(result.credited_amount ?? (result.status === 'awarded' ? input.amount : 0)),
+          balance: Number(result.balance),
+          idempotencyKey: String(result.idempotency_key ?? input.idempotencyKey),
+        }
+      } catch (reason) {
+        if (reason?.code === 'NRT_AWARD_STORE_FAILED') throw reason
+        console.error(
+          '[MidnightNrtStore] Database automatic award failed, falling back to local file:',
+          reason instanceof Error ? reason.message : reason,
+        )
+        this.usingFallback = true
+      }
+    } else {
+      this.usingFallback = true
     }
 
-    try {
-      await this.ensureSeeded()
-      const { data, error } = await db.rpc('nrt_award_once', {
-        p_idempotency_key: input.idempotencyKey,
-        p_award_type: input.awardType,
-        p_user_id: input.userId,
-        p_amount: input.amount,
-        p_guild_id: input.guildId,
-        p_channel_id: input.channelId,
-        p_source_message_id: input.sourceMessageId,
-        p_game_type: input.gameType,
-        p_metadata: input.metadata,
-      })
-      if (error) throw error
-      const result = Array.isArray(data) ? data[0] : data
+    // Local file / memory fallback for automatic rewards
+    const awards = this.loadAwardsFromFile()
+    const existing = awards[input.idempotencyKey]
+    if (existing) {
       if (
-        !result
-        || !['awarded', 'duplicate'].includes(result.status)
-        || !Number.isFinite(Number(result.balance))
+        existing.userId !== input.userId ||
+        existing.awardType !== input.awardType ||
+        existing.amount !== input.amount ||
+        existing.sourceMessageId !== input.sourceMessageId
       ) {
-        throw new Error('The nrt_award_once RPC returned an invalid result.')
+        const error = new Error('Automatic NRT award key was reused with conflicting data.')
+        error.code = 'NRT_AWARD_STORE_FAILED'
+        throw error
       }
-      this.usingFallback = false
+      const balances = this.loadFromFile()
       return {
-        status: result.status,
-        amount: Number(result.award_amount ?? input.amount),
-        creditedAmount: Number(result.credited_amount ?? (result.status === 'awarded' ? input.amount : 0)),
-        balance: Number(result.balance),
-        idempotencyKey: String(result.idempotency_key ?? input.idempotencyKey),
+        status: 'duplicate',
+        amount: existing.amount,
+        creditedAmount: 0,
+        balance: balances[input.userId] || 0,
+        idempotencyKey: input.idempotencyKey,
       }
-    } catch (reason) {
-      const error = new Error(
-        `Automatic NRT award failed; verify database/phase26.sql: ${reason instanceof Error ? reason.message : String(reason)}`,
-        { cause: reason },
-      )
-      error.code = 'NRT_AWARD_STORE_FAILED'
-      throw error
+    }
+
+    awards[input.idempotencyKey] = { ...input, created_at: new Date().toISOString() }
+    this.saveAwardsToFile(awards)
+
+    const balances = this.loadFromFile()
+    balances[input.userId] = (balances[input.userId] || 0) + input.amount
+    this.saveToFile(balances)
+
+    return {
+      status: 'awarded',
+      amount: input.amount,
+      creditedAmount: input.amount,
+      balance: balances[input.userId],
+      idempotencyKey: input.idempotencyKey,
     }
   }
 
