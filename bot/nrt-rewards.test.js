@@ -160,7 +160,30 @@ test('forum or thread posts under the configured channel are eligible', async ()
   )
   assert.equal(result.status, 'awarded')
   assert.equal(store.calls[0].channelId, 'thread-1')
-  assert.equal(store.calls[0].metadata.target_channel_id, TARGET_CHANNEL_ID)
+  assert.equal(store.calls[0].metadata.target_channel_id, 'thread-1')
+})
+
+test('liking a post in both default channels 1208607689953779712 and 1208609003404533780 awards 10 NRT each', async () => {
+  const store = createAwardStore()
+  const workflow = createNrtRewardsWorkflow({ store, guildId: GUILD_ID })
+
+  // Liking a post in channel 1208607689953779712
+  const res1 = await workflow.handleReactionAdd(
+    reactionEvent({ messageId: 'msg-ch1', channelId: '1208607689953779712' }),
+    reactor('user-alpha'),
+  )
+  assert.equal(res1.status, 'awarded')
+  assert.equal(res1.amount, 10)
+  assert.equal(store.balances.get('user-alpha'), 10)
+
+  // Liking a post in channel 1208609003404533780
+  const res2 = await workflow.handleReactionAdd(
+    reactionEvent({ messageId: 'msg-ch2', channelId: '1208609003404533780' }),
+    reactor('user-alpha'),
+  )
+  assert.equal(res2.status, 'awarded')
+  assert.equal(res2.amount, 10)
+  assert.equal(store.balances.get('user-alpha'), 20)
 })
 
 test('partial reactions, messages, and users are fetched before eligibility checks', async () => {

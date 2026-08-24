@@ -2,6 +2,10 @@ import { Events } from 'discord.js'
 import { midnightNrtStore } from './midnight-nrt-store.js'
 
 export const DEFAULT_NRT_REACTION_CHANNEL_ID = '1208607689953779712'
+export const DEFAULT_NRT_REACTION_CHANNEL_IDS = Object.freeze([
+  '1208607689953779712',
+  '1208609003404533780',
+])
 export const GUESS_WIN_NRT = 50
 export const POST_REACTION_NRT = 10
 
@@ -11,6 +15,14 @@ function requiredId(value, name) {
   const id = String(value ?? '').trim()
   if (!id) throw new Error(`${name} is required for an automatic NRT award.`)
   return id
+}
+
+function configuredChannelIds(value) {
+  if (value instanceof Set) return new Set([...value].map(String))
+  if (Array.isArray(value)) return new Set(value.map(String))
+  const str = String(value ?? '').trim()
+  if (!str) return new Set()
+  return new Set(str.split(',').map((id) => id.trim()).filter(Boolean))
 }
 
 export function guessWinAwardKey(gameType, sourceMessageId) {
@@ -72,19 +84,22 @@ async function resolveReactionEvent(reaction, user) {
   return { reaction: resolvedReaction, message, user: resolvedUser }
 }
 
-function isTargetChannel(message, targetChannelId) {
+function isTargetChannel(message, targetChannelIds) {
   const channelId = String(message?.channelId ?? message?.channel?.id ?? '')
   const parentId = String(message?.channel?.parentId ?? '')
-  return channelId === targetChannelId || parentId === targetChannelId
+  return targetChannelIds.has(channelId) || (Boolean(parentId) && targetChannelIds.has(parentId))
 }
 
 export function createNrtRewardsWorkflow(options = {}) {
   const store = options.store ?? midnightNrtStore
-  const targetChannelId = String(
-    options.reactionChannelId
-      ?? process.env.NRT_REACTION_CHANNEL_ID
-      ?? DEFAULT_NRT_REACTION_CHANNEL_ID,
-  ).trim()
+  const targetChannelIds = (() => {
+    if (options.reactionChannelIds) return configuredChannelIds(options.reactionChannelIds)
+    if (options.reactionChannelId) return configuredChannelIds(options.reactionChannelId)
+    if (process.env.NRT_REACTION_CHANNEL_IDS) return configuredChannelIds(process.env.NRT_REACTION_CHANNEL_IDS)
+    if (process.env.NRT_REACTION_CHANNEL_ID) return configuredChannelIds(process.env.NRT_REACTION_CHANNEL_ID)
+    return new Set(DEFAULT_NRT_REACTION_CHANNEL_IDS)
+  })()
+  const targetChannelId = Array.from(targetChannelIds)[0] || DEFAULT_NRT_REACTION_CHANNEL_ID
   const targetGuildId = String(options.guildId ?? '').trim() || null
   const excludeSelfReactions = options.excludeSelfReactions !== false
 
@@ -147,7 +162,7 @@ export function createNrtRewardsWorkflow(options = {}) {
       const guildId = String(message?.guildId ?? message?.guild?.id ?? '').trim()
       if (!guildId) return { status: 'ignored', reason: 'direct_message' }
       if (targetGuildId && guildId !== targetGuildId) return { status: 'ignored', reason: 'wrong_guild' }
-      if (!targetChannelId || !isTargetChannel(message, targetChannelId)) {
+      if (targetChannelIds.size === 0 || !isTargetChannel(message, targetChannelIds)) {
         return { status: 'ignored', reason: 'wrong_channel' }
       }
       if (excludeSelfReactions && String(message?.author?.id ?? '') === userId) {
@@ -167,7 +182,7 @@ export function createNrtRewardsWorkflow(options = {}) {
         sourceMessageId: requiredId(sourceMessageId, 'sourceMessageId'),
         gameType: null,
         metadata: {
-          target_channel_id: targetChannelId,
+          target_channel_id: channelId,
           channel_parent_id: message?.channel?.parentId ?? null,
           message_author_id: message?.author?.id ?? null,
           first_observed_emoji: emojiIdentifier,
@@ -188,6 +203,7 @@ export function createNrtRewardsWorkflow(options = {}) {
   return {
     awardGuessingGameWin,
     handleReactionAdd,
+    targetChannelIds,
     targetChannelId,
     targetGuildId,
     excludeSelfReactions,

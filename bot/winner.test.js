@@ -228,16 +228,38 @@ test('extractPrizeFromText extracts prize from announcement text or game win mes
 
   const text5 = '💸 **Prize**: VIP Role'
   assert.equal(extractPrizeFromText(text5), 'VIP Role')
+
+  // Word game win announcement with NRT reward combo
+  const text6 = '# Guessed It\n<@12345> found the word: **Whisk**.\nPrize: 30 GCASH + 50 NRT\nNRT Reward: +50 NRT. New balance: 60 NRT.\nWon with 1 guess.'
+  assert.equal(extractPrizeFromText(text6), '30 GCash')
+  assert.equal(formatPublicNoticePrize(extractPrizeFromText(text6)), 'P30')
+
+  // Announcement message with emoji prefix and edited prize
+  const text7 = 'CONGRATS <@12345> YOU WON\n\n💸 Prize: 💸 30 GCASH'
+  assert.equal(extractPrizeFromText(text7), '30 GCash')
+  assert.equal(formatPublicNoticePrize(extractPrizeFromText(text7)), 'P30')
+
+  // Snowflake IDs must not be treated as prizes
+  assert.equal(extractPrizeFromText('1535215403834544158'), null)
 })
 
-test('formatPublicNoticePrize formats 50 GCash, 100 GCash, 200 GCash dynamically', () => {
+test('formatPublicNoticePrize formats 30 GCash, 50 GCash, 100 GCash, 200 GCash dynamically', () => {
+  assert.equal(formatPublicNoticePrize('30 GCash'), 'P30')
+  assert.equal(formatPublicNoticePrize('30 GCASH + 50 NRT'), 'P30')
+  assert.equal(formatPublicNoticePrize('💸 30 GCASH'), 'P30')
+  assert.equal(formatPublicNoticePrize('30'), 'P30')
+  assert.equal(formatPublicNoticePrize('P30'), 'P30')
+  assert.equal(formatPublicNoticePrize('₱30'), 'P30')
   assert.equal(formatPublicNoticePrize('50 GCash'), 'P50')
   assert.equal(formatPublicNoticePrize('50'), 'P50')
   assert.equal(formatPublicNoticePrize('P50'), 'P50')
   assert.equal(formatPublicNoticePrize('100 GCash'), 'P100')
   assert.equal(formatPublicNoticePrize('100'), 'P100')
   assert.equal(formatPublicNoticePrize('200 GCash'), 'P200')
+  assert.equal(formatPublicNoticePrize('500 GCash'), 'P500')
+  assert.equal(formatPublicNoticePrize('VIP Role'), 'VIP Role')
   assert.equal(formatPublicNoticePrize(null), 'P100')
+  assert.equal(formatPublicNoticePrize('1535215403834544158'), 'P100')
 })
 
 test('renderPublicClaimNotice formats notice using custom emoji 1535222637545001082 and space line after via gcash', () => {

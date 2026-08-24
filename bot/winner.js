@@ -197,14 +197,42 @@ export function renderClaimCard({
 export function formatPublicNoticePrize(prize) {
   if (!prize) return 'P100'
   const str = String(prize).trim()
-  const match = str.match(/^(?:P|₱)?\s*(\d+)\s*(?:GCash)?$/i)
-  if (match) {
-    return `P${match[1]}`
+
+  // Guard against snowflake IDs (16-22 digits)
+  if (/^\d{16,22}$/.test(str)) {
+    return 'P100'
   }
-  if (str.toLowerCase().includes('50')) return 'P50'
-  if (str.toLowerCase().includes('100')) return 'P100'
-  if (str.toLowerCase().includes('200')) return 'P200'
-  if (str.toLowerCase().includes('500')) return 'P500'
+
+  // 1. Check for explicit currency prefix + number, e.g. "P30", "₱30", "P100", "₱50"
+  const cleanMatch = str.match(/^(?:P|₱)\s*(\d+)$/i)
+  if (cleanMatch) {
+    return `P${cleanMatch[1]}`
+  }
+
+  // 2. Check for GCash amount inside string, e.g. "30 GCash", "30 GCASH + 50 NRT", "₱30 GCash", "💸 30 GCASH"
+  const gcashMatch = str.match(/(?:(?:P|₱)\s*)?(\d+)\s*(?:GCASH|gcash|Gcash)/i)
+  if (gcashMatch) {
+    return `P${gcashMatch[1]}`
+  }
+
+  // 3. Try extractPrizeFromText
+  const extracted = extractPrizeFromText(str)
+  if (extracted && extracted !== str) {
+    return formatPublicNoticePrize(extracted)
+  }
+
+  // 4. Standard numeric match, e.g. "30", "50", "100", "200"
+  const numMatch = str.match(/^(?:P|₱)?\s*(\d+)\s*(?:GCash)?$/i)
+  if (numMatch) {
+    return `P${numMatch[1]}`
+  }
+
+  // 5. Any number in the string (not snowflake)
+  const anyNumMatch = str.match(/(?:P|₱)?\s*(\d+)/i)
+  if (anyNumMatch && !/^\d{16,}$/.test(anyNumMatch[1])) {
+    return `P${anyNumMatch[1]}`
+  }
+
   return str
 }
 
@@ -309,21 +337,30 @@ export function extractPrizeFromText(text) {
   if (!text) return null
   const str = String(text)
 
-  const prizeLabelMatch = str.match(/(?:\*\*)?Prize(?:\*\*)?\s*:\s*(?:\*\*)?([^*]+|\d+)(?:\*\*)?/i)
+  // Guard against snowflake IDs
+  if (/^\d{16,22}$/.test(str.trim())) return null
+
+  // 1. Explicit Prize label: "Prize: 30 GCASH + 50 NRT", "💸 Prize: 💸 30 GCASH", "**Prize**: 50 GCash"
+  const prizeLabelMatch = str.match(/(?:\*\*)?Prize(?:\*\*)?\s*:\s*(?:\*\*)?([^*\n]+|\d+)(?:\*\*)?/i)
   if (prizeLabelMatch) {
     const val = prizeLabelMatch[1].trim()
-    const amountMatch = val.match(/(\d+)/)
-    if (amountMatch) return `${amountMatch[1]} GCash`
-    return val
+    const gcashInVal = val.match(/(\d+)\s*(?:GCASH|gcash|Gcash)/i)
+    if (gcashInVal) return `${gcashInVal[1]} GCash`
+    const amountMatch = val.match(/(?:P|₱)?\s*(\d+)/i)
+    if (amountMatch && !/^\d{16,}$/.test(amountMatch[1])) return `${amountMatch[1]} GCash`
+    const cleaned = val.replace(/^[💸\s]+|[💸\s]+$/g, '').trim()
+    return cleaned || val
   }
 
+  // 2. GCash mention anywhere: "30 GCASH", "50 gcash", "100 GCash"
   const gcashMatch = str.match(/(\d+)\s*(?:GCASH|gcash|Gcash)/i)
-  if (gcashMatch) {
+  if (gcashMatch && !/^\d{16,}$/.test(gcashMatch[1])) {
     return `${gcashMatch[1]} GCash`
   }
 
+  // 3. Currency symbol mention: "₱30", "P50", "₱ 100" (ignore snowflake / long digit strings)
   const pMatch = str.match(/(?:P|₱)\s*(\d+)/i)
-  if (pMatch) {
+  if (pMatch && !/^\d{16,}$/.test(pMatch[1])) {
     return `P${pMatch[1]}`
   }
 
@@ -347,21 +384,25 @@ export function parseWinnerFromMessage(message) {
   let gameType = null
   let secret = null
 
-  const wordMatch = content.match(/found the word:\s*\*\*([^*]+)\*\*/)
-  const numberMatch = content.match(/found the number:\s*\*\*([^*]+)\*\*/)
+  const wordMatch = content.match(/found the word:\s*\*\*([^*]+)\*\*/) || content.match(/found the word:\s*([^.\n]+)/i)
+  const numberMatch = content.match(/found the number:\s*\*\*([^*]+)\*\*/) || content.match(/found the number:\s*([^.\n]+)/i)
 
   if (wordMatch) {
     gameType = 'word'
-    secret = wordMatch[1]
+    secret = wordMatch[1].trim()
   } else if (numberMatch) {
     gameType = 'number'
-    secret = numberMatch[1]
+    secret = numberMatch[1].trim()
   } else {
     return null
   }
 
-  const prizeMatch = content.match(/Prize:\s*\*\*([^*]+)\*\*/)
-  const prize = prizeMatch ? prizeMatch[1] : null
+  const prizeMatch = content.match(/(?:\*\*)?Prize(?:\*\*)?\s*:\s*(?:\*\*)?([^*\n]+|\d+)(?:\*\*)?/i)
+  let prize = prizeMatch ? prizeMatch[1].trim() : null
+  if (prize) {
+    const extracted = extractPrizeFromText(prize)
+    if (extracted) prize = extracted
+  }
 
   const triesMatch = content.match(/Won with\s+([^\n.]+)/i)
   const tries = triesMatch ? triesMatch[1].trim() : null
@@ -543,24 +584,60 @@ async function syncPublicClaimNotice(
     const botUserId = client.user?.id
     const noticeKey = publicNoticeKey(winnerId, claimReference)
 
-    // If prize is still unresolved, attempt to find win message in channel cache
-    if (!resolvedPrize && client.channels?.cache) {
+    // If prize is still unresolved, attempt to find prize in source message or channel messages
+    if (!resolvedPrize && claimReference && /^\d{16,22}$/.test(claimReference)) {
       try {
-        for (const [, ch] of client.channels.cache) {
-          if (ch?.messages?.cache) {
-            const list = Array.from(ch.messages.cache.values())
-            const winMsg = list.find(
-              (m) =>
-                m.content?.includes(winnerId) &&
-                (m.content?.includes('# Guessed It') || m.content?.includes('Prize:')),
-            )
-            if (winMsg) {
-              const parsed = parseWinnerFromMessage(winMsg)
-              if (parsed?.prize) {
-                resolvedPrize = parsed.prize
-                activeWinnerPrizes.set(activePrizeKey(winnerId, claimReference), resolvedPrize)
-                break
+        if (client.channels?.cache) {
+          for (const [, ch] of client.channels.cache) {
+            if (ch?.isTextBased?.() && ch.messages?.fetch) {
+              const srcMsg = await ch.messages.fetch(claimReference).catch(() => null)
+              if (srcMsg?.content) {
+                const extracted = extractPrizeFromText(srcMsg.content)
+                if (extracted) {
+                  resolvedPrize = extracted
+                  activeWinnerPrizes.set(activePrizeKey(winnerId, claimReference), resolvedPrize)
+                  break
+                }
               }
+            }
+          }
+        }
+      } catch {}
+    }
+
+    if (!resolvedPrize && client.channels) {
+      try {
+        const candidateChannels = []
+        if (publicChannel) candidateChannels.push(publicChannel)
+        const winChannel = client.channels.cache?.get?.(DEFAULT_WINNER_CHANNEL_ID)
+          || (client.channels.fetch ? await client.channels.fetch(DEFAULT_WINNER_CHANNEL_ID).catch(() => null) : null)
+        if (winChannel) candidateChannels.push(winChannel)
+        if (client.channels.cache) {
+          for (const [, ch] of client.channels.cache) {
+            if (!candidateChannels.includes(ch) && ch?.isTextBased?.()) {
+              candidateChannels.push(ch)
+            }
+          }
+        }
+
+        for (const ch of candidateChannels) {
+          let list = ch.messages?.cache ? Array.from(ch.messages.cache.values()) : []
+          if (list.length === 0 && ch.messages?.fetch) {
+            const fetched = await ch.messages.fetch({ limit: 50 }).catch(() => null)
+            if (fetched) list = Array.from(fetched.values ? fetched.values() : fetched)
+          }
+          const winMsg = list.find(
+            (m) =>
+              m.content?.includes(winnerId) &&
+              (m.content?.includes('# Guessed It') || m.content?.includes('Prize:') || m.content?.includes('found the word:') || m.content?.includes('found the number:')),
+          )
+          if (winMsg) {
+            const extracted = extractPrizeFromText(winMsg.content)
+            const parsed = parseWinnerFromMessage(winMsg)
+            resolvedPrize = extracted || parsed?.prize || null
+            if (resolvedPrize) {
+              activeWinnerPrizes.set(activePrizeKey(winnerId, claimReference), resolvedPrize)
+              break
             }
           }
         }
