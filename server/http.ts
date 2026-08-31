@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { env } from './env.js'
+import { hasTrustedRequestOrigin } from './http-origin.js'
 
 export function singleQueryValue(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value
@@ -17,6 +18,10 @@ export function methodNotAllowed(response: VercelResponse, allowed: string[]) {
 export function getRequestOrigin(request: VercelRequest) {
   if (env.appUrl()) return env.appUrl()!.replace(/\/$/, '')
 
+  return getIncomingRequestOrigin(request)
+}
+
+function getIncomingRequestOrigin(request: VercelRequest) {
   const forwardedHost = singleQueryValue(request.headers['x-forwarded-host'])
   const host = forwardedHost || singleQueryValue(request.headers.host) || 'localhost:3000'
   const forwardedProto = singleQueryValue(request.headers['x-forwarded-proto'])
@@ -35,10 +40,13 @@ export function safeReturnTo(value: string | undefined) {
 
 export function hasTrustedOrigin(request: VercelRequest) {
   const fetchSite = singleQueryValue(request.headers['sec-fetch-site'])
-  if (fetchSite === 'cross-site') return false
   const origin = singleQueryValue(request.headers.origin)
-  if (!origin) return true
-  return origin === getRequestOrigin(request)
+  return hasTrustedRequestOrigin({
+    canonicalOrigin: getRequestOrigin(request),
+    fetchSite,
+    origin,
+    requestOrigin: getIncomingRequestOrigin(request),
+  })
 }
 
 export function requestBody(request: VercelRequest): unknown {
