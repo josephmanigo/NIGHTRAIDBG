@@ -1,0 +1,30 @@
+# Local/build directories that Vercel either recreates or never executes.
+/.git/
+/node_modules/
+/dist/
+/.vercel/
+
+# Source media archives duplicated by the optimized assets under public/.
+/images/
+/event/
+/media-archive/
+/Nr scrims-20260715T201032Z-1-001/
+/NEW  PRELOAD.mov
+/new.mp4
+/gabence.png
+/gomdi.png
+/agony.png
+/harl.png
+/wayne.png
+
+# Local-only caches and credentials.
+/.env
+/.env.local
+/.env.*.local
+/.venv/
+/.python-packages/
+__pycache__/
+*.pyc
+*.pyo
+*.tsbuildinfo
+/game_results.db.backups/

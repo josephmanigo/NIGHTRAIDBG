@@ -2,7 +2,9 @@ import { decryptSecret, encryptSecret } from './encryption.js'
 import {
   addDiscordGuildMember,
   addDiscordMemberRole,
+  fetchDiscordBotUser,
   fetchDiscordGuildRoles,
+  fetchDiscordOAuthAuthorization,
   nightNickname,
   refreshDiscordToken,
   sendDiscordWelcomeMessage,
@@ -10,6 +12,12 @@ import {
 } from './discord.js'
 import { env } from './env.js'
 import { getSupabaseAdmin } from './supabase.js'
+import { resolveDiscordGameRoles } from './discord-role-resolution.js'
+import {
+  addDiscordGuildMemberWithTokenRecovery,
+  isRejectedDiscordRefreshGrant,
+} from './discord-token-recovery.js'
+import { validateDiscordOnboardingIdentity } from './discord-onboarding-identity.js'
 
 const CLAIMABLE_APPLICATION_STATUSES = ['APPROVED', 'DISCORD_JOIN_FAILED']
 const CLAIMABLE_ONBOARDING_STATUSES = ['NOT_STARTED', 'FAILED']
@@ -27,7 +35,10 @@ function safeError(reason: unknown) {
   return message.slice(0, 500)
 }
 
-export async function validDiscordAccessToken(discordUserId: string) {
+export async function validDiscordAccessToken(
+  discordUserId: string,
+  options: { forceRefresh?: boolean } = {},
+) {
   const supabase = getSupabaseAdmin()
   const { data: connection, error } = await supabase
     .from('discord_connections')
@@ -38,16 +49,30 @@ export async function validDiscordAccessToken(discordUserId: string) {
   if (error || !connection) throw new Error('The applicant must reconnect Discord before onboarding.')
 
   const expiresAt = connection.token_expires_at ? new Date(connection.token_expires_at).getTime() : 0
-  if (expiresAt > Date.now() + 60_000) return decryptSecret(connection.encrypted_access_token)
+  if (!options.forceRefresh && expiresAt > Date.now() + 60_000) {
+    return decryptSecret(connection.encrypted_access_token)
+  }
   if (!connection.encrypted_refresh_token) throw new Error('The Discord authorization expired. Ask the applicant to reconnect Discord.')
 
-  const refreshed = await refreshDiscordToken(decryptSecret(connection.encrypted_refresh_token))
+  const refreshToken = decryptSecret(connection.encrypted_refresh_token)
+  let refreshed
+  try {
+    refreshed = await refreshDiscordToken(refreshToken)
+  } catch (reason) {
+    if (isRejectedDiscordRefreshGrant(reason)) {
+      throw new Error('The saved Discord authorization is no longer valid. Ask the applicant to reconnect Discord from the application status page, then retry onboarding.')
+    }
+    throw reason
+  }
+  if (!refreshed.scope.split(/\s+/).includes('guilds.join')) {
+    throw new Error('The saved Discord authorization is missing guilds.join. Ask the applicant to reconnect Discord from the application status page, then retry onboarding.')
+  }
   const nextExpiry = new Date(Date.now() + refreshed.expires_in * 1000).toISOString()
   const { error: updateError } = await supabase
     .from('discord_connections')
     .update({
       encrypted_access_token: encryptSecret(refreshed.access_token),
-      encrypted_refresh_token: encryptSecret(refreshed.refresh_token || decryptSecret(connection.encrypted_refresh_token)),
+      encrypted_refresh_token: encryptSecret(refreshed.refresh_token || refreshToken),
       token_expires_at: nextExpiry,
       updated_at: new Date().toISOString(),
     })
@@ -60,18 +85,7 @@ export async function validDiscordAccessToken(discordUserId: string) {
 async function resolveRoles(games: string[]) {
   const guildRoles = await fetchDiscordGuildRoles()
   const configuredGameRoles = env.discordGameRoleIds()
-  const requests = games.map((name) => ({ name, configuredId: configuredGameRoles[name as keyof typeof configuredGameRoles] }))
-
-  const resolved = requests.map(({ name, configuredId }) => {
-    const role = configuredId
-      ? guildRoles.find((candidate) => candidate.id === configuredId)
-      : guildRoles.find((candidate) => candidate.name.toLowerCase() === name.toLowerCase())
-    if (!role) throw new Error(`The Discord role "${name}" was not found.`)
-    if (role.managed) throw new Error(`The Discord role "${name}" is managed and cannot be assigned.`)
-    return role
-  })
-
-  return [...new Map(resolved.map((role) => [role.id, role])).values()]
+  return resolveDiscordGameRoles(games, guildRoles, configuredGameRoles)
 }
 
 async function writeOnboardingLog(input: {
@@ -114,12 +128,26 @@ export async function onboardApprovedApplication(applicationId: string): Promise
   const assignedRoles: string[] = []
   let memberPresent = false
   try {
-    const accessToken = await validDiscordAccessToken(application.discord_user_id)
     const roles = await resolveRoles(application.games)
-    const memberCreated = await addDiscordGuildMember(
+    const botUser = await fetchDiscordBotUser()
+    const memberCreated = await addDiscordGuildMemberWithTokenRecovery(
       application.discord_user_id,
-      accessToken,
       roles.map((role) => role.id),
+      {
+        accessToken: (discordUserId, forceRefresh) => validDiscordAccessToken(discordUserId, { forceRefresh }),
+        validateAccessToken: async (accessToken) => {
+          const grant = await fetchDiscordOAuthAuthorization(accessToken)
+          validateDiscordOnboardingIdentity({
+            expectedApplicationId: env.discordClientId(),
+            expectedDiscordUserId: application.discord_user_id,
+            botUserId: botUser.id,
+            grantApplicationId: grant.application.id,
+            grantDiscordUserId: grant.user?.id,
+            grantScopes: grant.scopes,
+          })
+        },
+        addMember: addDiscordGuildMember,
+      },
     )
     memberPresent = true
     if (memberCreated) {

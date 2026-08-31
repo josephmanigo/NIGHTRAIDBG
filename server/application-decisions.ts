@@ -1,4 +1,8 @@
 import type { VercelRequest } from '@vercel/node'
+import {
+  notifyApplicantThroughDiscord,
+  type ApplicantNotificationResult,
+} from './applicant-discord-notification.js'
 import { recordAuditEvent } from './audit.js'
 import {
   acceptedApplicantDiscordMessage,
@@ -24,49 +28,25 @@ export class DecisionConflictError extends Error {
   }
 }
 
-type ApplicantNotificationResult =
-  | { applicantNotification: 'COMPLETED'; notificationError?: never }
-  | { applicantNotification: 'PORTAL_ONLY'; notificationError?: never }
-  | { applicantNotification: 'FAILED'; notificationError: string }
-
 async function notifyApplicant(
   discordUserId: string,
   message: string,
   options: { temporarilyJoinForDelivery?: boolean } = {},
 ): Promise<ApplicantNotificationResult> {
-  let temporaryMemberAdded = false
-  try {
-    const member = await fetchDiscordGuildMember(discordUserId)
-    if (!member) {
-      if (!options.temporarilyJoinForDelivery) return { applicantNotification: 'PORTAL_ONLY' }
-      const accessToken = await validDiscordAccessToken(discordUserId)
-      temporaryMemberAdded = await addDiscordGuildMember(discordUserId, accessToken, [])
-    }
-  } catch (reason) {
-    const notificationError = reason instanceof Error ? reason.message.slice(0, 300) : 'Discord access failed.'
-    console.error('Applicant Discord access failed before notification:', notificationError)
-    return { applicantNotification: 'FAILED', notificationError }
-  }
-
-  try {
-    await sendDiscordDirectMessage(discordUserId, message)
-    return { applicantNotification: 'COMPLETED' }
-  } catch (reason) {
-    const notificationError = reason instanceof Error ? reason.message.slice(0, 300) : 'Discord notification failed.'
-    console.error('Applicant Discord decision notification failed:', notificationError)
-    return { applicantNotification: 'FAILED', notificationError }
-  } finally {
-    if (temporaryMemberAdded) {
-      try {
-        await removeDiscordGuildMember(discordUserId)
-      } catch (reason) {
-        console.error(
-          'Temporary rejected applicant could not be removed from Discord:',
-          reason instanceof Error ? reason.message : 'Unknown Discord removal error',
-        )
-      }
-    }
-  }
+  return notifyApplicantThroughDiscord(discordUserId, message, options, {
+    fetchMember: fetchDiscordGuildMember,
+    // Temporary rejection delivery requires a usable token immediately; force
+    // refresh so a timestamp-valid but revoked Discord token cannot block it.
+    validAccessToken: (userId) => validDiscordAccessToken(userId, { forceRefresh: true }),
+    addMember: (userId, accessToken) => addDiscordGuildMember(userId, accessToken, []),
+    sendDirectMessage: sendDiscordDirectMessage,
+    removeMember: removeDiscordGuildMember,
+    reportError: (stage, error) => {
+      if (stage === 'access') console.error('Applicant Discord access failed before notification:', error)
+      if (stage === 'delivery') console.error('Applicant Discord decision notification failed:', error)
+      if (stage === 'cleanup') console.error('Temporary rejected applicant could not be removed from Discord:', error)
+    },
+  })
 }
 
 async function decide(input: {

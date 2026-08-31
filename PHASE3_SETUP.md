@@ -36,13 +36,13 @@ In **Server Settings > Roles**, move the bot's role above every game role it mus
 
 ## 4. Create or verify the roles
 
-Use these exact role names when role IDs are not configured:
+Use one of these supported role labels when role IDs are not configured:
 
 ```text
 Bloodstrike
-Mobile Legends
+Mobile Legends / Mobile Legends: Bang Bang / MLBB / ML
 Honor of Kings
-Farlight
+Farlight / Farlight 84
 Crossfire
 Roblox
 Dota 2
@@ -62,7 +62,7 @@ DISCORD_ROLE_DOTA_2_ID=
 DISCORD_ROLE_VALORANT_ID=
 ```
 
-These IDs are optional. When one is blank, the backend searches for an exact case-insensitive role-name match.
+These IDs are optional. When one is blank, the backend searches only the explicit labels above (case-insensitive). If more than one supported label exists, onboarding fails closed and asks for the role ID instead of guessing.
 
 ## 5. Confirm required Discord variables
 

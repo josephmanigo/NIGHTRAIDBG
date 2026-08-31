@@ -15,6 +15,12 @@ export interface DiscordGuildMember {
   joined_at?: string
 }
 
+export interface DiscordOAuthAuthorization {
+  application: { id: string }
+  scopes: string[]
+  user?: DiscordUser
+}
+
 export interface DiscordRole {
   id: string
   name: string
@@ -126,20 +132,38 @@ export interface DiscordUser {
   avatar?: string | null
 }
 
+type DiscordErrorPayload = {
+  code?: number
+  message?: string
+  error?: string
+  error_description?: string
+}
+
+function discordRequestError(message: string, status: number, code?: number | string) {
+  return Object.assign(new Error(message), {
+    discordStatus: status,
+    ...(code !== undefined ? { discordCode: code } : {}),
+  })
+}
+
 async function discordJson<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    const payload = await response.json().catch(() => null) as { code?: number; message?: string } | null
-    const detail = payload?.message ? ` ${payload.message}${payload.code ? ` (${payload.code})` : ''}.` : ''
-    throw new Error(`Discord API request failed with status ${response.status}.${detail}`)
+    const payload = await response.json().catch(() => null) as DiscordErrorPayload | null
+    const payloadCode = payload?.code ?? payload?.error
+    const payloadMessage = payload?.message ?? payload?.error_description
+    const detail = payloadMessage ? ` ${payloadMessage}${payloadCode ? ` (${payloadCode})` : ''}.` : ''
+    throw discordRequestError(`Discord API request failed with status ${response.status}.${detail}`, response.status, payloadCode)
   }
   return (await response.json()) as T
 }
 
 async function discordSuccess(response: Response, action: string) {
   if (!response.ok) {
-    const payload = await response.json().catch(() => null) as { code?: number; message?: string } | null
-    const detail = payload?.message ? ` ${payload.message}${payload.code ? ` (${payload.code})` : ''}.` : ''
-    throw new Error(`${action} failed with Discord status ${response.status}.${detail}`)
+    const payload = await response.json().catch(() => null) as DiscordErrorPayload | null
+    const payloadCode = payload?.code ?? payload?.error
+    const payloadMessage = payload?.message ?? payload?.error_description
+    const detail = payloadMessage ? ` ${payloadMessage}${payloadCode ? ` (${payloadCode})` : ''}.` : ''
+    throw discordRequestError(`${action} failed with Discord status ${response.status}.${detail}`, response.status, payloadCode)
   }
 }
 
@@ -196,6 +220,18 @@ export async function fetchDiscordUser(accessToken: string) {
   const response = await fetch(`${DISCORD_API}/users/@me`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   })
+  return discordJson<DiscordUser>(response)
+}
+
+export async function fetchDiscordOAuthAuthorization(accessToken: string) {
+  const response = await fetch(`${DISCORD_API}/oauth2/@me`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  return discordJson<DiscordOAuthAuthorization>(response)
+}
+
+export async function fetchDiscordBotUser() {
+  const response = await fetch(`${DISCORD_API}/users/@me`, { headers: botHeaders() })
   return discordJson<DiscordUser>(response)
 }
 

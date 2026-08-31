@@ -4,6 +4,7 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
+    "prebuild": "node scripts/vercel-web-env-preflight.mjs",
     "dev": "vite",
     "dev:full": "vercel dev",
     "build": "tsc -b && vite build",
@@ -18,6 +19,8 @@
     "test:nighty": "node --test bot/nighty.test.js",
     "test:watchparty": "node --test bot/watchparty.test.js",
     "test:join-nr": "node --test bot/join-nr.test.js",
+    "test:applications": "node --test bot/application-review.test.js test/applicant-discord-notification.test.js test/discord-onboarding-identity.test.js test/discord-role-resolution.test.js test/discord-token-recovery.test.js",
+    "test:vercel-env": "node --test test/vercel-web-env-preflight.test.js",
     "test:live": "node --test bot/live-notifier.test.js",
     "test:creator": "node --test bot/creator-tracker.test.js",
     "test:social-tracker": "node --test bot/social-tracker.test.js",

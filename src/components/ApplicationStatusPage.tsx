@@ -15,6 +15,7 @@ interface ApplicantApplication {
   decision_reason: string | null
   discord_membership_verified: boolean | null
   discord_onboarding_status: string
+  discord_onboarding_error: string | null
   assigned_discord_roles: string[]
   discord_onboarded_at: string | null
   ai_evaluation_status: string
@@ -50,6 +51,10 @@ export default function ApplicationStatusPage() {
   const [application, setApplication] = useState<ApplicantApplication | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [oauthNotice] = useState(() => {
+    if (typeof window === 'undefined') return ''
+    return new URLSearchParams(window.location.search).get('discord_error') || ''
+  })
   const [leaving, setLeaving] = useState(false)
   const [leaveError, setLeaveError] = useState('')
 
@@ -128,6 +133,12 @@ export default function ApplicationStatusPage() {
       kicker="Follow your application from submission through administrator review and Discord onboarding."
       showHeaderDivider={false}
     >
+      {oauthNotice === 'discord_account_mismatch' && (
+        <div className="mb-5 flex items-start gap-3 rounded-2xl border border-red-400/25 bg-red-400/5 p-5 text-sm leading-relaxed text-red-200" role="alert">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>That was a different Discord account. Reconnect with the same Discord account that submitted this application; the saved applicant was not changed.</span>
+        </div>
+      )}
       {loading ? (
         <div className="rounded-[2rem] border border-bone/10 bg-black/30 p-10 text-center text-sm text-bone/45">Loading your application...</div>
       ) : error ? (
@@ -311,7 +322,19 @@ export default function ApplicationStatusPage() {
             {application.status === 'DISCORD_JOIN_FAILED' && (
               <div className="mt-7 rounded-2xl border border-amber-300/20 bg-amber-300/5 p-5">
                 <p className="ln-label text-[0.55rem] text-amber-200">Onboarding needs attention</p>
-                <p className="mt-3 text-sm leading-relaxed text-amber-100/70">Your application is approved, but Discord onboarding needs an administrator retry. You do not need to submit another application.</p>
+                <p className="mt-3 text-sm leading-relaxed text-amber-100/70">
+                  {application.discord_onboarding_error && /(?:reconnect Discord|OAuth2 access token|50025)/i.test(application.discord_onboarding_error)
+                    ? 'Your application is approved, but your saved Discord authorization must be renewed before an administrator retries onboarding.'
+                    : 'Your application is approved, but Discord onboarding needs an administrator retry. You do not need to submit another application.'}
+                </p>
+                {application.discord_onboarding_error && /(?:reconnect Discord|OAuth2 access token|50025)/i.test(application.discord_onboarding_error) && (
+                  <a
+                    href="/api/auth/discord?returnTo=%2Fapplication%2Fstatus"
+                    className="mt-4 inline-flex h-10 items-center justify-center rounded-full bg-[#5865F2] px-5 text-[0.58rem] font-extrabold uppercase tracking-[0.12em] text-white transition-colors hover:bg-[#4752c4]"
+                  >
+                    Reconnect Discord
+                  </a>
+                )}
               </div>
             )}
 

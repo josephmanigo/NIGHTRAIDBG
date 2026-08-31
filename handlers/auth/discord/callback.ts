@@ -1,11 +1,16 @@
 // Routed through the consolidated Vercel API function.
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { discordAvatarUrl, discordDisplayName, exchangeDiscordCode, fetchDiscordUser } from '../../../server/discord.js'
+import {
+  DiscordReconnectAccountMismatchError,
+  validateDiscordReconnectAccount,
+} from '../../../server/discord-onboarding-identity.js'
 import { encryptSecret } from '../../../server/encryption.js'
 import { appUrl, methodNotAllowed, safeReturnTo, singleQueryValue } from '../../../server/http.js'
 import {
   clearOAuthCookies,
   createSessionToken,
+  getSession,
   matchesOAuthState,
   readOAuthState,
   readReturnTo,
@@ -13,9 +18,15 @@ import {
 } from '../../../server/session.js'
 import { getSupabaseAdmin } from '../../../server/supabase.js'
 
-function oauthFailure(request: VercelRequest, response: VercelResponse, reason: string) {
+function oauthFailure(
+  request: VercelRequest,
+  response: VercelResponse,
+  reason: string,
+  returnTo = '/apply',
+) {
   clearOAuthCookies(response)
-  return response.redirect(302, appUrl(request, `/apply?discord_error=${encodeURIComponent(reason)}`))
+  const separator = returnTo.includes('?') ? '&' : '?'
+  return response.redirect(302, appUrl(request, `${returnTo}${separator}discord_error=${encodeURIComponent(reason)}`))
 }
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
@@ -24,11 +35,16 @@ export default async function handler(request: VercelRequest, response: VercelRe
   const code = singleQueryValue(request.query.code)
   const state = singleQueryValue(request.query.state)
   const expectedState = readOAuthState(request)
-  if (!code || !matchesOAuthState(expectedState, state)) return oauthFailure(request, response, 'invalid_oauth_state')
+  const returnTo = safeReturnTo(readReturnTo(request))
+  if (!code || !matchesOAuthState(expectedState, state)) {
+    return oauthFailure(request, response, 'invalid_oauth_state', returnTo)
+  }
 
   try {
+    const reconnectSession = returnTo === '/application/status' ? await getSession(request) : null
     const token = await exchangeDiscordCode(code)
     const discordUser = await fetchDiscordUser(token.access_token)
+    validateDiscordReconnectAccount(reconnectSession?.discordUserId, discordUser.id)
     const discordUsername = discordDisplayName(discordUser)
     const discordAvatar = discordAvatarUrl(discordUser)
     const expiresAt = new Date(Date.now() + token.expires_in * 1000).toISOString()
@@ -56,11 +72,13 @@ export default async function handler(request: VercelRequest, response: VercelRe
       discordAvatar,
     })
     setSessionCookie(response, sessionToken)
-    const returnTo = safeReturnTo(readReturnTo(request))
     clearOAuthCookies(response)
     return response.redirect(302, appUrl(request, returnTo))
   } catch (error) {
     console.error('Discord OAuth callback failed:', error instanceof Error ? error.message : 'Unknown error')
-    return oauthFailure(request, response, 'discord_connection_failed')
+    const reason = error instanceof DiscordReconnectAccountMismatchError
+      ? 'discord_account_mismatch'
+      : 'discord_connection_failed'
+    return oauthFailure(request, response, reason, returnTo)
   }
 }
