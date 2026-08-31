@@ -208,6 +208,14 @@ export async function validateDiscordLiveEnvironment(environment = process.env, 
   return problems
 }
 
+export function deploymentPreflightDecision(blockingProblems, readinessWarnings) {
+  return {
+    blockingProblems,
+    readinessWarnings,
+    canDeploy: blockingProblems.length === 0,
+  }
+}
+
 export { REQUIRED_WEB_ENV }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
@@ -216,19 +224,28 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   } else if (process.env.VERCEL_ENV !== 'production') {
     console.log('Skipping production web credentials for a non-production Vercel build.')
   } else {
-    const problems = validateWebEnvironment()
-    if (problems.length === 0 && process.env.NODE_ENV !== 'test') {
-      problems.push(...await validateDiscordLiveEnvironment())
+    const blockingProblems = validateWebEnvironment()
+    const readinessWarnings = []
+    if (blockingProblems.length === 0 && process.env.NODE_ENV !== 'test') {
+      readinessWarnings.push(...await validateDiscordLiveEnvironment())
     }
-    if (problems.length > 0) {
+    const decision = deploymentPreflightDecision(blockingProblems, readinessWarnings)
+    if (!decision.canDeploy) {
       console.error([
         'Vercel production web deployment configuration is incomplete:',
-        ...problems.map((problem) => `- ${problem}`),
+        ...decision.blockingProblems.map((problem) => `- ${problem}`),
         'Restore the existing secret values before redeploying; do not generate a new TOKEN_ENCRYPTION_KEY if saved Discord connections must remain decryptable.',
       ].join('\n'))
       process.exitCode = 1
     } else {
       console.log('Vercel web environment preflight passed.')
+      if (decision.readinessWarnings.length > 0) {
+        console.warn([
+          'Discord live readiness warning (website deployment will continue):',
+          ...decision.readinessWarnings.map((problem) => `- ${problem}`),
+          'Discord-dependent actions remain fail-closed until the server configuration is corrected.',
+        ].join('\n'))
+      }
     }
   }
 }

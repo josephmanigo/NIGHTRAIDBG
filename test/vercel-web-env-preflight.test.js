@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import {
   REQUIRED_WEB_ENV,
+  deploymentPreflightDecision,
   discordBotApplicationId,
   missingWebEnvironment,
   validateDiscordLiveEnvironment,
@@ -137,6 +138,28 @@ test('the live Discord preflight distinguishes a bot that is not installed in th
   assert.match(
     problems.join('\n'),
     /bot is not installed in DISCORD_GUILD_ID.*Invite this same Discord application/i,
+  )
+})
+
+test('mutable Discord readiness problems warn without blocking a production website deployment', () => {
+  assert.deepEqual(
+    deploymentPreflightDecision([], ['The Discord bot is not installed in DISCORD_GUILD_ID']),
+    {
+      blockingProblems: [],
+      readinessWarnings: ['The Discord bot is not installed in DISCORD_GUILD_ID'],
+      canDeploy: true,
+    },
+  )
+})
+
+test('missing or contradictory environment credentials still block deployment', () => {
+  assert.deepEqual(
+    deploymentPreflightDecision(['Missing required Vercel environment variable: DISCORD_CLIENT_ID'], []),
+    {
+      blockingProblems: ['Missing required Vercel environment variable: DISCORD_CLIENT_ID'],
+      readinessWarnings: [],
+      canDeploy: false,
+    },
   )
 })
 
