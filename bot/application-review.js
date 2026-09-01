@@ -7,6 +7,10 @@ import {
   TextInputBuilder,
   TextInputStyle,
 } from 'discord.js'
+import {
+  applicationReviewContractProblems,
+  NIGHTRAID_APP_ORIGIN,
+} from './production-contract.js'
 
 const UUID_PATTERN = '[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}'
 const BUTTON_PATTERN = new RegExp(`^nr-review:(approve|reject):(${UUID_PATTERN})$`, 'i')
@@ -125,30 +129,18 @@ function ephemeralMessage(interaction, content) {
 
 export function installApplicationReview(client) {
   const configuredChannelId = process.env.DISCORD_APPLICATIONS_CHANNEL_ID?.trim()
-  const configuredAppUrl = process.env.APP_URL?.trim()
   const botToken = process.env.DISCORD_BOT_TOKEN?.trim()
   const authorizedAdmins = adminIds()
   if (!botToken) {
     console.error('Discord application review is disabled: DISCORD_BOT_TOKEN is missing.')
     return
   }
-  if (!configuredChannelId || !/^\d{16,22}$/.test(configuredChannelId)) {
-    console.error('Discord application review is disabled: DISCORD_APPLICATIONS_CHANNEL_ID is missing or invalid.')
+  const contractProblems = applicationReviewContractProblems(process.env)
+  if (contractProblems.length > 0) {
+    console.error(`Discord application review is disabled: ${contractProblems.join('; ')}.`)
     return
   }
-  if (!configuredAppUrl) {
-    console.error('Discord application review is disabled: APP_URL is missing.')
-    return
-  }
-  let appUrl
-  try {
-    const parsedAppUrl = new URL(configuredAppUrl)
-    if (parsedAppUrl.protocol !== 'https:') throw new Error('APP_URL must use HTTPS.')
-    appUrl = parsedAppUrl.origin
-  } catch {
-    console.error('Discord application review is disabled: APP_URL must be a valid HTTPS origin.')
-    return
-  }
+  const appUrl = NIGHTRAID_APP_ORIGIN
   console.log('Discord application review interactions enabled.')
 
   client.on(Events.InteractionCreate, async (interaction) => {

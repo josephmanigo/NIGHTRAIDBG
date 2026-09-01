@@ -1,3 +1,9 @@
+import {
+  discordBotApplicationId,
+  NIGHTRAID_GAME_ROLE_ENV_NAMES,
+  productionDiscordContractProblems,
+} from '../bot/production-contract.js'
+
 const REQUIRED_WEB_ENV = [
   'SUPABASE_URL',
   'SUPABASE_SECRET_KEY',
@@ -7,6 +13,7 @@ const REQUIRED_WEB_ENV = [
   'DISCORD_BOT_TOKEN',
   'DISCORD_GUILD_ID',
   'DISCORD_APPLICATIONS_CHANNEL_ID',
+  ...NIGHTRAID_GAME_ROLE_ENV_NAMES,
   'SESSION_SECRET',
   'TOKEN_ENCRYPTION_KEY',
   'ADMIN_DISCORD_IDS',
@@ -19,20 +26,10 @@ export function missingWebEnvironment(environment = process.env) {
   return REQUIRED_WEB_ENV.filter((name) => !environment[name]?.trim())
 }
 
-export function discordBotApplicationId(botToken) {
-  const token = botToken?.trim()
-  if (!token) return null
-  try {
-    const candidate = Buffer.from(token.split('.')[0], 'base64url').toString('utf8')
-    return /^\d{17,20}$/.test(candidate) ? candidate : null
-  } catch {
-    return null
-  }
-}
-
 export function validateWebEnvironment(environment = process.env) {
   const missing = missingWebEnvironment(environment)
   const problems = missing.map((name) => `Missing required Vercel environment variable: ${name}`)
+  problems.push(...productionDiscordContractProblems(environment))
 
   const appUrl = environment.APP_URL?.trim()
   const redirectUri = environment.DISCORD_REDIRECT_URI?.trim()
@@ -68,6 +65,9 @@ const DISCORD_API = 'https://discord.com/api/v10'
 const ADMINISTRATOR = 1n << 3n
 const VIEW_CHANNEL = 1n << 10n
 const SEND_MESSAGES = 1n << 11n
+const EMBED_LINKS = 1n << 14n
+const ATTACH_FILES = 1n << 15n
+const READ_MESSAGE_HISTORY = 1n << 16n
 const MANAGE_NICKNAMES = 1n << 27n
 const MANAGE_ROLES = 1n << 28n
 
@@ -132,6 +132,8 @@ export async function validateDiscordLiveEnvironment(environment = process.env, 
   const channelId = environment.DISCORD_APPLICATIONS_CHANNEL_ID?.trim()
   const clientId = environment.DISCORD_CLIENT_ID?.trim()
   if (!environment.DISCORD_BOT_TOKEN?.trim() || !guildId || !channelId || !clientId) return problems
+  const identityProblems = productionDiscordContractProblems(environment)
+  if (identityProblems.length > 0) return identityProblems
 
   let bot
   let botGuilds
@@ -191,6 +193,15 @@ export async function validateDiscordLiveEnvironment(environment = process.env, 
   if (!hasPermission(effectiveChannelPermissions, VIEW_CHANNEL) || !hasPermission(effectiveChannelPermissions, SEND_MESSAGES)) {
     problems.push('The Discord bot cannot view and send messages in DISCORD_APPLICATIONS_CHANNEL_ID')
   }
+  for (const [permission, label] of [
+    [READ_MESSAGE_HISTORY, 'Read Message History'],
+    [EMBED_LINKS, 'Embed Links'],
+    [ATTACH_FILES, 'Attach Files'],
+  ]) {
+    if (!hasPermission(effectiveChannelPermissions, permission)) {
+      problems.push(`The Discord bot is missing ${label} in DISCORD_APPLICATIONS_CHANNEL_ID`)
+    }
+  }
 
   const botTopPosition = assignedRoles.reduce((position, role) => Math.max(position, role.position || 0), 0)
   for (const [name, value] of Object.entries(environment)) {
@@ -216,7 +227,7 @@ export function deploymentPreflightDecision(blockingProblems, readinessWarnings)
   }
 }
 
-export { REQUIRED_WEB_ENV }
+export { discordBotApplicationId, REQUIRED_WEB_ENV }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   if (!process.env.VERCEL) {

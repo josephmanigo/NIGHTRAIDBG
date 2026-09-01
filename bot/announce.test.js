@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { ChannelType, PermissionFlagsBits } from 'discord.js'
 import {
   ANNOUNCE_COMMAND,
+  announcementTargetAccessProblem,
   announcementBody,
   announcementMentions,
   assertAnnouncementPhoto,
@@ -57,7 +59,7 @@ function announceInteraction({
       },
       getAttachment: () => photo,
     },
-    client: { channels: { fetch: async () => destination } },
+    client: { user: { id: 'bot-1' }, channels: { fetch: async () => destination } },
     deferReply: async () => {
       state.deferred = true
     },
@@ -79,6 +81,10 @@ test('the command takes a channel, a message, an optional prize, an optional pho
   assert.deepEqual(
     ANNOUNCE_COMMAND.options[4].choices.map((choice) => choice.value),
     ['none', 'here', 'everyone'],
+  )
+  assert.equal(
+    ANNOUNCE_COMMAND.options[0].channelTypes.includes(ChannelType.PrivateThread),
+    false,
   )
 })
 
@@ -312,6 +318,45 @@ test('duplicate interaction with same ID is ignored and posted only once', async
   const secondResult = await workflow.handleInteraction(interaction)
   assert.equal(secondResult.status, 'duplicate')
   assert.equal(interaction.state.sent.length, 1)
+})
+
+test('announcement targets fail clearly for private threads or missing channel permissions', () => {
+  assert.match(
+    announcementTargetAccessProblem({ type: ChannelType.PrivateThread }, { id: 'bot-1' }),
+    /Private threads are not supported/,
+  )
+
+  const granted = new Set([
+    PermissionFlagsBits.ViewChannel,
+    PermissionFlagsBits.SendMessages,
+  ])
+  const target = {
+    type: ChannelType.GuildText,
+    isThread: () => false,
+    permissionsFor: () => ({ has: (permission) => granted.has(permission) }),
+  }
+  assert.match(
+    announcementTargetAccessProblem(target, { id: 'bot-1' }, { hasPhoto: true, mention: 'everyone' }),
+    /Attach Files, Mention Everyone/,
+  )
+})
+
+test('an inaccessible announcement channel is rejected before Discord returns Missing Access', async () => {
+  const workflow = createAnnounceWorkflow({ administratorIds: new Set(['admin-1']) })
+  const interaction = announceInteraction({
+    target: {
+      id: CHANNEL_ID,
+      guildId: 'guild-1',
+      type: ChannelType.GuildText,
+      isTextBased: () => true,
+      isThread: () => false,
+      permissionsFor: () => ({ has: () => false }),
+      send: async () => assert.fail('send must not run without channel access'),
+    },
+  })
+  const result = await workflow.handleInteraction(interaction)
+  assert.deepEqual(result, { status: 'rejected', reason: 'missing_channel_access' })
+  assert.match(interaction.state.replies.at(-1).content, /missing View Channel, Send Messages/)
 })
 
 test('Discord nonce prevents duplicate posts across separate bot workflows', async () => {

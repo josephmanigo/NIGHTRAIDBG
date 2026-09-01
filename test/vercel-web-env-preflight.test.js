@@ -12,34 +12,78 @@ import {
   validateDiscordLiveEnvironment,
   validateWebEnvironment,
 } from '../scripts/vercel-web-env-preflight.mjs'
+import { NIGHTRAID_GAME_ROLE_ENV_NAMES } from '../bot/production-contract.js'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const script = resolve(root, 'scripts/vercel-web-env-preflight.mjs')
+
+const DISCORD_PERMISSIONS = {
+  VIEW_CHANNEL: 1n << 10n,
+  SEND_MESSAGES: 1n << 11n,
+  EMBED_LINKS: 1n << 14n,
+  ATTACH_FILES: 1n << 15n,
+  READ_MESSAGE_HISTORY: 1n << 16n,
+  MANAGE_NICKNAMES: 1n << 27n,
+  MANAGE_ROLES: 1n << 28n,
+}
+
+function permissionMask(...names) {
+  return names.reduce((mask, name) => mask | DISCORD_PERMISSIONS[name], 0n).toString()
+}
 
 function completeEnvironment() {
   const discordClientId = '1529891839484628997'
   return {
     ...Object.fromEntries(REQUIRED_WEB_ENV.map((name) => [name, `test-${name.toLowerCase()}`])),
-    ADMIN_DISCORD_IDS: '123456789012345678',
-    APP_URL: 'https://nightraid.example',
+    ...Object.fromEntries(NIGHTRAID_GAME_ROLE_ENV_NAMES.map((name, index) => [name, `role-game-${index + 1}`])),
+    ADMIN_DISCORD_IDS: '433544969782034442,294888876940460033',
+    APP_URL: 'https://www.nightraidbg.org',
     DISCORD_APPLICATIONS_CHANNEL_ID: '1530202289565077636',
     DISCORD_BOT_TOKEN: `${Buffer.from(discordClientId).toString('base64url')}.${'B'.repeat(6)}.${'C'.repeat(38)}`,
     DISCORD_CLIENT_ID: discordClientId,
-    DISCORD_GUILD_ID: '1208600000000000000',
-    DISCORD_REDIRECT_URI: 'https://nightraid.example/api/auth/discord/callback',
+    DISCORD_GUILD_ID: '1208444297926545489',
+    DISCORD_REDIRECT_URI: 'https://www.nightraidbg.org/api/auth/discord/callback',
   }
 }
 
 function discordFixture(overrides = {}) {
   const environment = completeEnvironment()
   environment.DISCORD_ROLE_MOBILE_LEGENDS_ID = 'role-mobile'
+  const configuredGameRoles = NIGHTRAID_GAME_ROLE_ENV_NAMES
+    .map((name, index) => ({
+      id: environment[name],
+      name: `Configured Game ${index + 1}`,
+      permissions: '0',
+      position: index + 1,
+      managed: false,
+    }))
+    .filter((role) => role.id !== 'role-mobile')
   const payloads = {
     '/users/@me': { id: environment.DISCORD_CLIENT_ID },
     '/users/@me/guilds': [{ id: environment.DISCORD_GUILD_ID }],
     [`/guilds/${environment.DISCORD_GUILD_ID}/roles`]: [
-      { id: environment.DISCORD_GUILD_ID, name: '@everyone', permissions: '3072', position: 0, managed: false },
+      {
+        id: environment.DISCORD_GUILD_ID,
+        name: '@everyone',
+        permissions: permissionMask('VIEW_CHANNEL', 'SEND_MESSAGES'),
+        position: 0,
+        managed: false,
+      },
       { id: 'role-mobile', name: 'Mobile Legends: Bang Bang', permissions: '0', position: 2, managed: false },
-      { id: 'role-bot', name: 'NIGHTRAID Bot', permissions: '402653184', position: 10, managed: true },
+      ...configuredGameRoles,
+      {
+        id: 'role-bot',
+        name: 'NIGHTBUDDY',
+        permissions: permissionMask(
+          'MANAGE_NICKNAMES',
+          'MANAGE_ROLES',
+          'READ_MESSAGE_HISTORY',
+          'EMBED_LINKS',
+          'ATTACH_FILES',
+        ),
+        position: 10,
+        managed: true,
+      },
     ],
     [`/guilds/${environment.DISCORD_GUILD_ID}/members/${environment.DISCORD_CLIENT_ID}`]: {
       roles: ['role-bot'],
@@ -96,8 +140,22 @@ test('the preflight rejects a Discord callback on a different origin or path', (
   assert.match(validateWebEnvironment(wrongOrigin).join('\n'), /must use APP_URL/)
 
   const wrongPath = completeEnvironment()
-  wrongPath.DISCORD_REDIRECT_URI = 'https://nightraid.example/callback'
+  wrongPath.DISCORD_REDIRECT_URI = 'https://www.nightraidbg.org/callback'
   assert.match(validateWebEnvironment(wrongPath).join('\n'), /must use APP_URL/)
+})
+
+test('the preflight pins the production website, callback, review channel, and administrators', () => {
+  const wrong = completeEnvironment()
+  wrong.APP_URL = 'https://nightraidbg.org'
+  wrong.DISCORD_REDIRECT_URI = 'https://nightraidbg.org/api/auth/discord/callback'
+  wrong.DISCORD_APPLICATIONS_CHANNEL_ID = '1530202289565077637'
+  wrong.ADMIN_DISCORD_IDS = 'not-a-discord-id'
+
+  const problems = validateWebEnvironment(wrong).join('\n')
+  assert.match(problems, /production website origin/)
+  assert.match(problems, /production Discord callback/)
+  assert.match(problems, /application review channel/)
+  assert.match(problems, /authorized NIGHTRAID administrator/)
 })
 
 test('the preflight rejects a placeholder Discord bot token before production deploys', () => {
@@ -118,9 +176,43 @@ test('the preflight proves the bot token and OAuth client belong to the same Dis
   )
 })
 
+test('the production contract rejects a coherent but wrong Discord application or guild', () => {
+  const wrongApplication = completeEnvironment()
+  wrongApplication.DISCORD_CLIENT_ID = '1529891839484628998'
+  wrongApplication.DISCORD_BOT_TOKEN = `${Buffer.from(wrongApplication.DISCORD_CLIENT_ID).toString('base64url')}.${'B'.repeat(6)}.${'C'.repeat(38)}`
+  assert.match(validateWebEnvironment(wrongApplication).join('\n'), /must be the NIGHTBUDDY application/)
+
+  const wrongGuild = completeEnvironment()
+  wrongGuild.DISCORD_GUILD_ID = '1208600000000000000'
+  assert.match(validateWebEnvironment(wrongGuild).join('\n'), /must be the NIGHTRAID BATTLEGROUND server/)
+})
+
 test('the live Discord preflight proves bot, guild, review-channel, permission, and role readiness', async () => {
   const fixture = discordFixture()
   assert.deepEqual(await validateDiscordLiveEnvironment(fixture.environment, fixture.fetchImpl), [])
+})
+
+test('the live Discord preflight requires history, embeds, and attachments in the review channel', async () => {
+  const base = discordFixture()
+  const guildId = base.environment.DISCORD_GUILD_ID
+  const channelId = base.environment.DISCORD_APPLICATIONS_CHANNEL_ID
+  const fixture = discordFixture({
+    [`/channels/${channelId}`]: {
+      id: channelId,
+      guild_id: guildId,
+      type: 0,
+      permission_overwrites: [{
+        id: guildId,
+        type: 0,
+        allow: '0',
+        deny: permissionMask('READ_MESSAGE_HISTORY', 'EMBED_LINKS', 'ATTACH_FILES'),
+      }],
+    },
+  })
+  const problems = await validateDiscordLiveEnvironment(fixture.environment, fixture.fetchImpl)
+  assert.match(problems.join('\n'), /Read Message History/)
+  assert.match(problems.join('\n'), /Embed Links/)
+  assert.match(problems.join('\n'), /Attach Files/)
 })
 
 test('the live Discord preflight reports a rejected bot token without exposing it', async () => {

@@ -94,6 +94,13 @@ import { containsLinkKeyword, NIGHTRAID_SERVER_INVITE_URL } from './server-link.
 import { containsJoinNRKeyword, formatJoinNRReply, fetchAndFormatJoinNRReply } from './join-nr.js'
 import { installScrimAutomation } from './scrim-automation.js'
 import { createDiscordBotDashboardService } from './dashboard-service.js'
+import {
+  discordBotApplicationId,
+  discordHealthResponse,
+  NIGHTBUDDY_APPLICATION_ID,
+  nightbuddyRuntimeIdentityProblem,
+  renderDiscordContractProblems,
+} from './production-contract.js'
 
 // PermissionFlagsBits values are BigInts in discord.js v14, and several
 // command definitions store them in defaultMemberPermissions. The dashboard
@@ -110,13 +117,20 @@ const required = (name) => {
 }
 
 const BOT_TOKEN = required('DISCORD_BOT_TOKEN')
+if (discordBotApplicationId(BOT_TOKEN) !== NIGHTBUDDY_APPLICATION_ID) {
+  throw new Error(`DISCORD_BOT_TOKEN must belong to the NIGHTBUDDY application (${NIGHTBUDDY_APPLICATION_ID})`)
+}
+const renderContractProblems = renderDiscordContractProblems(process.env)
+if (renderContractProblems.length > 0) {
+  throw new Error(`Invalid NIGHTBUDDY production configuration: ${renderContractProblems.join('; ')}`)
+}
 const gameResultsConfig = resolveGameResultsConfig(process.env, {
   requireSecrets: true,
   productionOnly: true,
 })
 assertLocalOcrTestMode(gameResultsConfig.mode)
 const NICKNAME_CHANNEL_ID = required('DISCORD_NICKNAME_CHANNEL_ID')
-const GUILD_ID = process.env.DISCORD_GUILD_ID?.trim() || null
+const GUILD_ID = required('DISCORD_GUILD_ID')
 const RULES_CHANNEL_ID = process.env.DISCORD_RULES_CHANNEL_ID?.trim() || '1208605026868535387'
 
 const RULES_COMMAND_NAME = 'rules'
@@ -651,12 +665,14 @@ client.once(Events.ClientReady, () => {
 })
 
 client.once(Events.ClientReady, async (readyClient) => {
-  console.log(`Nickname bot connected as ${readyClient.user.tag}. Watching channel ${NICKNAME_CHANNEL_ID}.`)
-
-  if (!GUILD_ID) {
-    console.warn('DISCORD_GUILD_ID is missing, so the bot dashboard and slash commands cannot start.')
+  const identityProblem = nightbuddyRuntimeIdentityProblem(readyClient)
+  if (identityProblem) {
+    console.error(`Discord runtime identity check failed: ${identityProblem}`)
+    readyClient.destroy()
+    process.exit(1)
     return
   }
+  console.log(`Nickname bot connected as ${readyClient.user.tag}. Watching channel ${NICKNAME_CHANNEL_ID}.`)
 
   if (!RULES_CHANNEL_ID) {
     console.warn('DISCORD_RULES_CHANNEL_ID is missing, so the /rules command cannot be registered.')
@@ -768,7 +784,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
 client.on(Events.MessageCreate, async (message) => {
   if (message.author.bot || !message.inGuild()) return
-  if (GUILD_ID && message.guildId !== GUILD_ID) return
+  if (message.guildId !== GUILD_ID) return
   if (!claimMessage(message.id)) return
 
   if (containsLinkKeyword(message.content)) {
@@ -866,8 +882,9 @@ if (webhookPort) {
       if (handled) return
 
       // Default health endpoint
-      response.writeHead(200, { 'Content-Type': 'text/plain' })
-      response.end('Nickname bot is running.')
+      const health = discordHealthResponse(client)
+      response.writeHead(health.status, { 'Content-Type': 'text/plain' })
+      response.end(health.body)
     } catch (err) {
       console.error('[WebhookServer] Unhandled request error:', err.message)
       if (!response.headersSent) {

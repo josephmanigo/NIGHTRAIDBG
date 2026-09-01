@@ -76,8 +76,8 @@ test('application review interactions fail closed when the website URL is missin
 test('application review interactions register with the production channel and website', async () => {
   await withEnvironment(
     {
-      ADMIN_DISCORD_IDS: '123456789012345678',
-      APP_URL: 'https://nightraid-battlegrounds.vercel.app',
+      ADMIN_DISCORD_IDS: '433544969782034442,294888876940460033',
+      APP_URL: 'https://www.nightraidbg.org',
       DISCORD_APPLICATIONS_CHANNEL_ID: '1530202289565077636',
       DISCORD_BOT_TOKEN: 'bot-token',
     },
@@ -87,6 +87,24 @@ test('application review interactions register with the production channel and w
       assert.equal(listeners.length, 1)
       assert.equal(typeof listeners[0].listener, 'function')
       assert.match(logs.join('\n'), /interactions enabled/)
+    },
+  )
+})
+
+test('application review interactions reject a wrong production channel or admin set', async () => {
+  await withEnvironment(
+    {
+      ADMIN_DISCORD_IDS: 'not-a-discord-id',
+      APP_URL: 'https://www.nightraidbg.org',
+      DISCORD_APPLICATIONS_CHANNEL_ID: '1530202289565077637',
+      DISCORD_BOT_TOKEN: 'bot-token',
+    },
+    ({ errors }) => {
+      const { client, listeners } = fakeClient()
+      installApplicationReview(client)
+      assert.equal(listeners.length, 0)
+      assert.match(errors.join('\n'), /application review channel/)
+      assert.match(errors.join('\n'), /authorized NIGHTRAID administrator/)
     },
   )
 })

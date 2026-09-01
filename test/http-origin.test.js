@@ -38,6 +38,28 @@ test('rejects an unrelated origin even when the request claims to be same-site',
   )
 })
 
+test('rejects an unapproved deployment host even when Origin matches it', () => {
+  assert.equal(
+    hasTrustedRequestOrigin({
+      canonicalOrigin: 'https://nightraidbg.org',
+      fetchSite: 'same-origin',
+      origin: 'https://attacker.example',
+      requestOrigin: 'https://attacker.example',
+    }),
+    false,
+  )
+})
+
+test('rejects an origin-less request received on an unapproved deployment host', () => {
+  assert.equal(
+    hasTrustedRequestOrigin({
+      canonicalOrigin: 'https://nightraidbg.org',
+      requestOrigin: 'https://unapproved-preview.vercel.app',
+    }),
+    false,
+  )
+})
+
 test('continues to reject a cross-site application submission', () => {
   assert.equal(
     hasTrustedRequestOrigin({

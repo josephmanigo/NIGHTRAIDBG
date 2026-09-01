@@ -52,7 +52,6 @@ export const ANNOUNCE_COMMAND = Object.freeze({
         ChannelType.GuildText,
         ChannelType.GuildAnnouncement,
         ChannelType.PublicThread,
-        ChannelType.PrivateThread,
       ],
     },
     {
@@ -200,6 +199,33 @@ export function announcementMentions(mention) {
   return { parse }
 }
 
+export function announcementTargetAccessProblem(channel, botUser, { hasPhoto = false, mention = 'none' } = {}) {
+  if (channel?.type === ChannelType.PrivateThread) {
+    return 'Private threads are not supported because Discord may hide them from the bot. Pick a server text, announcement, or public-thread channel.'
+  }
+
+  const permissions = channel?.permissionsFor?.(botUser)
+  if (!permissions?.has) return null
+
+  const required = [
+    [PermissionFlagsBits.ViewChannel, 'View Channel'],
+    [
+      channel?.isThread?.() ? PermissionFlagsBits.SendMessagesInThreads : PermissionFlagsBits.SendMessages,
+      channel?.isThread?.() ? 'Send Messages in Threads' : 'Send Messages',
+    ],
+    ...(hasPhoto ? [[PermissionFlagsBits.AttachFiles, 'Attach Files']] : []),
+    ...(['here', 'everyone'].includes(mention)
+      ? [[PermissionFlagsBits.MentionEveryone, 'Mention Everyone']]
+      : []),
+  ]
+  const missing = required
+    .filter(([permission]) => !permissions.has(permission))
+    .map(([, label]) => label)
+  return missing.length > 0
+    ? `NIGHTBUDDY is missing ${missing.join(', ')} in that channel.`
+    : null
+}
+
 async function ephemeralMessage(interaction, content) {
   const payload = { content, allowedMentions: { parse: [] } }
   return interaction.replied || interaction.deferred
@@ -326,8 +352,17 @@ export function createAnnounceWorkflow(options = {}) {
       if (!interaction.deferred && !interaction.replied) {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral })
       }
-      const files = photo ? [await downloadAnnouncementPhoto(photo, fetchImpl)] : []
       const target = await resolveTargetChannel(interaction, channel)
+      const accessProblem = announcementTargetAccessProblem(target, interaction.client?.user, {
+        hasPhoto: Boolean(photo),
+        mention,
+      })
+      if (accessProblem) {
+        await interaction.editReply({ content: accessProblem, allowedMentions: { parse: [] } })
+        return { status: 'rejected', reason: 'missing_channel_access' }
+      }
+      if (target.isThread?.() && !target.joined && target.joinable) await target.join()
+      const files = photo ? [await downloadAnnouncementPhoto(photo, fetchImpl)] : []
       const components = claimButton ? [createClaimPrizeButton({ expiresAt: claimExpiresAt })] : []
       const posted = await target.send({
         content,
