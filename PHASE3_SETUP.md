@@ -41,12 +41,6 @@ Use one of these supported role labels when role IDs are not configured:
 ```text
 Bloodstrike
 Mobile Legends / Mobile Legends: Bang Bang / MLBB / ML
-Honor of Kings
-Farlight / Farlight 84
-Crossfire
-Roblox
-Dota 2
-Valorant
 ```
 
 Explicit role IDs are safer because roles can later be renamed. Enable Developer Mode in Discord, copy each role ID, and add the applicable variables:
@@ -54,15 +48,9 @@ Explicit role IDs are safer because roles can later be renamed. Enable Developer
 ```env
 DISCORD_ROLE_BLOODSTRIKE_ID=
 DISCORD_ROLE_MOBILE_LEGENDS_ID=
-DISCORD_ROLE_HONOR_OF_KINGS_ID=
-DISCORD_ROLE_FARLIGHT_ID=
-DISCORD_ROLE_CROSSFIRE_ID=
-DISCORD_ROLE_ROBLOX_ID=
-DISCORD_ROLE_DOTA_2_ID=
-DISCORD_ROLE_VALORANT_ID=
 ```
 
-These IDs are optional. When one is blank, the backend searches only the explicit labels above (case-insensitive). If more than one supported label exists, onboarding fails closed and asks for the role ID instead of guessing.
+The backend can resolve the explicit labels above (case-insensitive) when an ID is blank, but production readiness requires both stable role IDs. If more than one supported label exists, onboarding fails closed and asks for the role ID instead of guessing.
 
 ## 5. Confirm required Discord variables
 

@@ -9,6 +9,7 @@ import {
   NIGHTRAID_ADMIN_DISCORD_IDS,
   NIGHTRAID_APP_ORIGIN,
   NIGHTRAID_DISCORD_CALLBACK,
+  NIGHTRAID_GAME_ROLE_ENV_NAMES,
   NIGHTRAID_GUILD_ID,
   NIGHTRAID_REVIEW_CHANNEL_ID,
   productionDiscordContractProblems,
@@ -25,6 +26,13 @@ function productionEnvironment() {
     DISCORD_REDIRECT_URI: NIGHTRAID_DISCORD_CALLBACK,
   }
 }
+
+test('requires roles only for the two games accepted by the production application', () => {
+  assert.deepEqual(NIGHTRAID_GAME_ROLE_ENV_NAMES, [
+    'DISCORD_ROLE_BLOODSTRIKE_ID',
+    'DISCORD_ROLE_MOBILE_LEGENDS_ID',
+  ])
+})
 
 test('decodes the Discord application ID without exposing the bot token', () => {
   const token = `${Buffer.from(NIGHTBUDDY_APPLICATION_ID).toString('base64url')}.example.signature`

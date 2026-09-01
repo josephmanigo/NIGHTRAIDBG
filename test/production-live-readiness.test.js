@@ -69,7 +69,7 @@ test('the stability gate repeats the full live probe', async () => {
   assert.equal(requests, 9)
 })
 
-test('the final readiness gate includes Discord identity, guild, channel, permissions, and all game roles', async () => {
+test('the final readiness gate includes Discord identity, guild, channel, permissions, and both supported game roles', async () => {
   const environment = {
     ...Object.fromEntries(REQUIRED_WEB_ENV.map((name) => [name, `test-${name.toLowerCase()}`])),
     ...Object.fromEntries(NIGHTRAID_GAME_ROLE_ENV_NAMES.map((name, index) => [name, `role-game-${index + 1}`])),
