@@ -1,7 +1,24 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { createInitialScrimSlots, createWaitlistContent } from './scrim-automation.js'
+import {
+  createInitialScrimSlots,
+  createWaitlistContent,
+  monitorScrimInitialization,
+} from './scrim-automation.js'
+
+test('logs initialization failure without converting it into an unhandled rejection', async () => {
+  const failure = new Error('Missing Access')
+  const initialization = Promise.reject(failure)
+  const reported = []
+
+  const monitored = monitorScrimInitialization(initialization, (reason) => reported.push(reason))
+
+  assert.equal(monitored, initialization)
+  await assert.rejects(monitored, failure)
+  await Promise.resolve()
+  assert.deepEqual(reported, [failure])
+})
 
 test('reserves NIGHTRAID Esports in slot 1 and Apex Syndicate in slot 2', () => {
   const slots = createInitialScrimSlots()

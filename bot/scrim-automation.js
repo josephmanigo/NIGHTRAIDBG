@@ -877,12 +877,19 @@ function claimMessage(messageId) {
   return true
 }
 
+export function monitorScrimInitialization(initialization, onFailure = console.error) {
+  initialization.catch(onFailure)
+  return initialization
+}
+
 export function installScrimAutomation(client) {
   client.once(Events.ClientReady, (readyClient) => {
-    initialized = initializeScrimAutomation(readyClient).catch((reason) => {
-      console.error('Scrim automation initialization failed:', reason instanceof Error ? reason.message : reason)
-      throw reason
-    })
+    initialized = monitorScrimInitialization(
+      initializeScrimAutomation(readyClient),
+      (reason) => {
+        console.error('Scrim automation initialization failed:', reason instanceof Error ? reason.message : reason)
+      },
+    )
   })
 
   client.on(Events.MessageCreate, (message) => {
