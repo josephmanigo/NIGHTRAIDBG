@@ -92,14 +92,16 @@ function messageMarkdown(message) {
     .join('\n\n')
 }
 
-function decisionContent(message, outcome, adminLabel, reason) {
+function decisionContent(message, outcome, adminLabel, reason, onboardingStatus) {
   const baseContent = messageMarkdown(message)
     .split(/\n\n## FINAL DECISION\b/i)[0]
     .replace(/\n-# PENDING REVIEW[^\n]*$/i, '')
     .trim()
   const details =
     outcome === 'APPROVED'
-      ? `✅ **APPROVED**\nApproved by **${adminLabel}**`
+      ? `✅ **APPROVED**\nApproved by **${adminLabel}**\n${onboardingStatus === 'COMPLETED'
+        ? '✅ **Discord roles verified**'
+        : `⚠️ **Discord roles need attention**\n[Open Admin Applications](${NIGHTRAID_APP_ORIGIN}/admin/applications) to check the onboarding error and use **Retry Discord**.`}`
       : `❌ **REJECTED**\nRejected by **${adminLabel}**\n**Reason:** ${reason}`
   const decision = `## FINAL DECISION\n${details}\n-# ${outcome} • Decision recorded in NIGHTRAID`
   const baseLimit = Math.max(0, DISCORD_MESSAGE_LIMIT - decision.length - 2)
@@ -110,9 +112,9 @@ function decisionContent(message, outcome, adminLabel, reason) {
   return [fittedBase, decision].filter(Boolean).join('\n\n')
 }
 
-async function markDecision(message, outcome, adminLabel, reason) {
+async function markDecision(message, outcome, adminLabel, reason, onboardingStatus) {
   await message.edit({
-    content: decisionContent(message, outcome, adminLabel, reason),
+    content: decisionContent(message, outcome, adminLabel, reason, onboardingStatus),
     embeds: [],
     components: [],
     flags: MessageFlags.SuppressEmbeds,
@@ -186,9 +188,9 @@ export function installApplicationReview(client) {
           channelId: interaction.channelId,
           reason: null,
         })
-        await markDecision(interaction.message, 'APPROVED', interaction.user.username, null)
+        await markDecision(interaction.message, 'APPROVED', interaction.user.username, null, result.onboardingStatus)
         await interaction.editReply({
-          content: `✅ ${result.message}`,
+          content: `${result.onboardingStatus === 'COMPLETED' ? '✅' : '⚠️'} ${result.message}`,
           allowedMentions: { parse: [] },
         })
         return

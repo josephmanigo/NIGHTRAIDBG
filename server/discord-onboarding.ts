@@ -3,6 +3,7 @@ import {
   addDiscordGuildMember,
   addDiscordMemberRole,
   fetchDiscordBotUser,
+  fetchDiscordGuildMember,
   fetchDiscordGuildRoles,
   fetchDiscordOAuthAuthorization,
   nightNickname,
@@ -126,37 +127,65 @@ export async function onboardApprovedApplication(applicationId: string): Promise
   if (!application) throw new Error('Discord onboarding is already complete or in progress.')
 
   const assignedRoles: string[] = []
-  let memberPresent = false
+  let memberPresent: boolean | undefined
   try {
     const roles = await resolveRoles(application.games)
-    const botUser = await fetchDiscordBotUser()
-    const memberCreated = await addDiscordGuildMemberWithTokenRecovery(
-      application.discord_user_id,
-      roles.map((role) => role.id),
-      {
-        accessToken: (discordUserId, forceRefresh) => validDiscordAccessToken(discordUserId, { forceRefresh }),
-        validateAccessToken: async (accessToken) => {
-          const grant = await fetchDiscordOAuthAuthorization(accessToken)
-          validateDiscordOnboardingIdentity({
-            expectedApplicationId: env.discordClientId(),
-            expectedDiscordUserId: application.discord_user_id,
-            botUserId: botUser.id,
-            grantApplicationId: grant.application.id,
-            grantDiscordUserId: grant.user?.id,
-            grantScopes: grant.scopes,
-          })
+    if (roles.length === 0) throw new Error('The application has no selected Discord game roles to assign.')
+
+    // Existing members only need the bot's role permissions. Their original
+    // OAuth grant may have expired or been revoked since they applied.
+    let member = await fetchDiscordGuildMember(application.discord_user_id)
+    memberPresent = Boolean(member)
+    if (!member) {
+      const botUser = await fetchDiscordBotUser()
+      await addDiscordGuildMemberWithTokenRecovery(
+        application.discord_user_id,
+        roles.map((role) => role.id),
+        {
+          accessToken: (discordUserId, forceRefresh) => validDiscordAccessToken(discordUserId, { forceRefresh }),
+          validateAccessToken: async (accessToken) => {
+            const grant = await fetchDiscordOAuthAuthorization(accessToken)
+            validateDiscordOnboardingIdentity({
+              expectedApplicationId: env.discordClientId(),
+              expectedDiscordUserId: application.discord_user_id,
+              botUserId: botUser.id,
+              grantApplicationId: grant.application.id,
+              grantDiscordUserId: grant.user?.id,
+              grantScopes: grant.scopes,
+            })
+          },
+          addMember: addDiscordGuildMember,
         },
-        addMember: addDiscordGuildMember,
-      },
-    )
+      )
+      member = await fetchDiscordGuildMember(application.discord_user_id)
+      memberPresent = Boolean(member)
+    }
+    if (!member) throw new Error('The applicant could not be verified in the NIGHTRAID server after joining. Retry Discord onboarding.')
     memberPresent = true
-    if (memberCreated) {
-      assignedRoles.push(...roles.map((role) => role.name))
-    } else {
+    assignedRoles.push(...roles.filter((role) => member.roles.includes(role.id)).map((role) => role.name))
+
+    // Add individual missing roles, preserving all existing member roles. This
+    // also covers a concurrent manual join and roles missing after a 201 join.
+    let roleAssignmentError: unknown
+    try {
       for (const role of roles) {
-        await addDiscordMemberRole(application.discord_user_id, role.id)
-        assignedRoles.push(role.name)
+        if (!member.roles.includes(role.id)) await addDiscordMemberRole(application.discord_user_id, role.id)
       }
+    } catch (reason) {
+      roleAssignmentError = reason
+    }
+
+    // Verify even after partial failure so retries and stored role names reflect
+    // observed membership, rather than merely successful HTTP responses.
+    const verifiedMember = await fetchDiscordGuildMember(application.discord_user_id)
+    assignedRoles.splice(0, assignedRoles.length,
+      ...roles.filter((role) => verifiedMember?.roles.includes(role.id)).map((role) => role.name))
+    memberPresent = Boolean(verifiedMember)
+    if (roleAssignmentError) throw roleAssignmentError
+    if (!verifiedMember) throw new Error('The applicant left the NIGHTRAID server before roles could be verified. Retry Discord onboarding.')
+    const missingRoles = roles.filter((role) => !verifiedMember.roles.includes(role.id))
+    if (missingRoles.length > 0) {
+      throw new Error(`Discord roles could not be verified: ${missingRoles.map((role) => role.name).join(', ')}. Check the bot's Manage Roles permission and role hierarchy, then retry Discord onboarding.`)
     }
 
     /* Best effort: an unmanageable member (server owner, higher role) keeps
@@ -217,7 +246,7 @@ export async function onboardApprovedApplication(applicationId: string): Promise
         discord_onboarding_status: 'FAILED',
         assigned_discord_roles: assignedRoles,
         discord_onboarding_error: message,
-        ...(memberPresent ? { discord_membership_verified: true } : {}),
+        ...(memberPresent === undefined ? {} : { discord_membership_verified: memberPresent }),
         updated_at: failedAt,
       })
       .eq('id', application.id)

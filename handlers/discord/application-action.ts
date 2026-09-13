@@ -65,7 +65,7 @@ function hasValidSignature(request: VercelRequest, action: DiscordAction) {
 async function currentDecision(applicationId: string) {
   const { data } = await getSupabaseAdmin()
     .from('clan_applications')
-    .select('application_number,status')
+    .select('application_number,status,discord_onboarding_status,assigned_discord_roles')
     .eq('id', applicationId)
     .maybeSingle()
   return data && decidedStatuses.has(data.status) ? data : null
@@ -98,10 +98,12 @@ export default async function handler(request: VercelRequest, response: VercelRe
       return response.status(200).json({
         decision: 'APPROVED',
         applicationNumber: result.application.application_number,
+        onboardingStatus: result.onboarding.status,
+        assignedRoles: result.onboarding.assignedRoles,
         message:
           result.onboarding.status === 'COMPLETED'
-            ? 'Application approved and Discord onboarding completed.'
-            : 'Application approved. Discord onboarding needs an administrator retry.',
+            ? 'Application approved. Selected Discord roles verified and onboarding completed.'
+            : 'Application approved, but Discord roles need attention. Open the applicant in Admin Applications to see the error and use Retry Discord.',
       })
     }
 
@@ -134,13 +136,20 @@ export default async function handler(request: VercelRequest, response: VercelRe
      */
     const decided = await currentDecision(parsed.data.applicationId).catch(() => null)
     if (decided) {
+      const onboardingComplete = decided.discord_onboarding_status === 'COMPLETED'
       return response.status(200).json({
         decision: decided.status === 'REJECTED' ? 'REJECTED' : 'APPROVED',
         applicationNumber: decided.application_number,
+        ...(decided.status !== 'REJECTED' ? {
+          onboardingStatus: onboardingComplete ? 'COMPLETED' : 'DISCORD_JOIN_FAILED',
+          assignedRoles: decided.assigned_discord_roles,
+        } : {}),
         message:
           decided.status === 'REJECTED'
             ? 'Application rejected. Applicant notification may need attention.'
-            : 'Application approved. Discord onboarding needs an administrator retry.',
+            : onboardingComplete
+              ? 'Application approved and Discord onboarding completed. A follow-up notification or register sync may need attention.'
+              : 'Application approved, but Discord roles need attention. Open the applicant in Admin Applications to see the error and use Retry Discord.',
       })
     }
 

@@ -4,6 +4,38 @@ import { resolveDiscordGameRoles } from '../server/discord-role-resolution.ts'
 
 const role = (id, name, managed = false) => ({ id, name, managed, position: 1 })
 
+test('Bloodstrike approvals use the exact Night Striker role despite an older configured player role', () => {
+  const resolved = resolveDiscordGameRoles(
+    ['Bloodstrike'],
+    [role('old-player-role', 'BLOODSTRIKE PLAYERS'), role('1285794553915244574', 'Night Striker')],
+    { Bloodstrike: 'old-player-role' },
+  )
+  assert.deepEqual(resolved.map((item) => item.id), ['1285794553915244574'])
+})
+
+test('Bloodstrike resolves Night Striker by its stable ID without an environment override', () => {
+  const resolved = resolveDiscordGameRoles(
+    ['Bloodstrike'],
+    [role('1285794553915244574', 'NIGHT STRIKER'), role('other-role', 'Bloodstrike')],
+    {},
+  )
+  assert.deepEqual(resolved.map((item) => item.id), ['1285794553915244574'])
+})
+
+test('Bloodstrike never falls back to a player role when Night Striker is missing', () => {
+  assert.throws(
+    () => resolveDiscordGameRoles(['Bloodstrike'], [role('old-player-role', 'Bloodstrike')], { Bloodstrike: 'old-player-role' }),
+    /Night Striker.*1285794553915244574.*not found/,
+  )
+})
+
+test('the required Night Striker role must still be assignable', () => {
+  assert.throws(
+    () => resolveDiscordGameRoles(['Bloodstrike'], [role('1285794553915244574', 'Night Striker', true)], {}),
+    /managed and cannot be assigned/,
+  )
+})
+
 test('Mobile Legends applications resolve the full Mobile Legends: Bang Bang server role', () => {
   const resolved = resolveDiscordGameRoles(
     ['Mobile Legends'],

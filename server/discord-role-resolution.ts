@@ -2,6 +2,11 @@ import type { DiscordRole } from './discord.js'
 
 export type DiscordGameRoleIds = Partial<Record<string, string | undefined>>
 
+// Approved Bloodstrike applicants receive the clan's Night Striker role.
+// Keep this ID authoritative even if an older deployment still configures
+// the general Bloodstrike player role or the role's display name changes.
+const BLOODSTRIKE_APPROVAL_ROLE_ID = '1285794553915244574'
+
 const GAME_ROLE_ENV_NAMES: Record<string, string> = {
   Bloodstrike: 'DISCORD_ROLE_BLOODSTRIKE_ID',
   'Mobile Legends': 'DISCORD_ROLE_MOBILE_LEGENDS_ID',
@@ -17,7 +22,6 @@ const GAME_ROLE_ENV_NAMES: Record<string, string> = {
  * allowed to use the official game title or a short community label. Only
  * explicit aliases match; there is no fuzzy/substring role assignment. */
 const GAME_ROLE_ALIASES: Record<string, string[]> = {
-  Bloodstrike: ['Bloodstrike', 'Blood Strike'],
   'Mobile Legends': [
     'Mobile Legends',
     'Mobile Legends: Bang Bang',
@@ -52,12 +56,15 @@ export function resolveDiscordGameRoles(
 ) {
   const resolved = games.map((game) => {
     const environmentName = roleEnvironmentName(game)
-    const configuredId = configuredGameRoles[game]
+    const configuredId = game === 'Bloodstrike' ? BLOODSTRIKE_APPROVAL_ROLE_ID : configuredGameRoles[game]
     let role: DiscordRole | undefined
 
     if (configuredId) {
       role = guildRoles.find((candidate) => candidate.id === configuredId)
       if (!role) {
+        if (game === 'Bloodstrike') {
+          throw new Error(`The required Bloodstrike approval role Night Striker (${BLOODSTRIKE_APPROVAL_ROLE_ID}) was not found in this server.`)
+        }
         throw new Error(`The Discord role configured by ${environmentName} was not found in this server.`)
       }
     } else {
