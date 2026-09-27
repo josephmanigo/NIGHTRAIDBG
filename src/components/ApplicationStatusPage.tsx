@@ -28,7 +28,7 @@ const FLOW = ['SUBMITTED', 'PENDING_REVIEW', 'APPROVED', 'COMPLETED'] as const
 const REJECTED_FLOW = ['SUBMITTED', 'PENDING_REVIEW', 'REJECTED'] as const
 const MEMBER_STATUSES = ['APPROVED', 'DISCORD_JOIN_FAILED', 'COMPLETED']
 const EXIT_STATUSES = ['REMOVED', 'LEFT']
-const MESSENGER_GROUP_CHAT_URL = 'https://m.me/ch/AbZPsxMsekqs7W2A/'
+const MESSENGER_GROUP_CHAT_URL = 'https://m.me/j/QGZkUq-E_kX-IXnn/?send_source=gc:copy_invite_link_c'
 const DISCORD_NICKNAME_SERVER_URL = 'https://discord.gg/Ay8uSSJS3N'
 const MESSENGER_GAME_TAGS: Record<string, string> = {
   Bloodstrike: 'BS',
