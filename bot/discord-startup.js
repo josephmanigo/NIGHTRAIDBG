@@ -32,11 +32,16 @@ export async function startDiscordClient(client, token, { logger = console, time
   client.on(Events.Error, (error) => log('DISCORD_CLIENT_ERROR', { code: error.code, name: error.name }))
   client.rest.on(RESTEvents.Response, (request, response) => {
     if (request.path !== '/gateway/bot') return
+    const retryAfterSeconds = Number(response.headers.get('retry-after')) || 0
     log('DISCORD_GATEWAY_HTTP', {
       status: response.status,
-      retryAfterSeconds: Number(response.headers.get('retry-after')) || 0,
+      retryAfterSeconds,
       global: response.headers.get('x-ratelimit-global') === 'true',
     })
+    // Discord.js can sleep after a 429 without emitting RateLimited.
+    if (starting && response.status === 429 && Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0) {
+      armTimeout(retryAfterSeconds * 1000 + timeoutMs)
+    }
   })
   client.rest.on(RESTEvents.RateLimited, (info) => {
     if (!starting || (info.route !== '/gateway/bot' && !info.global)) return

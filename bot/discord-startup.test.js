@@ -22,13 +22,16 @@ test('a silent Discord login cannot leave the HTTP process alive indefinitely', 
   await rejected
 })
 
-test('Discord retry-after extends the startup deadline instead of restarting during a rate limit', async (t) => {
+test('an HTTP 429 extends the deadline even when Discord.js emits no RateLimited event', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
   const { client, logger } = harness()
   let resolveLogin
   client.login = () => new Promise((resolve) => { resolveLogin = resolve })
   const result = startDiscordClient(client, 'secret', { logger, timeoutMs: 1000 })
-  client.rest.emit(RESTEvents.RateLimited, { route: '/gateway/bot', retryAfter: 5000, global: false })
+  client.rest.emit(RESTEvents.Response, { path: '/gateway/bot' }, {
+    status: 429,
+    headers: new Headers({ 'retry-after': '5' }),
+  })
   t.mock.timers.tick(5000)
   resolveLogin('secret')
   await result

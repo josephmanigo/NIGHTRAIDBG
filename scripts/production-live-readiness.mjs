@@ -11,7 +11,7 @@ import {
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
-const DEFAULT_RENDER_ORIGIN = 'https://nightraidbg-2odc.onrender.com'
+const DEFAULT_RENDER_ORIGIN = 'https://nightraidbg-jz35.onrender.com'
 
 async function fetchWithoutRedirect(fetchImpl, url) {
   return fetchImpl(url, {
