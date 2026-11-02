@@ -23,6 +23,7 @@
  * inside the Vercel serverless functions. See PHASE8_SETUP.md.
  */
 import { createServer } from 'node:http'
+import { startDiscordClient } from './discord-startup.js'
 import {
   Client,
   Events,
@@ -862,7 +863,7 @@ client.on(Events.MessageCreate, async (message) => {
   }
 })
 
-client.login(BOT_TOKEN).catch((reason) => {
+startDiscordClient(client, BOT_TOKEN).catch((reason) => {
   console.error('Discord login failed:', reason instanceof Error ? reason.message : reason)
   process.exit(1)
 })
