@@ -26,6 +26,11 @@ export async function startDiscordClient(client, token, { logger = console, time
     if (stage) log('DISCORD_CONNECTION_STAGE', { stage: stage[1] })
   })
   client.on(Events.ShardReady, (shardId) => log('DISCORD_SHARD_READY', { shardId }))
+  client.once(Events.ClientReady, () => {
+    const reportMemory = () => log('DISCORD_STARTUP_MEMORY', process.memoryUsage())
+    reportMemory()
+    for (const delay of [30_000, 90_000]) setTimeout(reportMemory, delay).unref()
+  })
   client.on(Events.ShardDisconnect, (event, shardId) => log('DISCORD_SHARD_DISCONNECTED', { shardId, code: event.code }))
   client.on(Events.ShardReconnecting, (shardId) => log('DISCORD_SHARD_RECONNECTING', { shardId }))
   client.on(Events.ShardError, (error, shardId) => log('DISCORD_SHARD_ERROR', { shardId, code: error.code, name: error.name }))

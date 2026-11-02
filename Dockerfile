@@ -25,4 +25,5 @@ RUN mkdir -p /app/game_results.db.backups \
 
 USER node
 
-CMD ["node", "--max-old-space-size=384", "bot/nickname-bot.js"]
+# Leave room within Render's 512 MiB for buffers, TLS, and native allocations.
+CMD ["node", "--max-old-space-size=256", "--max-semi-space-size=4", "bot/nickname-bot.js"]
