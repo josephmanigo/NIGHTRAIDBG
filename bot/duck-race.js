@@ -6,7 +6,6 @@ import { renderDuckRaceGif } from './duck-race-animation.js'
 
 const LANES = 12
 const FINISH = 12
-const LOBBY_MS = 60_000
 const FRAME_MS = 2_500
 const FINISH_LINE = 'finish_line'
 const LAST_STANDING = 'last_standing'
@@ -85,8 +84,8 @@ function board(race, showResult = true) {
   }
   if (race.phase === 'lobby') {
     title += ' • Join the race'
-    description = `**${race.ducks.length}/${LANES} ducks** · Starts <t:${Math.ceil(race.deadline / 1000)}:R> with at least 2.\n`
-      + `Pick **Join race** to enter. <@${race.hostId}> can start early.\n\n`
+    description = `**${race.ducks.length}/${LANES} ducks** · Pick **Join race** to enter.\n`
+      + `Once at least two ducks join, <@${race.hostId}> can click **Start race**.\n\n`
       + race.ducks.map(duck => `<@${duck.userId}>`).join(' · ')
     buttons.push(
       button('join', 'Join race', ButtonStyle.Primary, race.ducks.length >= LANES),
@@ -152,6 +151,7 @@ function manageRacers(interaction, race, action) {
   race.kicked.add(id)
   race.lastRemoved = id
   race.rosterChanged = true
+  race.wakeLobby?.()
   if (race.phase === 'racing') {
     if (race.ducks.length === 0) {
       race.phase = 'cancelled'
@@ -165,49 +165,51 @@ function manageRacers(interaction, race, action) {
   return interaction.update({ content: `Removed <@${id}> from this race.`, components: [], allowedMentions: { parse: [] } })
 }
 
-export function createDuckRaceWorkflow({ random = randomInt, wait = sleep, now = Date.now, render = renderDuckRaceGif, errorReporter } = {}) {
+export function createDuckRaceWorkflow({ random = randomInt, wait = sleep, render = renderDuckRaceGif, errorReporter } = {}) {
   const races = new Map()
 
   async function open(interaction) {
     const { channelId, guildId, user } = interaction
     if (!guildId) return privateReply(interaction, 'Duck races only run in a server channel.')
     if (races.has(channelId)) return privateReply(interaction, 'A duck race is already open in this channel.')
+    const sendPermission = interaction.channel?.isThread?.() ? PermissionFlagsBits.SendMessagesInThreads : PermissionFlagsBits.SendMessages
+    if (!interaction.channel?.send || (interaction.appPermissions && !interaction.appPermissions.has(sendPermission))) {
+      return privateReply(interaction, 'NIGHTBUDDY needs permission to send the race board in this channel.')
+    }
     if (interaction.appPermissions && !interaction.appPermissions.has([PermissionFlagsBits.AttachFiles, PermissionFlagsBits.EmbedLinks])) {
       return privateReply(interaction, 'NIGHTBUDDY needs Attach Files and Embed Links in this channel to show the animated race.')
     }
 
     const race = {
       id: interaction.id, hostId: user.id, ducks: [], phase: 'lobby',
-      deadline: now() + LOBBY_MS, kicked: new Set(), round: 0,
+      kicked: new Set(), round: 0,
       mode: interaction.options.getString('mode') ?? FINISH_LINE,
       prize: cleanPrize(interaction.options.getString('prize')),
     }
     races.set(channelId, race)
+    let message
     try {
-      await interaction.reply(board(race))
+      // A host can wait longer than Discord's 15-minute interaction token lifetime.
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral })
+      message = await interaction.channel.send(board(race))
+      await interaction.editReply({ content: `[Open the duck race lobby](${message.url})` })
+        .catch(reason => errorReporter?.report('duck_race_lobby_link', reason))
       for (;;) {
-        if (race.phase === 'lobby' || race.phase === 'racing') await wait(FRAME_MS)
-        if (race.phase === 'lobby') {
-          if (now() >= race.deadline) {
-            if (race.ducks.length >= 2) {
-              startRace(race)
-            } else {
-              race.phase = 'cancelled'
-              race.closedReason = 'Too few ducks joined. Run `/duckrace` to open a new race.'
-            }
-          } else if (!race.rosterChanged) {
-            continue
-          }
-          race.rosterChanged = false
+        if (race.phase === 'lobby' && !race.rosterChanged) {
+          await new Promise(resolve => { race.wakeLobby = resolve })
+          race.wakeLobby = null
         }
         if (race.phase === 'lobby' || race.phase === 'cancelled') {
           const closed = race.phase === 'cancelled'
-          await interaction.editReply(board(race))
+          race.rosterChanged = false
+          await message.edit(board(race))
           if (closed) return
           continue
         }
         if (!race.showStart && race.phase === 'racing') {
-          advance(race, random)
+          await wait(FRAME_MS)
+          if (race.phase === 'cancelled') continue
+          if (race.phase === 'racing') advance(race, random)
         }
         if (race.showStart && !race.winner) race.frames[0] = snapshot(race)
         else race.frames.push(snapshot(race))
@@ -215,11 +217,11 @@ export function createDuckRaceWorkflow({ random = randomInt, wait = sleep, now =
         const finishing = race.phase === 'finished'
         const leg = await animatedBoard(race, render)
         if (race.phase === 'cancelled' || (!finishing && race.phase === 'finished')) continue
-        const posted = await interaction.editReply(leg)
+        const posted = await message.edit(leg)
         if (finishing) {
           await wait(FRAME_MS)
           try {
-            await interaction.editReply(await animatedBoard(race, render, true))
+            await message.edit(await animatedBoard(race, render, true))
           } catch (reason) {
             errorReporter?.report('duck_race_replay', reason)
             const result = board(race)
@@ -230,11 +232,16 @@ export function createDuckRaceWorkflow({ random = randomInt, wait = sleep, now =
               result.attachments = [{ id: lastLeg.id }]
               result.embeds[0].image = { url: `attachment://${lastLeg.name}` }
             }
-            await interaction.editReply(result)
+            await message.edit(result)
           }
           return
         }
       }
+    } catch (reason) {
+      if (message) {
+        await message.edit({ content: 'Duck race interrupted. Run `/duckrace` to try again.', embeds: [], components: [], attachments: [] }).catch(() => undefined)
+      }
+      throw reason
     } finally {
       if (races.get(channelId) === race) races.delete(channelId)
     }
@@ -255,7 +262,7 @@ export function createDuckRaceWorkflow({ random = randomInt, wait = sleep, now =
     if ((isButton && action === 'kick') || (isSelect && action === 'remove')) {
       return manageRacers(interaction, race, action)
     }
-    if (!isButton || race.phase !== 'lobby' || now() >= race.deadline) {
+    if (!isButton || race.phase !== 'lobby') {
       return privateReply(interaction, 'This lobby is closed. Run `/duckrace` for a new race.')
     }
     if (action === 'join') {
@@ -266,12 +273,14 @@ export function createDuckRaceWorkflow({ random = randomInt, wait = sleep, now =
       const username = interaction.user.username
       race.ducks.push({ userId, name: interaction.member?.displayName ?? username, username, position: 0 })
       race.rosterChanged = true
+      race.wakeLobby?.()
       return privateReply(interaction, 'Your duck is in!')
     }
     if (action !== 'start') return privateReply(interaction, 'Unknown race control.')
-    if (interaction.user.id !== race.hostId) return privateReply(interaction, 'Only the host can start this race early.')
+    if (interaction.user.id !== race.hostId) return privateReply(interaction, 'Only the host can start this race.')
     if (race.ducks.length < 2) return privateReply(interaction, 'At least two ducks must join first.')
     startRace(race)
+    race.wakeLobby?.()
     return interaction.deferUpdate()
   }
 
@@ -281,6 +290,7 @@ export function createDuckRaceWorkflow({ random = randomInt, wait = sleep, now =
     if (race.hostId !== userId && !isAdministrator) return { status: 'unauthorized', hostId: race.hostId }
     race.phase = 'cancelled'
     race.closedReason = `Duck race cancelled by <@${userId}>.`
+    race.wakeLobby?.()
     races.delete(channelId)
     return { status: 'ended', game: 'duckrace', content: race.closedReason }
   }
@@ -297,7 +307,7 @@ export function installDuckRaceWorkflow(client, options = {}) {
       options.errorReporter?.report('duck_race', reason)
       console.error('/duckrace failed:', reason instanceof Error ? reason.message : reason)
       const content = 'Duck race interrupted. Run `/duckrace` to try again.'
-      if (interaction.replied && interaction.isChatInputCommand()) {
+      if (interaction.deferred && !interaction.replied && interaction.isChatInputCommand()) {
         await interaction.editReply({ content, embeds: [], components: [], attachments: [] }).catch(() => undefined)
       } else if (!interaction.replied && !interaction.deferred) {
         await privateReply(interaction, content).catch(() => undefined)

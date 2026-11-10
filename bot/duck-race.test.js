@@ -10,7 +10,7 @@ function harness(random = (min, max) => max - 1) {
   let timers = []
   const pictures = []
   const race = createDuckRaceWorkflow({
-    random, now: () => time,
+    random,
     wait: () => new Promise(resolve => timers.push(resolve)),
     render: async animation => {
       pictures.push(structuredClone(animation))
@@ -27,11 +27,19 @@ function harness(random = (min, max) => max - 1) {
   }
   function open(id = 'race1', channelId = 'water', extra = {}) {
     const messages = []
+    const { editBoard = async payload => messages.push(payload), ...overrides } = extra
+    const openedAt = time
     const done = race.handleInteraction({
       id, channelId, guildId: 'guild', user: { id: 'host' },
       commandName: DUCK_RACE_COMMAND.name, isChatInputCommand: () => true, options: { getString: () => null },
       reply: async payload => messages.push(payload),
-      editReply: async payload => messages.push(payload), ...extra,
+      deferReply: async () => {},
+      editReply: async () => { assert.ok(time - openedAt < 900_000, 'opening interaction expired') },
+      channel: { send: async payload => {
+        messages.push(payload)
+        return { url: 'https://discord.com/channels/guild/water/board', edit: editBoard }
+      } },
+      ...overrides,
     })
     return { messages, done }
   }
@@ -55,13 +63,18 @@ function harness(random = (min, max) => max - 1) {
     })
     return reply
   }
-  return { race, tick, open, click, remove, pictures }
+  async function close(lobby, channelId = 'water') {
+    assert.equal(race.endGame({ channelId, userId: 'host' }).status, 'ended')
+    await lobby.done
+  }
+  return { race, tick, open, click, remove, close, pictures, pendingTimers: () => timers.length }
 }
 
-test('members join by button only, host starts early, and one board shows movement and the winner', async () => {
+test('members join by button only, the host starts the race, and one board shows movement and the winner', async () => {
   let roll = 0
   const h = harness(min => min === 0 ? 0 : (++roll % 2 === 1 ? 3 : 1))
   const { messages, done } = h.open()
+  await flush()
   assert.deepEqual(DUCK_RACE_COMMAND.options.map(option => option.name), ['mode', 'prize'])
   assert.match(messages[0].embeds[0].description, /0\/12 ducks/)
   const buttons = messages[0].components[0].components
@@ -88,20 +101,29 @@ test('members join by button only, host starts early, and one board shows moveme
   assert.equal(h.pictures.at(-1).replay, true)
   assert.deepEqual(h.pictures.at(-1).frames.map(f => f.positions), [[0, 0], [3, 1], [6, 2], [9, 3], [12, 4]])
   assert.equal(h.pictures.at(-1).frames.at(-1).winner, 0)
-  for (const message of messages.slice(2)) {
+  const animations = messages.filter(message => message.files)
+  assert.equal(animations.length, 6)
+  for (const message of animations) {
     assert.equal(message.files.length, 1)
     assert.equal(message.embeds[0].image.url, `attachment://${message.files[0].name}`)
     assert.deepEqual(message.attachments, [])
   }
-  assert.equal(new Set(messages.slice(2).map(m => m.files[0].name)).size, messages.length - 2)
+  assert.equal(new Set(animations.map(m => m.files[0].name)).size, animations.length)
 })
 
-test('a full lobby starts at the deadline and breaks a simultaneous finish with one draw', async () => {
+test('a full lobby waits for its host past token expiry and breaks a simultaneous finish with one draw', async () => {
   const h = harness()
   const { messages, done } = h.open()
   for (let i = 0; i < 12; i++) await h.click(String(i))
   assert.match((await h.click('13')).content, /full/)
-  await h.tick(60_000)
+  await h.tick(3_600_000)
+  assert.equal(h.pendingTimers(), 0)
+  assert.equal(h.pictures.length, 0)
+  assert.match(messages.at(-1).embeds[0].description, /12\/12 ducks/)
+  assert.doesNotMatch(messages.at(-1).embeds[0].description, /<t:/)
+  assert.match((await h.click('1', 'start')).content, /Only the host/)
+  await h.click('host', 'start')
+  await flush()
   assert.deepEqual(messages.at(-1).components[0].components.map(button => button.label), ['Kick player'])
   assert.match((await h.click('late')).content, /closed/)
   for (let i = 0; i < 5; i++) await h.tick()
@@ -109,29 +131,32 @@ test('a full lobby starts at the deadline and breaks a simultaneous finish with 
   assert.match(messages.at(-1).embeds[0].description, /🏆 <@11> wins![\s\S]*broke the tie/)
 })
 
-test('an undersubscribed lobby closes and old buttons cannot enter the next race', async () => {
+test('an empty or undersubscribed lobby stays open for late entrants until cancelled', async () => {
   const h = harness()
   const first = h.open()
+  await h.tick(3_600_000)
+  assert.equal(h.pendingTimers(), 0)
   await h.click('host')
   const duplicate = h.open('duplicate')
   await duplicate.done
   assert.match(duplicate.messages[0].content, /already open/)
-  await h.tick(60_000)
-  await first.done
+  await h.tick(3_600_000)
+  assert.match((await h.click('host', 'start')).content, /two ducks/)
+  assert.match((await h.click('late')).content, /is in/)
+  await h.close(first)
   assert.deepEqual(first.messages.at(-1).components, [])
-  assert.match(first.messages.at(-1).embeds[0].description, /Too few ducks/)
+  assert.match(first.messages.at(-1).embeds[0].description, /cancelled by <@host>/)
   const second = h.open('race2')
   assert.match((await h.click('old')).content, /closed/)
   assert.match((await h.click('new', 'join', 'race2')).content, /is in/)
-  await h.tick(60_000)
-  await second.done
+  await h.close(second)
 })
 
 test('/endgame can cancel a race and release the channel while its board update is pending', async () => {
   const h = harness()
   let finishEdit
   const finalBoards = []
-  const first = h.open('race1', 'water', { editReply: async payload => {
+  const first = h.open('race1', 'water', { editBoard: async payload => {
     finalBoards.push(payload)
     if (finalBoards.length === 1) await new Promise(resolve => { finishEdit = resolve })
   } })
@@ -154,8 +179,7 @@ test('/endgame can cancel a race and release the channel while its board update 
   assert.match(finalBoards.at(-1).embeds[0].description, /cancelled by <@mod>/)
   assert.match((await h.click('duck', 'join', 'race2')).content, /is in/)
   assert.match((await h.click('duck', 'join', 'other', 'other-channel')).content, /is in/)
-  await h.tick(60_000)
-  await Promise.all([next.done, other.done])
+  await Promise.all([h.close(next), h.close(other, 'other-channel')])
 })
 
 test('last duck standing eliminates a different entrant each round and shows the host prize through the result', async () => {
@@ -165,6 +189,9 @@ test('last duck standing eliminates a different entrant each round and shows the
   })
   for (const user of ['one', 'two', 'three']) await h.click(user)
   await h.tick(60_000)
+  assert.equal(h.pictures.length, 0)
+  await h.click('host', 'start')
+  await flush()
   assert.match(messages.at(-1).embeds[0].description, /3 still swimming/)
   await h.tick()
   assert.match(messages.at(-1).embeds[0].description, /2 still swimming[\s\S]*Round 1 · <@one> is out/)
@@ -202,7 +229,7 @@ test('only the host can remove current entrants, kicked members cannot rejoin, a
   assert.match((await h.remove('host', 'b')).content, /no longer/)
   assert.match((await h.click('b')).content, /removed you/)
   await h.click('host', 'start')
-  await h.tick()
+  await flush()
   assert.match((await h.remove('host', 'c')).content, /Removed <@c>/)
   await h.tick()
   await h.tick()
@@ -212,8 +239,7 @@ test('only the host can remove current entrants, kicked members cannot rejoin, a
   const next = h.open('race2')
   assert.match((await h.click('b', 'join', 'race2')).content, /is in/)
   assert.match((await h.remove('host', 'b', 'race1')).content, /closed/)
-  await h.tick(60_000)
-  await next.done
+  await h.close(next)
 })
 
 test('a failed Discord edit releases its channel and the slash command rejects DMs', async () => {
@@ -221,15 +247,15 @@ test('a failed Discord edit releases its channel and the slash command rejects D
   const dm = h.open('dm', 'dm', { guildId: null })
   await dm.done
   assert.equal(dm.messages[0].flags, 64)
-  const broken = h.open('bad', 'water', { editReply: async () => { throw new Error('message deleted') } })
+  const broken = h.open('bad', 'water', { editBoard: async () => { throw new Error('message deleted') } })
   const failed = assert.rejects(broken.done, /message deleted/)
   await h.click('duck', 'join', 'bad')
   await h.tick()
   await failed
   const next = h.open('next')
+  await flush()
   assert.match(next.messages[0].embeds[0].title, /Join the race/)
-  await h.tick(60_000)
-  await next.done
+  await h.close(next)
 })
 
 test('the real renderer emits a looping, multi-frame GIF that fits a Discord attachment', async () => {
@@ -253,7 +279,7 @@ test('a failed replay upload keeps the winning animation, winner, and prize on t
   const finishingFile = { id: '9001', name: '' }
   const game = h.open('race1', 'water', {
     options: { getString: key => key === 'prize' ? '30 GCash' : null },
-    editReply: async payload => {
+    editBoard: async payload => {
       if (payload.files?.[0].name.endsWith('-replay.gif')) throw new Error('upload failed')
       if (payload.files) finishingFile.name = payload.files[0].name
       result = payload
