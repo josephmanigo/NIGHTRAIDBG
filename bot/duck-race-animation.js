@@ -1,6 +1,7 @@
 import { setImmediate as yieldFrame } from 'node:timers/promises'
 import gifenc from 'gifenc'
 
+export const VISIBLE_LANES = 12
 const WIDTH = 480
 const BANK = 62
 const STRIPE = 390
@@ -85,10 +86,10 @@ class Bitmap {
     }
   }
 
-  name(label, x, y) {
+  name(label, x, y, limit = 8) {
     const nickname = String(label ?? '').replace(/^[a-z0-9]{1,10}\s*[•·∙⦁●・]\s*/i, '')
     const latin = nickname.normalize('NFKD').replace(/\p{M}/gu, '').toUpperCase()
-    const text = latin.replace(/[^A-Z0-9_.-]+/g, ' ').trim().slice(0, 8)
+    const text = latin.replace(/[^A-Z0-9_.-]+/g, ' ').trim().slice(0, limit)
     for (const ch of text) {
       if (letters[ch]) {
         letters[ch].forEach((bits, row) => {
@@ -105,6 +106,7 @@ class Bitmap {
 function makeDuck(lane) {
   const duck = new Bitmap(48, 32)
   const c = color
+  const bibColor = bibs[lane % bibs.length]
   // A rubber body, upturned tail, raised round head and two-part orange bill.
   duck.polygon([[1, 13], [11, 18], [22, 19], [30, 23], [22, 28], [7, 25], [3, 20]], c.brown)
   duck.polygon([[3, 15], [13, 19], [22, 20], [21, 26], [7, 24]], c.yellow)
@@ -126,14 +128,14 @@ function makeDuck(lane) {
   duck.ellipse(17, 20, 8, 4, c.light)
   duck.rect(12, 18, 5, 1, c.shine)
   duck.ellipse(25, 22, 7, 6, c.brown)
-  duck.ellipse(25, 22, 6, 5, bibs[lane])
-  duck.number(lane + 1, 25, 22, 1)
+  duck.ellipse(25, 22, 6, 5, bibColor)
+  if (lane < 999) duck.number(lane + 1, 25, 22, 1)
   if (lane % 4 === 1) {
-    duck.ellipse(32, 3, 7, 3, bibs[lane])
+    duck.ellipse(32, 3, 7, 3, bibColor)
     duck.rect(27, 4, 16, 2, c.navy)
   } else if (lane % 4 === 2) {
-    duck.rect(25, 4, 14, 2, bibs[lane])
-    duck.polygon([[26, 4], [20, 2], [22, 7], [26, 6]], bibs[lane])
+    duck.rect(25, 4, 14, 2, bibColor)
+    duck.polygon([[26, 4], [20, 2], [22, 7], [26, 6]], bibColor)
   } else if (lane % 4 === 3) {
     duck.polygon([[25, 1], [37, 1], [36, 6], [27, 6]], c.white)
     duck.rect(26, 5, 12, 2, c.navy)
@@ -190,10 +192,13 @@ function makeRiver(lanes, laneHeight) {
       }
     }
     river.rect(4, mid - 10, 120, 21, c.teal)
-    river.rect(4, mid - 10, 19, 21, c.navy)
-    river.rect(4, mid - 10, 3, 21, bibs[lane])
-    river.number(lane + 1, 15, mid, 2)
-    river.name(lanes[lane].name, 27, Math.round(mid - 7))
+    const bib = lanes[lane].bib ?? lane + 1
+    const width = Math.max(19, String(bib).length * 8 + 5)
+    river.rect(4, mid - 10, width, 21, c.navy)
+    river.rect(4, mid - 10, 3, 21, bibs[(bib - 1) % bibs.length])
+    river.number(bib, 6 + width / 2, mid, 2)
+    const nameX = width + 8
+    river.name(lanes[lane].name, nameX, Math.round(mid - 7), Math.floor((124 - nameX) / 12))
   }
   const bottom = BANK + count * laneHeight
   river.rect(0, bottom, WIDTH, 6, c.teal)
@@ -242,13 +247,13 @@ function drawSwimmer(river, sprite, nose, baseline, scale, time, sinking) {
 
 export async function renderDuckRaceGif({ lanes, frames, finish = 12, replay = false }) {
   const count = lanes.length
-  if (count < 1 || count > 12 || !frames.length || !(finish > 0)
+  if (count < 1 || count > VISIBLE_LANES || !frames.length || !(finish > 0)
     || frames.some(frame => frame.positions.length !== count)) throw new RangeError('Invalid duck race frames')
   const laneHeight = Math.max(31, Math.min(76, Math.floor(242 / count)))
   const scale = Math.min(1.55, (laneHeight - 6) / 32)
   const river = makeRiver(lanes, laneHeight)
   const background = river.pixels.slice()
-  const ducks = lanes.map((_, i) => makeDuck(i))
+  const ducks = lanes.map((duck, i) => makeDuck((duck.bib ?? i + 1) - 1))
   const gif = gifenc.GIFEncoder()
   const legs = Math.max(1, frames.length - 1)
   const steps = replay ? Math.max(3, Math.min(15, Math.floor(110 / legs))) : 22

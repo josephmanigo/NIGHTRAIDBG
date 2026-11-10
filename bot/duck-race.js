@@ -2,9 +2,9 @@ import { randomInt } from 'node:crypto'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { ApplicationCommandOptionType, ButtonStyle, ComponentType, Events, MessageFlags, PermissionFlagsBits } from 'discord.js'
 import { cleanPrize } from './guess-the-number.js'
-import { renderDuckRaceGif } from './duck-race-animation.js'
+import { renderDuckRaceGif, VISIBLE_LANES } from './duck-race-animation.js'
 
-const LANES = 12
+const ROSTER_PREVIEW = 25
 const FINISH = 12
 const FRAME_MS = 2_500
 const FINISH_LINE = 'finish_line'
@@ -33,21 +33,27 @@ function privateReply(interaction, content) {
 
 function snapshot(race) {
   return {
-    positions: race.lanes.map(duck => race.ducks.includes(duck) ? duck.position : null),
-    winner: race.winner ? race.lanes.indexOf(race.winner) : null,
+    positions: race.lanes.map(duck => duck.position),
+    winner: race.winner ? race.winner.bib - 1 : null,
   }
 }
 
 function startRace(race) {
   race.phase = 'racing'
   race.lanes = race.ducks.slice()
-  race.frames = [snapshot(race)]
+  race.lanes.forEach((duck, index) => { duck.bib = index + 1 })
+  race.frame = snapshot(race)
+  race.frames = []
+  race.leg = 0
+  // Sample long elimination replays while keeping every live round.
+  race.replayStride = race.mode === LAST_STANDING ? Math.max(1, Math.ceil((race.lanes.length - 1) / 12)) : 1
   race.showStart = true
 }
 
 function advance(race, random) {
   if (race.mode === LAST_STANDING) {
     const [out] = race.ducks.splice(random(0, race.ducks.length), 1)
+    out.position = null
     race.lastOut = out.userId
     race.round++
     if (race.ducks.length === 1) {
@@ -64,7 +70,7 @@ function advance(race, random) {
   }
   const speeds = race.ducks.map(() => random(1, 4))
   const crossingTimes = race.ducks.map((duck, i) => (FINISH - duck.position) / speeds[i])
-  const firstCrossing = Math.min(...crossingTimes)
+  const firstCrossing = crossingTimes.reduce((first, time) => Math.min(first, time), Infinity)
   const elapsed = Math.min(1, firstCrossing)
   race.ducks.forEach((duck, i) => { duck.position += Math.floor(speeds[i] * elapsed) })
   if (firstCrossing <= 1) {
@@ -75,7 +81,7 @@ function advance(race, random) {
   }
 }
 
-function board(race, showResult = true) {
+function board(race, showResult = true, visible = []) {
   let title = '🦆 Duck Race'
   let description
   const buttons = []
@@ -84,11 +90,13 @@ function board(race, showResult = true) {
   }
   if (race.phase === 'lobby') {
     title += ' • Join the race'
-    description = `**${race.ducks.length}/${LANES} ducks** · Pick **Join race** to enter.\n`
+    const roster = race.ducks.slice(0, ROSTER_PREVIEW).map(duck => `<@${duck.userId}>`)
+    if (race.ducks.length > roster.length) roster.push(`+${race.ducks.length - roster.length} more`)
+    description = `**${race.ducks.length} joined** · Pick **Join race** to enter.\n`
       + `Once at least two ducks join, <@${race.hostId}> can click **Start race**.\n\n`
-      + race.ducks.map(duck => `<@${duck.userId}>`).join(' · ')
+      + roster.join(' · ')
     buttons.push(
-      button('join', 'Join race', ButtonStyle.Primary, race.ducks.length >= LANES),
+      button('join', 'Join race', ButtonStyle.Primary),
       button('start', 'Start race', ButtonStyle.Secondary, race.ducks.length < 2),
     )
   } else if (race.phase === 'cancelled') {
@@ -109,7 +117,8 @@ function board(race, showResult = true) {
       lines.push(race.mode === LAST_STANDING ? `**${race.ducks.length} still swimming**` : 'First duck across the checkered line wins.')
     }
     if (race.lastOut && (!race.winner || result)) lines.push(`Round ${race.round} · <@${race.lastOut}> is out.`)
-    const lanes = race.lanes.map((duck, index) => `**${index + 1}** <@${duck.userId}>`)
+    if (race.lanes.length > VISIBLE_LANES) lines.push(`${race.lanes.length} entrants · ${visible.length} on camera`)
+    const lanes = visible.map(duck => `**${duck.bib}** <@${duck.userId}>`)
     description = [...lines, '', lanes.join(' · ')].join('\n')
   }
   if (race.phase === 'lobby' || race.phase === 'racing') {
@@ -122,11 +131,26 @@ function board(race, showResult = true) {
   return { embeds: [{ title, description, fields, color: 0x168598 }], components, attachments: [], allowedMentions: { parse: [] } }
 }
 
-async function animatedBoard(race, render, replay = false) {
-  const payload = board(race, replay)
-  const frames = replay ? race.frames : race.frames.slice(-2)
-  const name = `duckrace-${race.id}-${replay ? 'replay' : race.frames.length}.gif`
-  const attachment = await render({ lanes: race.lanes, frames, finish: FINISH, replay })
+function cameraDucks(race, from) {
+  if (race.lanes.length <= VISIBLE_LANES) return race.lanes
+  const active = race.lanes.filter(duck => from.positions[duck.bib - 1] !== null)
+  const page = race.winner
+    ? Math.floor(active.indexOf(race.winner) / VISIBLE_LANES)
+    : race.leg % Math.ceil(active.length / VISIBLE_LANES)
+  const start = Math.min(page * VISIBLE_LANES, Math.max(0, active.length - VISIBLE_LANES))
+  return active.slice(start, start + VISIBLE_LANES)
+}
+
+async function animatedBoard(race, frames, render, replay = false) {
+  const lanes = cameraDucks(race, frames[0])
+  const payload = board(race, replay, lanes)
+  if (replay && race.replayStride > 1) payload.embeds[0].title = '🦆 Duck Race • Results & highlights'
+  const visibleFrames = frames.map(frame => ({
+    positions: lanes.map(duck => frame.positions[duck.bib - 1]),
+    winner: frame.winner === null ? null : lanes.indexOf(race.lanes[frame.winner]),
+  }))
+  const name = `duckrace-${race.id}-${replay ? 'replay' : race.leg}.gif`
+  const attachment = await render({ lanes, frames: visibleFrames, finish: FINISH, replay })
   payload.files = [{ attachment, name, description: replay ? 'Animated replay of this race, from the starting positions to the finish.' : 'Numbered rubber ducks swimming in their assigned lanes.' }]
   payload.embeds[0].image = { url: `attachment://${name}` }
   return payload
@@ -136,18 +160,24 @@ function manageRacers(interaction, race, action) {
   if (interaction.user.id !== race.hostId) return privateReply(interaction, 'Only the race host can kick a player.')
   if (action === 'kick') {
     if (!race.ducks.length) return privateReply(interaction, 'No players have joined yet.')
+    const select = race.ducks.length > 25 ? {
+      type: ComponentType.UserSelect, placeholder: 'Search for a racer',
+    } : {
+      type: ComponentType.StringSelect, placeholder: 'Choose a racer',
+      options: race.ducks.map(duck => ({ label: duck.name, value: duck.userId, description: duck.username })),
+    }
     return interaction.reply({
       flags: MessageFlags.Ephemeral, content: 'Choose the player to remove from this race.',
       components: [{ type: ComponentType.ActionRow, components: [{
-        type: ComponentType.StringSelect, custom_id: `duckrace:${race.id}:remove`, placeholder: 'Choose a racer',
-        options: race.ducks.map(duck => ({ label: duck.name, value: duck.userId, description: duck.username })),
+        ...select, custom_id: `duckrace:${race.id}:remove`,
       }] }],
     })
   }
   const id = interaction.values[0]
   const index = race.ducks.findIndex(duck => duck.userId === id)
   if (index === -1) return privateReply(interaction, 'That player is no longer in the race.')
-  race.ducks.splice(index, 1)
+  const [removed] = race.ducks.splice(index, 1)
+  removed.position = null
   race.kicked.add(id)
   race.lastRemoved = id
   race.rosterChanged = true
@@ -182,7 +212,7 @@ export function createDuckRaceWorkflow({ random = randomInt, wait = sleep, rende
 
     const race = {
       id: interaction.id, hostId: user.id, ducks: [], phase: 'lobby',
-      kicked: new Set(), round: 0,
+      joined: new Set(), kicked: new Set(), round: 0,
       mode: interaction.options.getString('mode') ?? FINISH_LINE,
       prize: cleanPrize(interaction.options.getString('prize')),
     }
@@ -211,20 +241,24 @@ export function createDuckRaceWorkflow({ random = randomInt, wait = sleep, rende
           if (race.phase === 'cancelled') continue
           if (race.phase === 'racing') advance(race, random)
         }
-        if (race.showStart && !race.winner) race.frames[0] = snapshot(race)
-        else race.frames.push(snapshot(race))
+        const opening = race.showStart && !race.winner
+        const previous = race.frame
+        race.frame = snapshot(race)
+        if (!opening) race.leg++
+        if (!race.frames.length && !opening) race.frames.push(previous)
+        if (race.winner || race.leg % race.replayStride === 0) race.frames.push(race.frame)
         race.showStart = false
         const finishing = race.phase === 'finished'
-        const leg = await animatedBoard(race, render)
+        const leg = await animatedBoard(race, opening ? [race.frame] : [previous, race.frame], render)
         if (race.phase === 'cancelled' || (!finishing && race.phase === 'finished')) continue
         const posted = await message.edit(leg)
         if (finishing) {
           await wait(FRAME_MS)
           try {
-            await message.edit(await animatedBoard(race, render, true))
+            await message.edit(await animatedBoard(race, race.frames, render, true))
           } catch (reason) {
             errorReporter?.report('duck_race_replay', reason)
-            const result = board(race)
+            const result = board(race, true, cameraDucks(race, previous))
             result.embeds[0].title = '🦆 Duck Race • Results'
             result.embeds[0].footer = { text: 'Full replay unavailable.' }
             const lastLeg = posted?.attachments?.first()
@@ -252,7 +286,7 @@ export function createDuckRaceWorkflow({ random = randomInt, wait = sleep, rende
       return open(interaction)
     }
     const isButton = interaction.isButton?.()
-    const isSelect = interaction.isStringSelectMenu?.()
+    const isSelect = interaction.isStringSelectMenu?.() || interaction.isUserSelectMenu?.()
     if ((!isButton && !isSelect) || !interaction.customId.startsWith('duckrace:')) return
     const [, id, action] = interaction.customId.split(':')
     const race = races.get(interaction.channelId)
@@ -268,10 +302,10 @@ export function createDuckRaceWorkflow({ random = randomInt, wait = sleep, rende
     if (action === 'join') {
       const userId = interaction.user.id
       if (race.kicked.has(userId)) return privateReply(interaction, 'The host removed you from this race.')
-      if (race.ducks.some(duck => duck.userId === userId)) return privateReply(interaction, 'Your duck is already entered.')
-      if (race.ducks.length >= LANES) return privateReply(interaction, 'All 12 lanes are full.')
+      if (race.joined.has(userId)) return privateReply(interaction, 'Your duck is already entered.')
       const username = interaction.user.username
       race.ducks.push({ userId, name: interaction.member?.displayName ?? username, username, position: 0 })
+      race.joined.add(userId)
       race.rosterChanged = true
       race.wakeLobby?.()
       return privateReply(interaction, 'Your duck is in!')

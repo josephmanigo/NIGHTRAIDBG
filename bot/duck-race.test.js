@@ -53,10 +53,10 @@ function harness(random = (min, max) => max - 1) {
     })
     return reply
   }
-  async function remove(host, target, id = 'race1') {
+  async function remove(host, target, id = 'race1', userSelect = false) {
     let reply
     await race.handleInteraction({
-      user: { id: host }, channelId: 'water', isStringSelectMenu: () => true,
+      user: { id: host }, channelId: 'water', isStringSelectMenu: () => !userSelect, isUserSelectMenu: () => userSelect,
       customId: `duckrace:${id}:remove`, values: [target],
       reply: async payload => { reply = payload },
       update: async payload => { reply = payload },
@@ -76,7 +76,7 @@ test('members join by button only, the host starts the race, and one board shows
   const { messages, done } = h.open()
   await flush()
   assert.deepEqual(DUCK_RACE_COMMAND.options.map(option => option.name), ['mode', 'prize'])
-  assert.match(messages[0].embeds[0].description, /0\/12 ducks/)
+  assert.match(messages[0].embeds[0].description, /0 joined/)
   const buttons = messages[0].components[0].components
   assert.deepEqual(buttons.map(button => button.custom_id), ['duckrace:race1:join', 'duckrace:race1:start', 'duckrace:race1:kick'])
   assert.match((await h.click('host', 'start')).content, /two ducks/)
@@ -85,7 +85,7 @@ test('members join by button only, the host starts the race, and one board shows
   assert.match(duplicate.content, /already entered/)
   await h.click('bob')
   await h.tick()
-  assert.match(messages.at(-1).embeds[0].description, /2\/12 ducks[\s\S]*<@alice> · <@bob>/)
+  assert.match(messages.at(-1).embeds[0].description, /2 joined[\s\S]*<@alice> · <@bob>/)
   assert.match((await h.click('bob', 'start')).content, /Only the host/)
   assert.deepEqual(await h.click('host', 'start'), { deferred: true })
   assert.match((await h.click('late')).content, /closed/)
@@ -111,24 +111,58 @@ test('members join by button only, the host starts the race, and one board shows
   assert.equal(new Set(animations.map(m => m.files[0].name)).size, animations.length)
 })
 
-test('a full lobby waits for its host past token expiry and breaks a simultaneous finish with one draw', async () => {
+test('a large lobby accepts everyone, allows host kicks, waits for its host, and renders the winning duck beyond lane twelve', async () => {
   const h = harness()
   const { messages, done } = h.open()
-  for (let i = 0; i < 12; i++) await h.click(String(i))
-  assert.match((await h.click('13')).content, /full/)
+  const players = Array.from({ length: 258 }, (_, i) => String(100000000000000000n + BigInt(i)))
+  const joined = await Promise.all(players.map(user => h.click(user)))
+  assert.ok(joined.every(reply => reply.content === 'Your duck is in!'))
+  assert.match((await h.click(players[200])).content, /already entered/)
+  const menu = (await h.click('host', 'kick')).components[0].components[0]
+  assert.equal(menu.type, 5)
+  assert.equal(menu.options, undefined)
+  assert.match((await h.remove('guest', players[99], 'race1', true)).content, /Only the race host/)
+  assert.match((await h.remove('host', 'not-entered', 'race1', true)).content, /no longer in the race/)
+  await h.remove('host', players[99], 'race1', true)
+  assert.match((await h.click(players[99])).content, /removed you/)
   await h.tick(3_600_000)
   assert.equal(h.pendingTimers(), 0)
   assert.equal(h.pictures.length, 0)
-  assert.match(messages.at(-1).embeds[0].description, /12\/12 ducks/)
+  assert.match(messages.at(-1).embeds[0].description, /257 joined[\s\S]*\+232 more/)
+  assert.equal(messages.at(-1).components[0].components[0].disabled, false)
   assert.doesNotMatch(messages.at(-1).embeds[0].description, /<t:/)
   assert.match((await h.click('1', 'start')).content, /Only the host/)
   await h.click('host', 'start')
-  await flush()
-  assert.deepEqual(messages.at(-1).components[0].components.map(button => button.label), ['Kick player'])
   assert.match((await h.click('late')).content, /closed/)
   for (let i = 0; i < 5; i++) await h.tick()
   await done
-  assert.match(messages.at(-1).embeds[0].description, /🏆 <@11> wins![\s\S]*broke the tie/)
+  const result = messages.at(-1)
+  assert.ok(result.embeds[0].description.includes(`🏆 <@${players.at(-1)}> wins!`))
+  assert.match(result.embeds[0].description, /broke the tie/)
+  assert.ok(messages.every(message => message.embeds[0].description.length <= 4096))
+  assert.deepEqual(h.pictures.slice(0, 3).map(view => view.lanes[0].bib), [1, 13, 25])
+  const replay = h.pictures.at(-1)
+  const gif = await renderDuckRaceGif(replay)
+  assert.equal(gif.toString('ascii', 0, 6), 'GIF89a')
+  assert.ok(gif.length < 8 * 1024 * 1024)
+  assert.equal(replay.lanes[replay.frames.at(-1).winner].bib, 257)
+  assert.equal(replay.lanes[replay.frames.at(-1).winner].userId, players.at(-1))
+})
+
+test('every entrant competes in large elimination races and the replay retains the eventual winner', async () => {
+  const h = harness(min => min)
+  const { messages, done } = h.open('race1', 'water', { options: { getString: key => key === 'mode' ? 'last_standing' : null } })
+  const count = 151
+  for (let i = 1; i <= count; i++) await h.click(String(i))
+  await h.click('host', 'start')
+  for (let i = 0; i < count; i++) await h.tick()
+  await done
+  const result = messages.at(-1)
+  assert.match(result.embeds[0].description, /<@151> is the last duck standing![\s\S]*Round 150 · <@150> is out/)
+  const replay = h.pictures.at(-1)
+  assert.ok(replay.frames.length <= 14)
+  assert.ok(h.pictures.every(view => view.lanes.length <= 12))
+  assert.equal(replay.lanes[replay.frames.at(-1).winner].userId, '151')
 })
 
 test('an empty or undersubscribed lobby stays open for late entrants until cancelled', async () => {
