@@ -1,7 +1,7 @@
 import { setImmediate as yieldFrame } from 'node:timers/promises'
 import gifenc from 'gifenc'
 
-export const VISIBLE_LANES = 12
+const DETAILED_LANES = 16
 const WIDTH = 480
 const BANK = 62
 const STRIPE = 390
@@ -207,83 +207,160 @@ function makeRiver(lanes, laneHeight) {
     river.rect(STRIPE, y, 5, Math.min(5, bottom - y), alternate ? c.navy : c.white)
     river.rect(STRIPE + 5, y, 5, Math.min(5, bottom - y), alternate ? c.white : c.navy)
   }
-  river.rect(STRIPE - 1, 27, 3, BANK - 26, c.navy)
-  for (let row = 0; row < 3; row++) {
-    for (let col = 0; col < 6; col++) {
-      river.rect(STRIPE + 2 + col * 4, 29 + row * 4 + Math.round(2 * Math.sin(col)), 4, 4, (row + col) % 2 ? c.white : c.navy)
-    }
-  }
+  if (count) drawFinishFlag(river, STRIPE)
   return river
 }
 
-function drawSwimmer(river, sprite, nose, baseline, scale, time, sinking) {
+function drawFinishFlag(river, stripe) {
   const c = color
-  const width = Math.round(sprite.width * scale), height = Math.round(sprite.height * scale)
+  river.rect(stripe - 1, 27, 3, BANK - 26, c.navy)
+  for (let row = 0; row < 3; row++) {
+    for (let col = 0; col < 6; col++) {
+      river.rect(stripe + 2 + col * 4, 29 + row * 4 + Math.round(2 * Math.sin(col)), 4, 4, (row + col) % 2 ? c.white : c.navy)
+    }
+  }
+}
+
+// Everyone has a fixed lane. Large fields use adjacent columns of lanes in the same image.
+function raceScene(lanes, density = 1) {
+  const count = lanes.length
+  if (count <= DETAILED_LANES) {
+    const height = Math.max(25, Math.min(76, Math.floor(242 / count)))
+    const scale = Math.min(1.55, (height - 6) / 32)
+    const width = Math.round(48 * scale)
+    return {
+      river: makeRiver(lanes, height),
+      tracks: lanes.map((duck, i) => ({
+        sprite: makeDuck((duck.bib ?? i + 1) - 1), scale,
+        start: 129 + width, stripe: STRIPE, end: STRIPE + 11 + width,
+        baseline: Math.round(BANK + height * (i + 0.5) + 16 * scale),
+      })),
+    }
+  }
+
+  const columns = Math.ceil(Math.sqrt(count / 12))
+  const rows = Math.ceil(count / columns)
+  const w = Math.max(14, Math.floor(768 / columns / density))
+  const heightBudget = Math.max(600, Math.min(1600, count * 1.4))
+  const h = Math.max(3, Math.min(40, Math.floor(heightBudget / rows / density)))
+  const river = new Bitmap(w * columns, BANK + rows * h + 4)
+  const scenery = makeRiver([], 0)
+  for (let y = 0; y < BANK; y++) {
+    for (let x = 0; x < river.width; x++) river.pixels[y * river.width + x] = scenery.pixels[y * WIDTH + x % WIDTH]
+  }
+  river.rect(0, BANK, river.width, river.height - BANK, color.water2)
+  const scale = Math.min(1, (h - 1) / 35, w / 180)
+  const duckWidth = Math.max(3, Math.round(48 * scale))
+  const smallSprites = Array.from({ length: bibs.length }, (_, i) => makeDuck(i))
+  const tracks = lanes.map((duck, index) => {
+    const x = w * Math.floor(index / rows), y = BANK + h * (index % rows)
+    const bib = duck.bib ?? index + 1
+    const stripeWidth = Math.max(1, Math.min(4, Math.floor(h / 5)))
+    const stripe = x + w - duckWidth - stripeWidth * 2 - 2
+    const tag = h >= 19 && w >= 220 ? 111 : h >= 9 && w >= 65 ? Math.max(19, String(bib).length * 4 + 6) : 1
+    river.rect(x, y, w - 1, h - 1, index % rows % 2 ? color.water1 : color.water2)
+    if (index % rows === 0 && w >= 100) drawFinishFlag(river, stripe)
+    if (tag > 1) {
+      river.rect(x + 1, y + 1, tag - 1, h - 2, color.teal)
+      river.number(bib, x + (tag >= 111 ? 13 : tag / 2), y + h / 2, 1)
+      if (tag >= 111) river.name(duck.name, x + 28, Math.round(y + h / 2 - 7), 6)
+    }
+    for (let yy = 0; yy < h; yy += stripeWidth) {
+      const first = Math.floor((y + yy - BANK) / stripeWidth) % 2
+      river.rect(stripe, y + yy, stripeWidth, Math.min(h - yy, stripeWidth), first ? color.white : color.navy)
+      river.rect(stripe + stripeWidth, y + yy, stripeWidth, Math.min(h - yy, stripeWidth), first ? color.navy : color.white)
+    }
+    return {
+      sprite: h >= 20 ? makeDuck(bib - 1) : smallSprites[(bib - 1) % smallSprites.length], scale,
+      start: x + tag + duckWidth + 1, stripe, end: x + w - 1,
+      baseline: Math.round(y + h / 2 + Math.max(2, 32 * scale) / 2),
+    }
+  })
+  return { river, tracks }
+}
+
+function drawSwimmer(river, track, nose, time, out) {
+  const { sprite, scale, baseline } = track
+  const width = Math.max(3, Math.round(sprite.width * scale))
+  const height = Math.max(2, Math.round(sprite.height * scale))
   const left = Math.round(nose - width)
-  const bob = Math.round(Math.sin(time * 2 * Math.PI) * Math.min(2.1, 1.6 * scale))
-  const rise = Math.round(height * sinking)
-  const top = Math.round(baseline - height + bob + rise)
-  const wake = Math.round(3 * Math.sin(time * 2 * Math.PI))
-  river.ellipse(nose - width / 2, baseline + 1, Math.round(width * (0.48 - 0.24 * sinking)), 2, c.depth)
-  river.rect(left - 12 + wake, baseline, 13, 2, c.foam)
-  river.rect(left - 19 - wake, baseline + 4, 9, 1, c.wave)
-  river.rect(left + 3 - wake, baseline + 3, 10, 1, c.wave)
-  const visible = Math.min(height, baseline + bob - top)
-  for (let y = 0; y < visible; y++) {
+  const bob = Math.round(Math.sin(time * 2 * Math.PI) * Math.min(2, 1.4 * scale))
+  const top = baseline - height + bob
+  if (height <= 6) {
+    // A tiny side-on duck still has a body, raised head and bill at crowd scale.
+    river.rect(left, top + Math.floor(height / 2), width - 1, Math.ceil(height / 2), out ? color.teal : color.yellow)
+    river.rect(left + width - 3, top, 2, Math.ceil(height / 2), out ? color.teal : color.light)
+    river.rect(left + width - 1, top + Math.floor(height / 3), 1, 1, out ? color.navy : color.bill)
+    return
+  }
+  if (!out && scale >= 0.35) {
+    const wake = Math.round(2 * scale * Math.sin(time * 2 * Math.PI))
+    river.rect(left - Math.round(9 * scale) + wake, baseline, Math.round(8 * scale), 1, color.foam)
+  }
+  for (let y = 0; y < height; y++) {
     const sourceRow = Math.floor(y * sprite.height / height) * sprite.width
     const destRow = (top + y) * river.width + left
     for (let x = 0; x < width; x++) {
       const fill = sprite.pixels[sourceRow + Math.floor(x * sprite.width / width)]
-      if (fill) river.pixels[destRow + x] = fill
+      if (fill) river.pixels[destRow + x] = out ? (fill === color.brown || fill === color.eye ? color.navy : color.hills) : fill
     }
-  }
-  if (sinking > 0) {
-    const splash = Math.sin(Math.PI * sinking)
-    river.ellipse(nose - width / 2, baseline - 1, Math.round(width * 0.3), 1, c.foam)
-    river.rect(left + 4, baseline - 4 - splash * 6, 2, 3, c.white)
-    river.rect(nose - 6, baseline - 4 - splash * 7, 2, 2, c.foam)
   }
 }
 
-export async function renderDuckRaceGif({ lanes, frames, finish = 12, replay = false }) {
-  const count = lanes.length
-  if (count < 1 || count > VISIBLE_LANES || !frames.length || !(finish > 0)
-    || frames.some(frame => frame.positions.length !== count)) throw new RangeError('Invalid duck race frames')
-  const laneHeight = Math.max(31, Math.min(76, Math.floor(242 / count)))
-  const scale = Math.min(1.55, (laneHeight - 6) / 32)
-  const river = makeRiver(lanes, laneHeight)
-  const background = river.pixels.slice()
-  const ducks = lanes.map((duck, i) => makeDuck((duck.bib ?? i + 1) - 1))
-  const gif = gifenc.GIFEncoder()
-  const legs = Math.max(1, frames.length - 1)
-  const steps = replay ? Math.max(3, Math.min(15, Math.floor(110 / legs))) : 22
-  const start = 129 + Math.ceil(48 * scale)
-  const end = STRIPE + 11 + Math.ceil(48 * scale)
-  for (let leg = 0; leg < legs; leg++) {
-    const from = frames[leg], to = frames[Math.min(leg + 1, frames.length - 1)]
-    for (let step = leg ? 1 : 0; step <= steps; step++) {
-      const t = step / steps
-      river.pixels.set(background)
-      for (let lane = 0; lane < count; lane++) {
-        const previous = from.positions[lane], next = to.positions[lane]
-        if (previous == null && next == null) continue
-        const noseAt = value => start + (STRIPE - start) * Math.min(1, Math.max(0, value / finish))
-        const fromX = from.winner === lane ? end : noseAt(previous ?? next)
-        const toX = to.winner === lane ? end : noseAt(next ?? previous)
-        const nose = fromX + (toX - fromX) * t
-        const baseline = Math.round(BANK + laneHeight * (lane + 0.5) + 16 * scale)
-        drawSwimmer(river, ducks[lane], nose, baseline, scale, (leg + t) * 2 + lane / 4, next == null ? t : 0)
+export async function renderDuckRaceGif({ lanes, frames, finish = 12, replay = false, durationMs = 2500 }) {
+  if (!lanes.length || !frames.length || !(finish > 0)
+    || frames.some(frame => frame.positions.length !== lanes.length)) throw new RangeError('Invalid duck race frames')
+  let density = 1
+  let scene = raceScene(lanes)
+  let legs = Math.max(1, frames.length - 1)
+  const runtime = replay ? Math.min(15_000, legs * 1500) : durationMs
+  const targetFrames = Math.max(2, Math.min(100, Math.round(runtime / 110), Math.floor(26_000_000 / scene.river.pixels.length)))
+  let steps = Math.max(1, Math.floor(targetFrames / legs))
+  for (;;) {
+    const { river, tracks } = scene
+    const background = river.pixels.slice()
+    const gif = gifenc.GIFEncoder()
+    encode: for (let leg = 0; leg < legs; leg++) {
+      const from = frames[leg], to = frames[Math.min(leg + 1, frames.length - 1)]
+      for (let step = leg ? 1 : 0; step <= steps; step++) {
+        const t = step / steps
+        river.pixels.set(background)
+        for (let lane = 0; lane < lanes.length; lane++) {
+          const previous = from.positions[lane], next = to.positions[lane]
+          if (next == null && (previous == null || t === 1)) continue
+          const track = tracks[lane]
+          const at = value => track.start + (track.stripe - track.start) * Math.min(1, Math.max(0, value / finish))
+          const fromX = from.winner === lane ? track.end : at(previous ?? next)
+          // Meet the stripe at the timed finish; the replay also shows the winner clearing it.
+          const toX = to.winner === lane ? (replay ? track.end : track.stripe + 1) : at(next ?? previous)
+          const out = from.out?.[lane] || (t === 1 && to.out?.[lane])
+          drawSwimmer(river, track, fromX + (toX - fromX) * t, (leg + t) * 2 + lane / 4, out)
+        }
+        const first = leg === 0 && step === 0
+        const last = leg === legs - 1 && step === steps
+        gif.writeFrame(river.pixels, river.width, river.height, {
+          palette: first ? palette : undefined, repeat: replay ? 0 : -1,
+          delay: last && replay ? 1000 : Math.max(20, Math.round(runtime / (steps * legs))), colorDepth: 6,
+        })
+        if (gif.bytesView().length >= 8 * 1024 * 1024) break encode
+        await yieldFrame()
       }
-      const first = leg === 0 && step === 0
-      const last = leg === legs - 1 && step === steps
-      gif.writeFrame(river.pixels, river.width, river.height, {
-        palette: first ? palette : undefined, repeat: replay || frames.length === 1 ? 0 : -1,
-        delay: last && replay ? 1400 : Math.round(2500 / steps), colorDepth: 6,
-      })
-      await yieldFrame()
+    }
+    gif.finish()
+    const bytes = gif.bytesView()
+    if (bytes.length <= 8 * 1024 * 1024) return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+    river.pixels.set(background)
+    if (steps > 1) {
+      steps = Math.max(1, Math.floor(steps / 2))
+    } else if (frames.length > 2) {
+      frames = frames.filter((_, i) => i % 2 === 0 || i === frames.length - 1)
+      legs = frames.length - 1
+    } else {
+      // Preserve the entire field when the two endpoint images alone exceed the upload budget.
+      density *= 2
+      const smaller = raceScene(lanes, density)
+      if (smaller.river.pixels.length >= background.length) throw new RangeError('Race image exceeds the Discord attachment budget')
+      scene = smaller
     }
   }
-  gif.finish()
-  const bytes = gif.bytesView()
-  return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)
 }
