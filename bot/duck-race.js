@@ -1,4 +1,4 @@
-import { randomInt } from 'node:crypto'
+import { createHash, randomInt } from 'node:crypto'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { ApplicationCommandOptionType, ButtonStyle, ComponentType, Events, MessageFlags, PermissionFlagsBits } from 'discord.js'
 import { cleanPrize } from './guess-the-number.js'
@@ -18,7 +18,7 @@ export const DUCK_RACE_COMMAND = {
     {
       type: ApplicationCommandOptionType.String, name: 'mode',
       description: 'How the winner is decided. Defaults to first to the finish line.',
-      choices: Object.entries(MODES).map(([value, name]) => ({ name, value })),
+      choices: [...Object.entries(MODES).map(([value, name]) => ({ name, value })), { name: "QA · 13 test ducks · Last duck standing", value: "qa_rounds_13" }],
     },
     {
       type: ApplicationCommandOptionType.String, name: 'prize',
@@ -51,8 +51,24 @@ function durationLabel(ms) {
   return `${ms / 1000} second${ms === 1000 ? '' : 's'}`
 }
 
+function entrant(duck) { return duck.testDuck ? duck.name : `<@${duck.userId}>` }
+
+async function verifyUpload(race, posted, payload, status, frames) {
+  try {
+    const file = posted.attachments.first()
+    const res = await fetch(file.url, { signal: AbortSignal.timeout(8000) })
+    if (!res.ok) throw new Error('Discord CDN returned ' + res.status)
+    const data = Buffer.from(await res.arrayBuffer())
+    const sha256 = createHash('sha256').update(data).digest('hex')
+    console.log('[DuckRaceQA]', JSON.stringify({ status, message: posted.url, sha256, equal: data.equals(payload.files[0].attachment),
+      field: race.lanes.length, durationMs: race.durationMs, bytes: data.length, postedAt: posted.editedTimestamp,
+      firstPublishedAt: race.startedAt, pace: race.lanes.map(d => d.speed), order: race.plans[0].order.map(d => d.bib),
+      crossings: frames.filter(frame => frame.crossed != null).map(frame => [frame.round, frame.crossed + 1]) }))
+  } catch (e) { console.warn('[DuckRaceQA] Verification failed', e.message) }
+}
+
 function board(race, showResult = true) {
-  let title = '🦆 Duck Race'
+  let title = race.testRun ? '🧪 Duck Race • 13 test ducks' : '🦆 Duck Race'
   let description
   const buttons = []
   function button(action, label, style, disabled = false) {
@@ -60,13 +76,13 @@ function board(race, showResult = true) {
   }
   if (race.phase === 'lobby') {
     title += ' • Join the race'
-    const roster = race.ducks.slice(0, ROSTER_PREVIEW).map(duck => `<@${duck.userId}>`)
+    const roster = race.ducks.slice(0, ROSTER_PREVIEW).map(entrant)
     if (race.ducks.length > roster.length) roster.push(`+${race.ducks.length - roster.length} more`)
     description = `**${race.ducks.length} joined** · Pick **Join race** to enter.\n`
       + `Once at least two ducks join, <@${race.hostId}> can click **Start race**.\n\n`
       + roster.join(' · ')
     buttons.push(
-      button('join', 'Join race', ButtonStyle.Primary),
+      button('join', 'Join race', ButtonStyle.Primary, !!race.testRun),
       button('start', 'Start race', ButtonStyle.Secondary, race.ducks.length < 2),
     )
   } else if (race.phase === 'cancelled') {
@@ -78,16 +94,16 @@ function board(race, showResult = true) {
     const lines = []
     if (result) {
       lines.push(race.mode === LAST_STANDING
-        ? `🏆 <@${race.winner.userId}> is the last duck standing!`
+        ? `🏆 ${entrant(race.winner)} is the last duck standing!`
         : `🏆 <@${race.winner.userId}> wins!`)
       if (race.tied) lines.push('Photo finish! A random draw broke the tie.')
     } else {
       lines.push(race.mode === LAST_STANDING ? 'First duck across is out each round. The remaining ducks race again.' : 'First duck across the checkered line wins.')
     }
-    if (result && race.lastOut) lines.push(`Round ${race.rounds} · <@${race.lastOut.userId}> crossed first and was eliminated.`)
+    if (result && race.lastOut) lines.push(`Round ${race.rounds} · ${entrant(race.lastOut)} crossed first and was eliminated.`)
     if (!result && race.clockStarted) lines.push(`Finish <t:${Math.ceil(race.endsAt / 1000)}:R>`)
     if (race.lanes.length > ROSTER_PREVIEW) lines.push(`${race.lanes.length} entrants on one race board`)
-    const lanes = race.lanes.slice(0, ROSTER_PREVIEW).map(duck => `**${duck.bib}** <@${duck.userId}>`)
+    const lanes = race.lanes.slice(0, ROSTER_PREVIEW).map(duck => `**${duck.bib}** ${entrant(duck)}`)
     description = [...lines, '', lanes.join(' · ')].join('\n')
   }
   if (race.phase === 'lobby' || race.phase === 'racing') {
@@ -145,6 +161,7 @@ function manageRacers(interaction, race, action, now) {
 
 export function createDuckRaceWorkflow({ random = randomInt, wait = sleep, now = Date.now, render = renderDuckRaceGif, errorReporter } = {}) {
   const races = new Map()
+  let ranChannelTest = false
 
   async function open(interaction) {
     const { channelId, guildId, user } = interaction
@@ -165,6 +182,17 @@ export function createDuckRaceWorkflow({ random = randomInt, wait = sleep, now =
       durationMs, joined: new Set(), kicked: new Set(), leg: 0,
       mode: interaction.options.getString('mode') ?? FINISH_LINE,
       prize: cleanPrize(interaction.options.getString('prize')),
+    }
+    if (race.mode === 'qa_rounds_13') {
+      if (ranChannelTest || guildId !== '1208444297926545489' || !/guess|ɢᴜᴇ/i.test(interaction.channel.name) || race.prize || race.durationMs !== 15_000) {
+        return privateReply(interaction, 'This one-time 15-second no-prize test is limited to the guessing-game channel.')
+      }
+      race.mode = LAST_STANDING
+      race.testRun = true
+      for (let i = 1; i <= 13; i++) {
+        const name = 'Test ' + String(i).padStart(2, '0')
+        race.ducks.push({ userId: 'test-' + i, name, username: name, testDuck: true })
+      }
     }
     races.set(channelId, race)
     let message
@@ -192,7 +220,9 @@ export function createDuckRaceWorkflow({ random = randomInt, wait = sleep, now =
           Object.assign(race, courseResult(race))
           try {
             const replay = courseFrames(race, race.startedAt, race.endsAt, true)
-            await message.edit(await animatedBoard(race, replay, render, race.durationMs, true))
+            const resultBoard = await animatedBoard(race, replay, render, race.durationMs, true)
+            const resultMessage = await message.edit(resultBoard)
+            if (race.testRun) { ranChannelTest = true; await verifyUpload(race, resultMessage, resultBoard, 'result', replay) }
           } catch (reason) {
             errorReporter?.report('duck_race_replay', reason)
             const result = board(race)
@@ -221,6 +251,7 @@ export function createDuckRaceWorkflow({ random = randomInt, wait = sleep, now =
           deadline += publishedAt - race.startedAt
           startPlaybackClock(race, publishedAt)
           race.clockStarted = true
+          if (race.testRun) void verifyUpload(race, posted, leg, "live", frames)
         }
         const remaining = deadline - now()
         if (remaining > 0) {
@@ -261,6 +292,7 @@ export function createDuckRaceWorkflow({ random = randomInt, wait = sleep, now =
       return privateReply(interaction, 'This lobby is closed. Run `/duckrace` for a new race.')
     }
     if (action === 'join') {
+      if (race.testRun) return privateReply(interaction, 'This test uses 13 simulated ducks.')
       const userId = interaction.user.id
       if (race.kicked.has(userId)) return privateReply(interaction, 'The host removed you from this race.')
       if (race.joined.has(userId)) return privateReply(interaction, 'Your duck is already entered.')
