@@ -1,6 +1,5 @@
 /*
- * /endgame — stop the guessing game running in this channel and reveal the
- * answer, for when nobody can find it.
+ * /endgame — stop active guessing games and duck races in this channel.
  *
  * One command covers every minigame: it asks each running workflow to end
  * whatever it has in this channel, so a channel holding both a number game
@@ -12,7 +11,7 @@ import { Events, MessageFlags, PermissionFlagsBits } from 'discord.js'
 
 export const END_GAME_COMMAND = Object.freeze({
   name: 'endgame',
-  description: 'End the guessing game in this channel and reveal the answer.',
+  description: 'End active guessing games and duck races in this channel.',
 })
 
 async function ephemeralMessage(interaction, content) {
@@ -58,7 +57,7 @@ export function createEndGameWorkflow(options = {}) {
       )
       return { status: 'unauthorized' }
     }
-    await ephemeralMessage(interaction, 'No guessing game is running in this channel.')
+    await ephemeralMessage(interaction, 'No guessing game or duck race is running in this channel.')
     return { status: 'none' }
   }
 

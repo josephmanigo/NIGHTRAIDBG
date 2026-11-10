@@ -1,7 +1,7 @@
 export const BOT_MODULES = [
   { id: 'rules', name: 'Rules', description: 'Official server, clan, and scrim rules.' },
   { id: 'announcements', name: 'Announcements', description: 'Administrator announcement tools.' },
-  { id: 'minigames', name: 'Minigames', description: 'Guessing games and game controls.' },
+  { id: 'minigames', name: 'Minigames', description: 'Guessing games, duck races, and game controls.' },
   { id: 'leaderboards', name: 'Winners', description: 'Winner claims and leaderboards.' },
   { id: 'music', name: 'Music', description: 'Voice music playback and queue controls.' },
   { id: 'watchparty', name: 'Watch party', description: 'Scheduled movie watch parties.' },
@@ -20,7 +20,8 @@ export const BOT_COMMANDS = [
   { name: 'guessthenumber', description: 'Start a guess-the-number game.', module: 'minigames' },
   { name: 'guesstheword', description: 'Start a guess-the-word game.', module: 'minigames' },
   { name: 'guesstheemoji', description: 'Start a guess-the-emoji game.', module: 'minigames' },
-  { name: 'endgame', description: 'End the guessing game in this channel.', module: 'minigames' },
+  { name: 'duckrace', description: 'Open a duck race that members can join.', module: 'minigames' },
+  { name: 'endgame', description: 'End active guessing games and duck races in this channel.', module: 'minigames' },
   { name: 'winner', description: 'Fetch today\'s minigame winners.', module: 'leaderboards' },
   { name: 'leaderboard', description: 'Show the minigame winner leaderboard.', module: 'leaderboards' },
   { name: 'nrtleaderboard', description: 'Show the NRT leaderboard.', module: 'leaderboards' },

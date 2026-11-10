@@ -5,7 +5,7 @@ import { parseSocialUrl } from './social-tracker/url-parser.js'
 const MODULE_COMMANDS = Object.freeze({
   rules: ['rules', 'nrules', 'scrimrules'],
   announcements: ['announce'],
-  minigames: ['guessthenumber', 'guesstheword', 'guesstheemoji', 'endgame'],
+  minigames: ['guessthenumber', 'guesstheword', 'guesstheemoji', 'duckrace', 'endgame'],
   leaderboards: ['winner', 'leaderboard', 'nrtleaderboard', 'nrtshop', 'shopconfig', 'nrtadd', 'minusnrt'],
   music: ['music', 'skip', 'stop', 'queue'],
   watchparty: ['watchparty'],
@@ -206,9 +206,9 @@ export class DiscordBotDashboardService {
   async _registerCommands(commands) {
     const fingerprint = JSON.stringify(commands)
     if (fingerprint === this.commandFingerprint) return
-    await this.guild.commands.set(commands)
+    const registered = await this.guild.commands.set(commands)
     this.commandFingerprint = fingerprint
-    console.log(`[BotDashboard] Registered ${commands.length} commands in ${this.guild.name}.`)
+    console.log(`[BotDashboard] Registered ${registered.size} commands in ${this.guild.name}: ${registered.map(command => command.name).join(', ')}`)
   }
 
   async _applyPresence(settings) {

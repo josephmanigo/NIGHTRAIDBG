@@ -130,7 +130,7 @@ test('an empty channel says so, quietly', async () => {
   const interaction = endInteraction()
   const result = await endWorkflow.handleInteraction(interaction)
   assert.equal(result.status, 'none')
-  assert.match(interaction.state.replies[0].content, /No guessing game is running/)
+  assert.match(interaction.state.replies[0].content, /No guessing game or duck race is running/)
   assert.equal(interaction.state.replies[0].flags, 64)
 })
 

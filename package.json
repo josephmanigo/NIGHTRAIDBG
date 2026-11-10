@@ -14,6 +14,7 @@
     "test:discord-startup": "node --test bot/discord-startup.test.js bot/production-contract.test.js",
     "test:announce": "node --test bot/announce.test.js",
     "test:guess-the-number": "node --test bot/guess-the-number.test.js",
+    "test:duck-race": "node --test bot/duck-race.test.js",
     "test:guess-the-word": "node --test bot/guess-the-word.test.js",
     "test:guess-the-emoji": "node --test bot/guess-the-emoji.test.js",
     "test:music": "node --test bot/music-player.test.js",

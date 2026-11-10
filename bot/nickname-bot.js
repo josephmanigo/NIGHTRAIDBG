@@ -56,6 +56,7 @@ import {
   GUESS_THE_NUMBER_COMMAND,
   installGuessTheNumberWorkflow,
 } from './guess-the-number.js'
+import { DUCK_RACE_COMMAND, installDuckRaceWorkflow } from './duck-race.js'
 import {
   GUESS_THE_WORD_COMMAND,
   installGuessTheWordWorkflow,
@@ -149,6 +150,7 @@ const COMMAND_DEFINITIONS = [
   { name: NIGHTRAID_RULES_COMMAND_NAME, description: 'Show the NIGHTRAID clan rules.' },
   { name: SCRIM_RULES_COMMAND_NAME, description: 'Show the official NIGHTRAID scrim mechanics.' },
   ANNOUNCE_COMMAND,
+  DUCK_RACE_COMMAND,
   GUESS_THE_NUMBER_COMMAND,
   GUESS_THE_WORD_COMMAND,
   GUESS_THE_EMOJI_COMMAND,
@@ -587,8 +589,9 @@ const guessTheEmoji = installGuessTheEmojiWorkflow(client, {
   errorReporter: gameResultsErrorReporter,
   onWinner: (context) => nrtRewards.awardGuessingGameWin(context),
 })
+const duckRace = installDuckRaceWorkflow(client, { errorReporter: gameResultsErrorReporter })
 installEndGameWorkflow(client, {
-  workflows: [guessTheNumber, guessTheWord, guessTheEmoji],
+  workflows: [guessTheNumber, guessTheWord, guessTheEmoji, duckRace],
   errorReporter: gameResultsErrorReporter,
 })
 installWinnerWorkflow(client, {
@@ -690,8 +693,8 @@ client.once(Events.ClientReady, async (readyClient) => {
     console.error('Could not start the bot dashboard:', reason instanceof Error ? reason.message : reason)
     try {
       const guild = await readyClient.guilds.fetch(GUILD_ID)
-      await guild.commands.set(COMMAND_DEFINITIONS)
-      console.log(`Dashboard fallback registered ${COMMAND_DEFINITIONS.length} commands in ${guild.name}.`)
+      const registered = await guild.commands.set(COMMAND_DEFINITIONS)
+      console.log(`Dashboard fallback registered ${registered.size} commands in ${guild.name}: ${registered.map(command => command.name).join(', ')}`)
     } catch (fallbackReason) {
       console.error('Could not register NIGHTRAID commands:', fallbackReason instanceof Error ? fallbackReason.message : fallbackReason)
     }
