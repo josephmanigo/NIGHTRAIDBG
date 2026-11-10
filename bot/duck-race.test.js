@@ -2,14 +2,20 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { setImmediate as flush } from 'node:timers/promises'
 import { createDuckRaceWorkflow, DUCK_RACE_COMMAND } from './duck-race.js'
+import { renderDuckRaceGif } from './duck-race-animation.js'
 import { createEndGameWorkflow } from './minigame-end.js'
 
 function harness(random = (min, max) => max - 1) {
   let time = 0
   let timers = []
+  const pictures = []
   const race = createDuckRaceWorkflow({
     random, now: () => time,
     wait: () => new Promise(resolve => timers.push(resolve)),
+    render: async animation => {
+      pictures.push(structuredClone(animation))
+      return Buffer.from('rendered race')
+    },
   })
   async function tick(ms = 2500) {
     await flush()
@@ -49,7 +55,7 @@ function harness(random = (min, max) => max - 1) {
     })
     return reply
   }
-  return { race, tick, open, click, remove }
+  return { race, tick, open, click, remove, pictures }
 }
 
 test('members join by button only, host starts early, and one board shows movement and the winner', async () => {
@@ -70,15 +76,24 @@ test('members join by button only, host starts early, and one board shows moveme
   assert.match((await h.click('bob', 'start')).content, /Only the host/)
   assert.deepEqual(await h.click('host', 'start'), { deferred: true })
   assert.match((await h.click('late')).content, /closed/)
-  for (let frame = 0; frame < 5; frame++) await h.tick()
+  for (let frame = 0; frame < 6; frame++) await h.tick()
   await done
   const result = messages.at(-1)
   assert.deepEqual(result.components, [])
   assert.deepEqual(result.allowedMentions, { parse: [] })
   assert.match(result.embeds[0].description, /🏆 <@alice> wins!/)
-  assert.match(result.embeds[0].description, /🏁 `🦆·{12}` <@alice>/)
-  assert.match(result.embeds[0].description, /🏁 `·{8}🦆·{4}` <@bob>/)
-  assert.match(messages[3].embeds[0].description, /🏁 `·{9}🦆·{3}` <@alice>/)
+  assert.match(result.embeds[0].description, /\*\*1\*\* <@alice> · \*\*2\*\* <@bob>/)
+  assert.match(messages.at(-2).embeds[0].description, /Here comes the finish/)
+  assert.doesNotMatch(messages.at(-2).embeds[0].description, /wins!/)
+  assert.equal(h.pictures.at(-1).replay, true)
+  assert.deepEqual(h.pictures.at(-1).frames.map(f => f.positions), [[0, 0], [3, 1], [6, 2], [9, 3], [12, 4]])
+  assert.equal(h.pictures.at(-1).frames.at(-1).winner, 0)
+  for (const message of messages.slice(2)) {
+    assert.equal(message.files.length, 1)
+    assert.equal(message.embeds[0].image.url, `attachment://${message.files[0].name}`)
+    assert.deepEqual(message.attachments, [])
+  }
+  assert.equal(new Set(messages.slice(2).map(m => m.files[0].name)).size, messages.length - 2)
 })
 
 test('a full lobby starts at the deadline and breaks a simultaneous finish with one draw', async () => {
@@ -89,7 +104,7 @@ test('a full lobby starts at the deadline and breaks a simultaneous finish with 
   await h.tick(60_000)
   assert.deepEqual(messages.at(-1).components[0].components.map(button => button.label), ['Kick player'])
   assert.match((await h.click('late')).content, /closed/)
-  for (let i = 0; i < 4; i++) await h.tick()
+  for (let i = 0; i < 5; i++) await h.tick()
   await done
   assert.match(messages.at(-1).embeds[0].description, /🏆 <@11> wins![\s\S]*broke the tie/)
 })
@@ -144,7 +159,7 @@ test('/endgame can cancel a race and release the channel while its board update 
 })
 
 test('last duck standing eliminates a different entrant each round and shows the host prize through the result', async () => {
-  const h = harness(() => 0)
+  const h = harness(min => min)
   const { messages, done } = h.open('race1', 'water', {
     options: { getString: name => name === 'mode' ? 'last_standing' : '@everyone 100 coins' },
   })
@@ -152,12 +167,19 @@ test('last duck standing eliminates a different entrant each round and shows the
   await h.tick(60_000)
   assert.match(messages.at(-1).embeds[0].description, /3 still swimming/)
   await h.tick()
-  assert.match(messages.at(-1).embeds[0].description, /Round 1 · <@one> is out.[\s\S]*2 still swimming/)
+  assert.match(messages.at(-1).embeds[0].description, /2 still swimming[\s\S]*Round 1 · <@one> is out/)
   const remaining = (await h.click('host', 'kick')).components[0].components[0].options
   assert.deepEqual(remaining.map(duck => duck.value), ['two', 'three'])
   await h.tick()
+  await h.tick()
   await done
   assert.match(messages.at(-1).embeds[0].description, /🏆 <@three> is the last duck standing![\s\S]*<@two> is out/)
+  const replay = h.pictures.at(-1)
+  assert.equal(replay.replay, true)
+  assert.deepEqual(replay.frames[0].positions, [0, 0, 0])
+  assert.equal(replay.frames[1].positions[0], null)
+  assert.ok(replay.frames[1].positions[1] > 0)
+  assert.deepEqual(replay.frames.at(-1), { positions: [null, null, 12], winner: 2 })
   for (const message of messages) {
     assert.deepEqual(message.embeds[0].fields.map(field => field.value), ['Last duck standing', '`@everyone 100 coins`'])
     assert.deepEqual(message.allowedMentions, { parse: [] })
@@ -183,8 +205,10 @@ test('only the host can remove current entrants, kicked members cannot rejoin, a
   await h.tick()
   assert.match((await h.remove('host', 'c')).content, /Removed <@c>/)
   await h.tick()
+  await h.tick()
   await done
   assert.match(messages.at(-1).embeds[0].description, /<@a> is the last duck standing/)
+  assert.deepEqual(h.pictures.at(-1).frames.at(-1), { positions: [12, null], winner: 0 })
   const next = h.open('race2')
   assert.match((await h.click('b', 'join', 'race2')).content, /is in/)
   assert.match((await h.remove('host', 'b', 'race1')).content, /closed/)
@@ -206,4 +230,43 @@ test('a failed Discord edit releases its channel and the slash command rejects D
   assert.match(next.messages[0].embeds[0].title, /Join the race/)
   await h.tick(60_000)
   await next.done
+})
+
+test('the real renderer emits a looping, multi-frame GIF that fits a Discord attachment', async () => {
+  const bytes = await renderDuckRaceGif({
+    lanes: [{ userId: 'one', name: 'Jean' }, { userId: 'two', name: 'Gabo' }],
+    frames: [{ positions: [0, 0], winner: null }, { positions: [5, 4], winner: null }, { positions: [12, 9], winner: 0 }],
+    replay: true,
+  })
+  assert.equal(bytes.toString('ascii', 0, 6), 'GIF89a')
+  assert.ok(bytes.includes(Buffer.from('NETSCAPE2.0')))
+  const graphicControl = Buffer.from([0x21, 0xf9, 0x04])
+  const firstFrame = bytes.indexOf(graphicControl)
+  assert.ok(firstFrame >= 0 && bytes.indexOf(graphicControl, firstFrame + 8) > firstFrame)
+  assert.equal(bytes.at(-1), 0x3b)
+  assert.ok(bytes.length < 8 * 1024 * 1024)
+})
+
+test('a failed replay upload keeps the winning animation, winner, and prize on the result card', async () => {
+  const h = harness()
+  let result
+  const finishingFile = { id: '9001', name: '' }
+  const game = h.open('race1', 'water', {
+    options: { getString: key => key === 'prize' ? '30 GCash' : null },
+    editReply: async payload => {
+      if (payload.files?.[0].name.endsWith('-replay.gif')) throw new Error('upload failed')
+      if (payload.files) finishingFile.name = payload.files[0].name
+      result = payload
+      return { attachments: { first: () => finishingFile } }
+    },
+  })
+  await h.click('one')
+  await h.click('two')
+  await h.click('host', 'start')
+  for (let i = 0; i < 6; i++) await h.tick()
+  await game.done
+  assert.match(result.embeds[0].description, /<@two> wins!/)
+  assert.ok(result.embeds[0].fields.some(field => field.value === '`30 GCash`'))
+  assert.deepEqual(result.attachments, [{ id: '9001' }])
+  assert.equal(result.embeds[0].image.url, `attachment://${finishingFile.name}`)
 })
