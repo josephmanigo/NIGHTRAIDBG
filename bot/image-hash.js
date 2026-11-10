@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto'
-import { spawn } from 'node:child_process'
-import ffmpegPath from 'ffmpeg-static'
+import { runFfmpeg } from './still-image-ffmpeg.js'
 import { fetchWithRetry } from './game-results-runtime.js'
 
 const HASH_IMAGE_SIZE = 32
@@ -60,63 +59,12 @@ function dctPerceptualHash(pixels) {
   return hexadecimal
 }
 
-export function perceptualHash(buffer, options = {}) {
-  const executable = options.ffmpegPath ?? ffmpegPath
-  if (!executable) throw new Error('ffmpeg-static did not provide an executable for perceptual hashing.')
-  const timeoutMs = options.timeoutMs ?? DEFAULT_DOWNLOAD_TIMEOUT_MS
-
-  return new Promise((resolve, reject) => {
-    const process = spawn(
-      executable,
-      [
-        '-hide_banner',
-        '-loglevel', 'error',
-        '-i', 'pipe:0',
-        '-frames:v', '1',
-        '-vf', `scale=${HASH_IMAGE_SIZE}:${HASH_IMAGE_SIZE}:flags=lanczos,format=gray`,
-        '-f', 'rawvideo',
-        '-pix_fmt', 'gray',
-        'pipe:1',
-      ],
-      { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] },
-    )
-    const output = []
-    const errors = []
-    let settled = false
-    const timer = setTimeout(() => {
-      if (settled) return
-      settled = true
-      process.kill()
-      reject(new Error('Perceptual hashing timed out.'))
-    }, timeoutMs)
-    timer.unref()
-
-    process.stdout.on('data', (chunk) => output.push(chunk))
-    process.stderr.on('data', (chunk) => errors.push(chunk))
-    process.on('error', (reason) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      reject(reason)
-    })
-    process.on('close', (code) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      if (code !== 0) {
-        const detail = Buffer.concat(errors).toString('utf8').replace(/\s+/g, ' ').trim().slice(0, 300)
-        reject(new Error(`Perceptual hashing failed${detail ? `: ${detail}` : ` with code ${code}`}.`))
-        return
-      }
-      try {
-        resolve(dctPerceptualHash(Buffer.concat(output)))
-      } catch (reason) {
-        reject(reason)
-      }
-    })
-    process.stdin.on('error', () => undefined)
-    process.stdin.end(buffer)
-  })
+export async function perceptualHash(buffer, options = {}) {
+  const pixels = await runFfmpeg(buffer, [
+    '-vf', `scale=${HASH_IMAGE_SIZE}:${HASH_IMAGE_SIZE}:flags=lanczos,format=gray`,
+    '-f', 'rawvideo', '-pix_fmt', 'gray',
+  ], { ...options, timeoutMs: options.timeoutMs ?? DEFAULT_DOWNLOAD_TIMEOUT_MS })
+  return dctPerceptualHash(pixels)
 }
 
 async function responseBuffer(response, maxFileSizeBytes) {

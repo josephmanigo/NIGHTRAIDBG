@@ -337,7 +337,7 @@ test('startup recovery restores pending selectors and resumes a selected unproce
     reviewPayload: null,
     records: [{ attachmentId: 'a', attachmentUrl: 'https://example.test/a.png' }],
   }
-  const selected = {
+  let selected = {
     ...pending,
     submissionId: 'pending-2',
     messageId: 'message-2',
@@ -350,20 +350,30 @@ test('startup recovery restores pending selectors and resumes a selected unproce
     store: {
       initialize: async () => undefined,
       listRecoverableSubmissions: async () => [pending, selected],
+      saveReviewState: async ({ submissionId, payload, status, expectedVersion }) => {
+        assert.equal(submissionId, selected.submissionId)
+        assert.equal(expectedVersion, 0)
+        assert.ok(payload.startup_read_claimed_at)
+        selected = { ...selected, status, reviewPayload: payload, reviewVersion: 1 }
+        return selected
+      },
     },
     logger: { info() {}, warn() {}, error() {} },
     onOfficialSubmission: async (submission, interaction) => {
+      assert.equal(submission.reviewVersion, 1)
       resumed.push(submission.submissionId)
       await interaction.followUp({ content: 'Recovered review' })
       return { status: 'review_ready' }
     },
   })
   const sent = []
-  const result = await controller.recoverPendingSubmissions({
+  const client = {
     channels: {
       fetch: async () => ({ send: async (payload) => sent.push(payload) }),
     },
-  })
+  }
+  const result = await controller.recoverPendingSubmissions(client)
+  assert.equal((await controller.recoverPendingSubmissions(client)).resumed, 0)
   assert.equal(result.recovered, 1)
   assert.equal(result.resumed, 1)
   assert.equal(controller.getPendingSubmission('message-1').submissionId, 'pending-1')

@@ -1,8 +1,6 @@
 import { createHash } from 'node:crypto'
-import { spawn } from 'node:child_process'
-import ffmpegPath from 'ffmpeg-static'
+import { runFfmpeg } from './still-image-ffmpeg.js'
 
-const DEFAULT_PROCESS_TIMEOUT_MS = 30_000
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 
 function finiteNumber(value, label) {
@@ -17,56 +15,6 @@ function integer(value, label) {
     throw new Error(`${label} must be a positive integer.`)
   }
   return number
-}
-
-function runFfmpeg(input, args, options = {}) {
-  const executable = options.ffmpegPath ?? ffmpegPath
-  if (!executable) throw new Error('ffmpeg-static did not provide an image-processing executable.')
-  const timeoutMs = options.timeoutMs ?? DEFAULT_PROCESS_TIMEOUT_MS
-
-  return new Promise((resolve, reject) => {
-    const child = spawn(
-      executable,
-      ['-hide_banner', '-loglevel', 'error', ...args],
-      { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] },
-    )
-    const output = []
-    const errors = []
-    let settled = false
-    const timer = setTimeout(() => {
-      if (settled) return
-      settled = true
-      child.kill()
-      reject(new Error('Screenshot image processing timed out.'))
-    }, timeoutMs)
-    timer.unref()
-
-    child.stdout.on('data', (chunk) => output.push(chunk))
-    child.stderr.on('data', (chunk) => errors.push(chunk))
-    child.on('error', (reason) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      reject(reason)
-    })
-    child.on('close', (code) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      if (code !== 0) {
-        const detail = Buffer.concat(errors)
-          .toString('utf8')
-          .replace(/\s+/g, ' ')
-          .trim()
-          .slice(0, 400)
-        reject(new Error(`Screenshot image processing failed${detail ? `: ${detail}` : ` with code ${code}`}.`))
-        return
-      }
-      resolve(Buffer.concat(output))
-    })
-    child.stdin.on('error', () => undefined)
-    child.stdin.end(input)
-  })
 }
 
 function median(values) {
@@ -221,12 +169,9 @@ export async function preprocessGameResultScreenshot(originalBuffer, layout, opt
   const enhancedBuffer = await runFfmpeg(
     originalBuffer,
     [
-      '-i', 'pipe:0',
-      '-frames:v', '1',
       '-vf', imageFilter,
       '-f', 'image2pipe',
       '-vcodec', 'png',
-      'pipe:1',
     ],
     options,
   )
@@ -239,12 +184,9 @@ export async function preprocessGameResultScreenshot(originalBuffer, layout, opt
   const grayscale = await runFfmpeg(
     enhancedBuffer,
     [
-      '-i', 'pipe:0',
-      '-frames:v', '1',
       '-vf', `scale=${analysisWidth}:${analysisHeight}:flags=area,format=gray`,
       '-f', 'rawvideo',
       '-pix_fmt', 'gray',
-      'pipe:1',
     ],
     options,
   )
@@ -305,12 +247,9 @@ export async function cropGameResultImage(imageBuffer, normalizedBox, options = 
   const cropped = await runFfmpeg(
     imageBuffer,
     [
-      '-i', 'pipe:0',
-      '-frames:v', '1',
       '-vf', filter,
       '-f', 'image2pipe',
       '-vcodec', 'png',
-      'pipe:1',
     ],
     options,
   )

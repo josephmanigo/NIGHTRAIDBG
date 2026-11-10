@@ -708,12 +708,31 @@ export function createGameResultsIntake(options = {}) {
         }
         const channel = await client.channels.fetch(submission.channelId)
         if (!channel?.send) throw new Error('Recovery channel is unavailable.')
-        await onOfficialSubmission(resumableSubmission, {
+        if (!submission.reviewPayload) {
+          // A killed reader cannot clear its claim. Keep the next boot available for Discord.
+          resumableSubmission = await store.saveReviewState({
+            submissionId: submission.submissionId,
+            payload: { startup_read_claimed_at: new Date().toISOString() },
+            page: submission.reviewPage ?? 0,
+            status: 'processing',
+            updatedBy: submission.discordUserId,
+            expectedVersion: submission.reviewVersion ?? 0,
+          })
+        }
+        logRecord(logger, 'info', 'GAME_RESULTS_STARTUP_RESUMING', {
+          submission_id: submission.submissionId,
+          screenshots: submission.records?.length,
+        })
+        const result = await onOfficialSubmission(resumableSubmission, {
           guildId: submission.guildId,
           channelId: submission.channelId,
           client,
           channel,
           followUp: (payload) => channel.send(payload),
+        })
+        logRecord(logger, 'info', 'GAME_RESULTS_STARTUP_RESUMED', {
+          submission_id: submission.submissionId,
+          status: result?.status,
         })
         resumed += 1
       } catch (reason) {
