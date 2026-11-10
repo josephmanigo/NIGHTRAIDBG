@@ -26,14 +26,9 @@ const MAX_WAITLIST_DISPLAY = 40
 const EMPTY_WAITLIST_ROWS = 4
 const MAX_DISPLAY_TEAM_NAME = 32
 const MAX_WAITLIST_TEAM_NAME = 24
-const RESERVED_SLOT_TEAMS = Object.freeze([
-  Object.freeze({ tag: 'NR', name: 'NIGHTRAID ESPORTS' }),
-  Object.freeze({ tag: 'APXS', name: 'APEX SYNDICATE' }),
-])
-const RESERVED_SLOT_TEAM_KEYS = new Set([
-  'nr nightraid esports',
-  'apxs apex syndicate',
-])
+// Replay the old opening positions only for Discord history before reservations ended.
+const RESERVATIONS_ENDED_AT = Date.parse('2026-11-10T16:43:00Z')
+const formerReservations = [makeTeam('NR', 'NIGHTRAID ESPORTS'), makeTeam('APXS', 'APEX SYNDICATE')]
 const SLOT_CODES = Array.from(
   { length: MAX_SLOTS },
   (_value, index) => `${String(index + 1).padStart(2, '0')}${String.fromCharCode(65 + index)}`,
@@ -122,11 +117,7 @@ function makeTeam(tag, name) {
 }
 
 export function createInitialScrimSlots() {
-  const slots = Array(MAX_SLOTS).fill(null)
-  RESERVED_SLOT_TEAMS.forEach((team, index) => {
-    slots[index] = makeTeam(team.tag, team.name)
-  })
-  return slots
+  return Array(MAX_SLOTS).fill(null)
 }
 
 function parseRegistrationLine(line) {
@@ -250,7 +241,6 @@ function hasTeam(team) {
 
 function registerTeam(team) {
   if (hasTeam(team)) return { status: 'duplicate', team }
-  if (RESERVED_SLOT_TEAM_KEYS.has(team.key)) return { status: 'duplicate', team }
   const slotIndex = state.slots.findIndex(
     (entry, index) => !entry && !state.mineOnlySlots.has(index),
   )
@@ -270,8 +260,13 @@ function fromMessage(team, messageId, sourceType) {
   }
 }
 
-function registerTeamsFromMessage(teams, messageId) {
-  return teams.map((team) => registerTeam(fromMessage(team, messageId, 'registration')))
+function registerTeamsFromMessage(teams, message) {
+  return teams.map((team) => {
+    if (message.createdTimestamp < RESERVATIONS_ENDED_AT && formerReservations.some(old => old.key === team.key)) {
+      return { status: 'duplicate', team }
+    }
+    return registerTeam(fromMessage(team, message.id, 'registration'))
+  })
 }
 
 function hasTeamFromMessage(messageId) {
@@ -386,6 +381,9 @@ function closeRegistration() {
 
 function openRegistration(message, { createNewBoard = false } = {}) {
   resetBoard()
+  if (message.createdTimestamp < RESERVATIONS_ENDED_AT) {
+    formerReservations.forEach((team, index) => { state.slots[index] = team })
+  }
   if (createNewBoard) {
     state.boardMessageId = null
     state.waitlistMessageId = null
@@ -621,74 +619,59 @@ async function reconstructCurrentCycle() {
       message.createdTimestamp > state.cycleStartedAt &&
       validateRegistrationContent(message.content).valid,
   )
-  for (const message of registrations) {
-    registerTeamsFromMessage(validateRegistrationContent(message.content).teams, message.id)
-  }
-
   const cancelChannel = await readableChannel(CANCEL_SLOT_CHANNEL_ID)
   const cancellations = [...(await cancelChannel.messages.fetch({ limit: 100 })).values()]
     .filter((message) => !message.author.bot && message.createdTimestamp > state.cycleStartedAt)
     .sort((left, right) => left.createdTimestamp - right.createdTimestamp)
+  // Rebuild the published legacy board first so withdrawals and numbered MINE claims keep their slots.
+  const replayRegistration = message => registerTeamsFromMessage(validateRegistrationContent(message.content).teams, message)
+  for (const message of registrations) {
+    if (message.createdTimestamp < RESERVATIONS_ENDED_AT) replayRegistration(message)
+  }
   for (const message of cancellations) {
-    const availableSlots = parseAvailableSlots(message.content)
-    if (availableSlots?.length && isScrimAdmin(message)) {
-      makeSlotsAvailable(availableSlots, message.id)
-      continue
-    }
-    const cancel = parseCancelContent(message.content)
-    if (cancel) {
-      cancelTeam(cancel, message.id)
-      continue
-    }
-    const mine = parseMineContent(message.content)
-    const referenceId = message.reference?.messageId
-    if (mine && referenceId) claimCanceledSlot(mine, referenceId, message.id)
+    if (message.createdTimestamp < RESERVATIONS_ENDED_AT) replayCancellation(message)
+  }
+  if (Date.now() >= RESERVATIONS_ENDED_AT) releaseFormerReservations()
+
+  const later = [...registrations, ...cancellations]
+    .filter(message => message.createdTimestamp >= RESERVATIONS_ENDED_AT)
+    .sort((a, b) => a.createdTimestamp - b.createdTimestamp || a.id.localeCompare(b.id))
+  for (const message of later) {
+    if (message.channelId === REGISTRATION_CHANNEL_ID) replayRegistration(message)
+    else replayCancellation(message)
   }
 }
 
-async function replayMessagesSince(timestamp) {
-  const registrationChannel = await readableChannel(REGISTRATION_CHANNEL_ID)
-  const cancelChannel = await readableChannel(CANCEL_SLOT_CHANNEL_ID)
-  const [registrationMessages, cancelMessages] = await Promise.all([
-    registrationChannel.messages.fetch({ limit: 100, cache: false }),
-    cancelChannel.messages.fetch({ limit: 100, cache: false }),
-  ])
-  const events = [
-    ...[...registrationMessages.values()].map((message) => ({ type: 'registration', message })),
-    ...[...cancelMessages.values()].map((message) => ({ type: 'cancellation', message })),
-  ]
-    .filter(({ message }) => !message.author.bot && message.createdTimestamp > timestamp)
-    .sort((left, right) => left.message.createdTimestamp - right.message.createdTimestamp)
+function releaseFormerReservations() {
+  formerReservations.forEach((team, index) => {
+    // Identity distinguishes an automatic reservation from a team's own registration or MINE claim.
+    if (state.slots[index] === team) state.slots[index] = null
+  })
+}
 
-  for (const event of events) {
-    const { message } = event
-    if (event.type === 'registration') {
-      if (isScrimBanner(message)) {
-        openRegistration(message)
-        continue
-      }
-      if (!state.registrationOpen) continue
-      const registration = validateRegistrationContent(message.content)
-      if (registration.valid) {
-        registerTeamsFromMessage(registration.teams, message.id)
-      }
-      continue
-    }
-
-    const availableSlots = parseAvailableSlots(message.content)
-    if (availableSlots?.length && isScrimAdmin(message)) {
-      makeSlotsAvailable(availableSlots, message.id)
-      continue
-    }
-    const cancel = parseCancelContent(message.content)
-    if (cancel) {
-      cancelTeam(cancel, message.id)
-      continue
-    }
-    const mine = parseMineContent(message.content)
-    const referenceId = message.reference?.messageId
-    if (mine && referenceId) claimCanceledSlot(mine, referenceId, message.id)
+function replayCancellation(message) {
+  const availableSlots = parseAvailableSlots(message.content)
+  if (availableSlots?.length && isScrimAdmin(message)) {
+    makeSlotsAvailable(availableSlots, message.id)
+    return
   }
+  const cancel = parseCancelContent(message.content)
+  if (cancel) {
+    cancelTeam(cancel, message.id)
+    return
+  }
+  const mine = parseMineContent(message.content)
+  const referenceId = message.reference?.messageId
+  if (mine && referenceId) claimCanceledSlot(mine, referenceId, message.id)
+}
+
+async function syncAndLogScrimBoard() {
+  const board = await syncBoard()
+  console.log(
+    `Scrim automation ready: ${state.registrationOpen ? 'OPEN' : 'CLOSED'}, ` +
+    `${state.slots.filter(Boolean).length} registered, ${state.waitlist.length} waiting. ` +
+    `Board ${board.id}; ${SLOT_CODES.slice(0, 2).map((code, i) => `${code}=${displayTeam(state.slots[i]) || 'empty'}`).join(', ')}`,
+  )
 }
 
 async function initializeScrimAutomation(readyClient) {
@@ -710,11 +693,7 @@ async function initializeScrimAutomation(readyClient) {
       waitlists.slice(1).map((duplicate) => duplicate.delete().catch(() => undefined)),
     )
   }
-  await syncBoard()
-  console.log(
-    `Scrim automation ready: ${state.registrationOpen ? 'OPEN' : 'CLOSED'}, ` +
-      `${state.slots.filter(Boolean).length} registered, ${state.waitlist.length} waiting.`,
-  )
+  await syncAndLogScrimBoard()
 }
 
 async function reply(message, content) {
@@ -734,7 +713,7 @@ async function handleRegistration(message) {
     return
   }
 
-  const results = registerTeamsFromMessage(registration.teams, message.id)
+  const results = registerTeamsFromMessage(registration.teams, message)
   await syncBoard()
   await message.react(results.some((result) => result.status !== 'duplicate') ? CHECK_MARK : CROSS_MARK).catch(() => undefined)
 }
@@ -890,6 +869,14 @@ export function installScrimAutomation(client) {
         console.error('Scrim automation initialization failed:', reason instanceof Error ? reason.message : reason)
       },
     )
+    // If this deployment is already online, release the seats and refresh Discord at the cutover.
+    const untilRelease = RESERVATIONS_ENDED_AT - Date.now()
+    if (untilRelease > 0) {
+      setTimeout(() => queue(async () => {
+        releaseFormerReservations()
+        await syncAndLogScrimBoard()
+      }), untilRelease).unref()
+    }
   })
 
   client.on(Events.MessageCreate, (message) => {
