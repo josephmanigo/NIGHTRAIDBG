@@ -1,24 +1,33 @@
 import { setImmediate as yieldFrame } from 'node:timers/promises'
 import gifenc from 'gifenc'
+import { readFileSync } from 'node:fs'
 
 const DETAILED_LANES = 16
 const WIDTH = 480
-const BANK = 62
+const BANK = 115
 const STRIPE = 390
 const ink = {
-  clear: '000000', sky: 'a7ddeb', haze: 'c5e8e8', cloud: 'fff6d9', sun: 'ffdf83',
-  far: 'a2c9bc', hills: '83b6a4', leaves: '589880', pine: '397c72', grass: '8abe75',
-  sand: 'f5d7a1', bank: 'c6946f', wave: '7de0d7', foam: 'd1f6e9', depth: '30999e',
-  teal: '2e858e', rope: '56b6b3', navy: '224350', white: 'fff7df', brown: '81432a',
-  shadow: 'df902e', yellow: 'ffce42', light: 'ffe979', shine: 'fff3a9', bill: 'f78a31',
-  billDark: 'd25b2e', cheek: 'ffad57', eye: '332e37', water1: '57c7c3', water2: '52c2bf',
-  water3: '4bbab9', water4: '44b2b3', red: 'e6604d', blue: '3773a3', violet: '9666ae',
-  green: '419478', coral: 'd9667c', amber: 'b16e35', mint: '379a9c', plum: '916579',
-  indigo: '646cb0', lime: '7d913c', ocean: '3b8499', rose: 'ae565e',
+  clear: '000000', sky: '17121f', dusk: '35202e', horizon: '67313d', moon: 'f77866',
+  moonLight: 'ffad86', flare: 'ffe4ce', far: '432936', hills: '394657', iron: '1b1d26',
+  steel: '454354', ink: '101116', lamp: 'd87c78', red: 'e3262e', redDeep: 'a81b21',
+  water1: '253b4b', water2: '223745', water3: '20333f', water4: '1d303b',
+  wave: '4e6b79', foam: 'a0bbc1', rope: '354c59', tag: '171a22', navy: '10141b',
+  white: 'faf4e9', brown: '713d2e', shadow: 'd58c33', yellow: 'ffcd50', light: 'ffe980',
+  shine: 'fff1bd', bill: 'ffa13b', billDark: 'd65a2e', cheek: 'ffaf59', eye: '27252d',
+  blue: '477eb0', violet: '9767ac', green: '367561', coral: 'bf4d64', amber: 'aa652d',
+  mint: '3e7c80', plum: '985978', indigo: '6b70ab', lime: '718342', ocean: '366e8c', rose: 'a94755',
 }
 const color = Object.fromEntries(Object.keys(ink).map((name, index) => [name, index]))
-const palette = Object.values(ink).map(hex => [0, 2, 4].map(offset => parseInt(hex.slice(offset, offset + 2), 16)))
+// The six supplied spectator photos share one indexed sprite sheet. Zero is transparent.
+const audience = JSON.parse(readFileSync(new URL('./duck-race-audience.json', import.meta.url), 'utf8'))
+const audiencePixels = Buffer.from(audience.pixels, 'base64')
+const audiencePaletteStart = Object.keys(ink).length
+const palette = [...Object.values(ink), ...audience.palette].map(hex =>
+  [0, 2, 4].map(offset => parseInt(hex.slice(offset, offset + 2), 16)))
 const bibs = 'red blue violet green coral amber mint plum indigo lime ocean rose'.split(' ').map(name => color[name])
+// Small indexed version of public/images/nightraid-favicon.png, prepared once for the GIF palette.
+const crest = readFileSync(new URL('./duck-race-crest.txt', import.meta.url), 'utf8').trim().split(/\r?\n/)
+const crestColors = { o: color.ink, x: color.steel, '+': color.redDeep, '#': color.red }
 const digits = [
   '111101101101111', '010110010010111', '111001111100111', '111001111001111', '101101111001001',
   '111100111001111', '111100111101111', '111001010010010', '111101111101111', '111101111001111',
@@ -86,7 +95,7 @@ class Bitmap {
     }
   }
 
-  name(label, x, y, limit = 8) {
+  name(label, x, y, limit = 8, scale = 2, fill = color.white) {
     const nickname = String(label ?? '').replace(/^[a-z0-9]{1,10}\s*[•·∙⦁●・]\s*/i, '')
     const latin = nickname.normalize('NFKD').replace(/\p{M}/gu, '').toUpperCase()
     const text = latin.replace(/[^A-Z0-9_.-]+/g, ' ').trim().slice(0, limit)
@@ -94,11 +103,11 @@ class Bitmap {
       if (letters[ch]) {
         letters[ch].forEach((bits, row) => {
           for (let col = 0; col < 5; col++) {
-            if (bits & (16 >> col)) this.rect(x + col * 2, y + row * 2, 2, 2, color.white)
+            if (bits & (16 >> col)) this.rect(x + col * scale, y + row * scale, scale, scale, fill)
           }
         })
-      } else if (/[0-9]/.test(ch)) this.number(ch, x + 5, y + 7, 2)
-      x += 12
+      } else if (/[0-9]/.test(ch)) this.number(ch, x + 2.5 * scale, y + 3.5 * scale, scale)
+      x += 6 * scale
     }
   }
 }
@@ -127,7 +136,9 @@ function makeDuck(lane) {
   duck.ellipse(17, 21, 9, 5, c.shadow)
   duck.ellipse(17, 20, 8, 4, c.light)
   duck.rect(12, 18, 5, 1, c.shine)
-  duck.ellipse(25, 22, 7, 6, c.brown)
+  duck.polygon([[24, 15], [31, 18], [38, 16], [36, 19], [29, 21], [22, 17]], c.red)
+  duck.polygon([[23, 16], [29, 19], [20, 20], [16, 17]], c.redDeep)
+  duck.ellipse(25, 22, 7, 6, c.navy)
   duck.ellipse(25, 22, 6, 5, bibColor)
   if (lane < 999) duck.number(lane + 1, 25, 22, 1)
   if (lane % 4 === 1) {
@@ -143,39 +154,74 @@ function makeDuck(lane) {
   return duck
 }
 
+function drawNightBank(river) {
+  const c = color, w = river.width, center = Math.floor(w / 2)
+  river.rect(0, 0, w, BANK, c.sky)
+  river.rect(0, 21, w, 24, c.dusk)
+  river.rect(0, 38, w, 29, c.horizon)
+  for (let x = 7; x < w; x += 23) {
+    river.rect(x, 3 + (x * 17) % 20, x % 3 ? 1 : 2, 1, c.lamp)
+  }
+
+  const moonX = Math.floor(w * 0.76)
+  river.ellipse(moonX, 28, 17, 17, c.moon)
+  river.rect(moonX - 13, 20, 20, 1, c.moonLight)
+  river.rect(moonX + 4, 37, 18, 2, c.dusk)
+  for (let x = 0; x < w; x += 11) {
+    const top = 39 + (x * 7 % 14)
+    river.rect(x, top, 8 + (x % 5), 62 - top, c.far)
+    if (x % 4) river.rect(x + 2, top + 3, 2, 1, c.lamp)
+  }
+  // Twin floodlight gantries behind the quay.
+  for (const x of [Math.round(w * 0.15), Math.round(w * 0.93)]) {
+    river.polygon([[x - 6, 22], [x + 8, 22], [x + 37, 56], [x + 7, 54]], c.far)
+    river.rect(x, 19, 3, 48, c.iron)
+    river.rect(x - 8, 18, 21, 6, c.iron)
+    for (let i = 0; i < 4; i++) river.rect(x - 6 + i * 5, 19, 3, 2, c.flare)
+  }
+  river.rect(0, 58, w, 12, c.iron)
+  for (let x = 0; x < w; x += 12) {
+    const h = 3 + (x * 7 % 9)
+    river.rect(x, 58 - h, 10, h, c.iron)
+    if (x % 5) river.rect(x + 3, 58 - h + 3, 3, 1, c.redDeep)
+  }
+
+  const left = center - 88
+  river.polygon([[left - 8, 11], [left + 167, 11], [left + 156, 59], [left - 16, 59]], c.ink)
+  river.rect(left - 6, 11, 175, 1, c.steel)
+  river.polygon([[left + 119, 56], [left + 157, 56], [left + 155, 59], [left + 116, 59]], c.red)
+  for (let row = 0; row < crest.length; row++) {
+    for (let col = 0; col < crest[row].length; col++) {
+      const fill = crestColors[crest[row][col]]
+      if (fill !== undefined) river.rect(left + col, 17 + row, 1, 1, fill)
+    }
+  }
+  river.name('NIGHTRAID', left + 40, 22, 9)
+  river.name('BATTLEGROUND', left + 41, 41, 12, 1, c.lamp)
+  river.rect(0, 63, w, 41, c.iron)
+  for (let y = 67; y <= 97; y += 11) {
+    river.rect(0, y, w, 2, c.steel)
+    river.rect(0, y + 2, w, 3, c.ink)
+  }
+  const crowdWidth = Math.min(audience.width, w)
+  const crowdX = Math.max(0, Math.floor((w - crowdWidth) / 2) - 30)
+  for (let y = 0; y < audience.height; y++) {
+    for (let x = 0; x < crowdWidth; x++) {
+      const pixel = audiencePixels[y * audience.width + Math.floor(x * audience.width / crowdWidth)]
+      if (pixel) river.pixels[(60 + y) * w + crowdX + x] = audiencePaletteStart + pixel - 1
+    }
+  }
+  river.rect(0, 99, w, 2, c.steel)
+  river.rect(0, 104, w, 2, c.red)
+  river.rect(0, 106, w, BANK - 106, c.ink)
+  for (let x = 5; x < w; x += 24) river.rect(x, 110, 10, 1, c.redDeep)
+}
+
 function makeRiver(lanes, laneHeight) {
   const count = lanes.length
   const river = new Bitmap(WIDTH, BANK + count * laneHeight + 6)
   const c = color
-  river.pixels.fill(c.sky)
-  river.rect(0, 24, WIDTH, 26, c.haze)
-  river.ellipse(290, 20, 12, 12, c.sun)
-  for (const [x, y] of [[28, 13], [148, 7], [319, 13], [431, 9]]) {
-    river.ellipse(x, y + 2, 13, 3, c.cloud)
-    river.ellipse(x + 9, y, 8, 5, c.cloud)
-    river.ellipse(x + 18, y + 2, 10, 3, c.cloud)
-  }
-  for (const [level, height, steps, fill] of [[43, 14, 89, c.far], [49, 10, 63, c.hills]]) {
-    for (let x = 0; x < WIDTH; x++) {
-      const y = Math.round(level - height * Math.cos(x / steps) - 4 * Math.sin(x / 23))
-      river.rect(x, y, 1, BANK - y, fill)
-    }
-  }
-  for (let i = 0; i < 44; i++) {
-    const x = (i * 113) % WIDTH, h = 5 + (i * 11) % 11
-    river.polygon([[x - 5, 54], [x, 53 - h], [x + 7, 54]], i % 3 ? c.leaves : c.pine)
-  }
-  river.rect(0, 53, WIDTH, 3, c.grass)
-  river.rect(0, 56, WIDTH, 3, c.sand)
-  river.rect(0, 59, WIDTH, 3, c.bank)
-  // Boathouse and jetty on the far bank.
-  river.rect(64, 40, 22, 14, c.sand)
-  river.polygon([[60, 41], [74, 31], [89, 41]], c.red)
-  river.rect(68, 44, 5, 6, c.pine)
-  river.rect(77, 44, 6, 10, c.bank)
-  river.rect(87, 53, 30, 2, c.brown)
-  river.rect(93, 55, 2, 5, c.bank)
-  river.rect(113, 51, 2, 9, c.bank)
+  drawNightBank(river)
   const water = [c.water1, c.water2, c.water3, c.water4]
   for (let lane = 0; lane < count; lane++) {
     const top = BANK + lane * laneHeight, mid = top + laneHeight / 2
@@ -191,7 +237,7 @@ function makeRiver(lanes, laneHeight) {
         river.rect(x, top - 1, 6, 2, c.foam)
       }
     }
-    river.rect(4, mid - 10, 120, 21, c.teal)
+    river.rect(4, mid - 10, 120, 21, c.tag)
     const bib = lanes[lane].bib ?? lane + 1
     const width = Math.max(19, String(bib).length * 8 + 5)
     river.rect(4, mid - 10, width, 21, c.navy)
@@ -201,7 +247,7 @@ function makeRiver(lanes, laneHeight) {
     river.name(lanes[lane].name, nameX, Math.round(mid - 7), Math.floor((124 - nameX) / 12))
   }
   const bottom = BANK + count * laneHeight
-  river.rect(0, bottom, WIDTH, 6, c.teal)
+  river.rect(0, bottom, WIDTH, 6, c.tag)
   for (let y = BANK; y < bottom; y += 5) {
     const alternate = Math.floor((y - BANK) / 5) % 2
     river.rect(STRIPE, y, 5, Math.min(5, bottom - y), alternate ? c.navy : c.white)
@@ -211,12 +257,13 @@ function makeRiver(lanes, laneHeight) {
   return river
 }
 
-function drawFinishFlag(river, stripe) {
+function drawFinishFlag(river, stripe, top = 74) {
   const c = color
-  river.rect(stripe - 1, 27, 3, BANK - 26, c.navy)
+  river.rect(stripe - 1, top, 3, BANK - top, c.steel)
+  river.rect(stripe - 1, top - 3, 3, 3, c.red)
   for (let row = 0; row < 3; row++) {
     for (let col = 0; col < 6; col++) {
-      river.rect(stripe + 2 + col * 4, 29 + row * 4 + Math.round(2 * Math.sin(col)), 4, 4, (row + col) % 2 ? c.white : c.navy)
+      river.rect(stripe + 2 + col * 4, top + row * 4 + Math.round(2 * Math.sin(col)), 4, 4, (row + col) % 2 ? c.white : c.navy)
     }
   }
 }
@@ -244,10 +291,7 @@ function raceScene(lanes, density = 1) {
   const heightBudget = Math.max(600, Math.min(1600, count * 1.4))
   const h = Math.max(3, Math.min(40, Math.floor(heightBudget / rows / density)))
   const river = new Bitmap(w * columns, BANK + rows * h + 4)
-  const scenery = makeRiver([], 0)
-  for (let y = 0; y < BANK; y++) {
-    for (let x = 0; x < river.width; x++) river.pixels[y * river.width + x] = scenery.pixels[y * WIDTH + x % WIDTH]
-  }
+  drawNightBank(river)
   river.rect(0, BANK, river.width, river.height - BANK, color.water2)
   const scale = Math.min(1, (h - 1) / 35, w / 180)
   const duckWidth = Math.max(3, Math.round(48 * scale))
@@ -259,9 +303,9 @@ function raceScene(lanes, density = 1) {
     const stripe = x + w - duckWidth - stripeWidth * 2 - 2
     const tag = h >= 19 && w >= 220 ? 111 : h >= 9 && w >= 65 ? Math.max(19, String(bib).length * 4 + 6) : 1
     river.rect(x, y, w - 1, h - 1, index % rows % 2 ? color.water1 : color.water2)
-    if (index % rows === 0 && w >= 100) drawFinishFlag(river, stripe)
+    if (index % rows === 0 && w >= 100) drawFinishFlag(river, stripe, BANK - 15)
     if (tag > 1) {
-      river.rect(x + 1, y + 1, tag - 1, h - 2, color.teal)
+      river.rect(x + 1, y + 1, tag - 1, h - 2, color.tag)
       river.number(bib, x + (tag >= 111 ? 13 : tag / 2), y + h / 2, 1)
       if (tag >= 111) river.name(duck.name, x + 28, Math.round(y + h / 2 - 7), 6)
     }
@@ -288,8 +332,8 @@ function drawSwimmer(river, track, nose, time, out) {
   const top = baseline - height + bob
   if (height <= 6) {
     // A tiny side-on duck still has a body, raised head and bill at crowd scale.
-    river.rect(left, top + Math.floor(height / 2), width - 1, Math.ceil(height / 2), out ? color.teal : color.yellow)
-    river.rect(left + width - 3, top, 2, Math.ceil(height / 2), out ? color.teal : color.light)
+    river.rect(left, top + Math.floor(height / 2), width - 1, Math.ceil(height / 2), out ? color.tag : color.yellow)
+    river.rect(left + width - 3, top, 2, Math.ceil(height / 2), out ? color.tag : color.light)
     river.rect(left + width - 1, top + Math.floor(height / 3), 1, 1, out ? color.navy : color.bill)
     return
   }
@@ -327,9 +371,11 @@ export async function renderDuckRaceGif({ lanes, frames, finish = 12, replay = f
         river.pixels.set(background)
         const current = t === 0 ? from : to
         if (current.round) {
-          const label = 'ROUND ' + current.round + (current.lastOut != null ? '   OUT ' + (current.lastOut + 1) : '')
-          river.rect(3, 3, label.length * 12 + 6, 18, color.navy)
-          river.name(label, 6, 5, label.length)
+          const label = 'ROUND ' + current.round
+          river.rect(5, 29, label.length * 12 + 8, current.lastOut == null ? 20 : 32, color.ink)
+          river.rect(5, 29, 2, 19, color.red)
+          river.name(label, 10, 32, label.length)
+          if (current.lastOut != null) river.name('OUT ' + (current.lastOut + 1), 11, 51, 12, 1, color.lamp)
         }
         for (let lane = 0; lane < lanes.length; lane++) {
           const previous = from.positions[lane], next = to.positions[lane]
@@ -352,7 +398,7 @@ export async function renderDuckRaceGif({ lanes, frames, finish = 12, replay = f
         const delay = (Math.round((frame + 1) * tick) - Math.round(frame * tick)) * 10
         gif.writeFrame(river.pixels, river.width, river.height, {
           palette: first ? palette : undefined, repeat: replay || loop ? 0 : -1,
-          delay: last && replay && !loop ? 600 : Math.max(20, delay), colorDepth: 6,
+          delay: last && replay && !loop ? 600 : Math.max(20, delay), colorDepth: 8,
         })
         if (gif.bytesView().length >= 8 * 1024 * 1024) break encode
         await yieldFrame()

@@ -52,7 +52,7 @@ function durationLabel(ms) {
 }
 
 function board(race, showResult = true) {
-  let title = '🦆 Duck Race'
+  let title = '🦆 NIGHTRAID Duck Race'
   let description
   const buttons = []
   function button(action, label, style, disabled = false) {
@@ -98,7 +98,7 @@ function board(race, showResult = true) {
   if (race.prize) fields.push({ name: 'Prize', value: `\`${race.prize}\``, inline: true })
   if (race.lastRemoved) fields.push({ name: 'Last removed by host', value: `<@${race.lastRemoved}>`, inline: true })
   const components = buttons.length ? [{ type: ComponentType.ActionRow, components: buttons }] : []
-  return { embeds: [{ title, description, fields, color: 0x168598 }], components, attachments: [], allowedMentions: { parse: [] } }
+  return { embeds: [{ title, description, fields, color: 0xe3262e }], components, attachments: [], allowedMentions: { parse: [] } }
 }
 
 async function animatedBoard(race, frames, render, durationMs, replay = false, loop = false) {
