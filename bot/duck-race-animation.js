@@ -68,6 +68,13 @@ class Bitmap {
     }
   }
 
+  line(x, y, endX, endY, width, fill) {
+    const steps = Math.max(1, Math.ceil(Math.max(Math.abs(endX - x), Math.abs(endY - y))))
+    for (let i = 0; i <= steps; i++) {
+      this.rect(x + (endX - x) * i / steps, y + (endY - y) * i / steps, width, width, fill)
+    }
+  }
+
   polygon(points, fill) {
     const ys = points.map(p => p[1])
     for (let y = Math.min(...ys); y < Math.max(...ys); y++) {
@@ -154,6 +161,103 @@ function makeDuck(lane) {
   return duck
 }
 
+const cheerRates = [0.85, 1.1, 0.72, 1.03, 0.92, 0.68]
+const seatWidth = audience.width / cheerRates.length
+const poseCount = 16
+
+function makeCheerPose(seat, phase) {
+  const pose = new Bitmap(seatWidth, audience.height + 6)
+  const beat = Math.sin(phase), swing = Math.cos(phase)
+  const lean = (seat % 2 ? 1 : -1) * 3.5 * swing
+  const stretch = 1 + 0.1 * beat
+  const baseline = pose.height - 1
+  // Pivot at the waist so a face can lean into a cheer while its body stays behind the rail.
+  for (let y = 0; y < pose.height; y++) {
+    const rise = (baseline - y) / stretch
+    const sourceY = audience.height - 1 - Math.round(rise)
+    if (sourceY < 0 || sourceY >= audience.height) continue
+    const shift = Math.round(lean * rise / audience.height)
+    const sourceRow = sourceY * audience.width + seat * seatWidth
+    for (let x = Math.max(0, -shift); x < Math.min(seatWidth, seatWidth - shift); x++) {
+      const pixel = audiencePixels[sourceRow + x]
+      if (pixel) pose.pixels[y * seatWidth + x + shift] = audiencePaletteStart + pixel - 1
+    }
+  }
+
+  function anchor(x, y) {
+    const rise = audience.height - 1 - y
+    return [Math.round(x + lean * rise / audience.height), Math.round(baseline - stretch * rise)]
+  }
+  function photoColor(x, y) {
+    return audiencePaletteStart + audiencePixels[y * audience.width + seat * seatWidth + x] - 1
+  }
+  const c = color
+  if (seat === 0 || seat === 4) {
+    const side = seat === 0 ? 1 : -1
+    const [x, y] = anchor(seat === 0 ? 5 : 13, 36)
+    const tipX = x + 2 + 5 * swing, tipY = y - 22 - 2 * beat
+    pose.line(x, y, tipX, tipY, 1, c.white)
+    pose.polygon([[tipX, tipY], [tipX + side * 14, tipY + 2 + 3 * beat], [tipX, tipY + 9]], c.red)
+    pose.rect(tipX + side * 3, tipY + 3, 3, 2, c.white)
+  } else if (seat === 1) {
+    const [x, y] = anchor(28, 25)
+    const rimX = x + 16, rimY = y - 3 - 4 * beat
+    pose.polygon([[x, y - 1], [rimX, rimY - 4], [rimX, rimY + 5], [x, y + 2]], c.red)
+    pose.rect(rimX - 1, rimY - 4, 2, 9, c.white)
+    pose.line(x + 6, y + 2, x + 5, y + 5, 2, c.redDeep)
+  } else if (seat === 3) {
+    // Two inflatable clappers meet above the hands, then open again.
+    const [x, y] = anchor(12, 37)
+    const gap = Math.round((1 + swing) * 4)
+    pose.line(x - 3, y, x + 2 - gap, y - 14, 3, c.red)
+    pose.line(x + 7, y + 1, x + 3 + gap, y - 13, 3, c.white)
+    const hand = photoColor(25, 28)
+    pose.rect(x - 4, y - 1, 5, 4, hand)
+    pose.rect(x + 6, y, 5, 4, hand)
+  } else {
+    // The jersey wearer lifts a scarf from chest height. The last fan holds it overhead.
+    const overhead = seat === 5
+    const [x, y] = anchor(overhead ? 23 : 26, overhead ? 5 : 29 - 5 * beat)
+    const span = overhead ? 13 : 18
+    const tilt = Math.round(2 * swing)
+    if (!overhead) {
+      const skin = photoColor(24, 34)
+      pose.line(...anchor(13, 34), x - span + 1, y + 2 - tilt, 3, skin)
+      pose.line(...anchor(37, 33), x + span - 2, y + 2 + tilt, 3, skin)
+    }
+    pose.polygon([[x - span, y - tilt], [x + span, y + tilt],
+      [x + span, y + 5 + tilt], [x, y + 7], [x - span, y + 5 - tilt]], c.red)
+    pose.rect(x - span, y - tilt, 2, 8, c.white)
+    pose.rect(x + span - 1, y + tilt, 2, 8, c.white)
+    pose.rect(x - 6, y + 2, 12, 1, c.white)
+  }
+  return pose
+}
+
+// Cache these small indexed poses once. Rendering a crowd frame then only copies sprite pixels.
+const cheerPoses = cheerRates.map((_, seat) => Array.from({ length: poseCount },
+  (_, index) => makeCheerPose(seat, index * Math.PI * 2 / poseCount)))
+
+function drawAudience(river, frame, frameCount, durationMs) {
+  const crowdWidth = Math.min(audience.width, river.width)
+  const left = Math.max(0, Math.floor((river.width - crowdWidth) / 2) - 30)
+  for (let seat = 0; seat < cheerRates.length; seat++) {
+    // Complete whole cheers on a loop and slow them down if the upload budget thins the frames.
+    const cycles = Math.min(Math.max(1, Math.round(durationMs * cheerRates[seat] / 1000)), Math.max(1, Math.floor(frameCount / 6)))
+    const phase = frame / frameCount * cycles + seat * 0.37
+    const pose = cheerPoses[seat][Math.floor(phase * poseCount) % poseCount]
+    const start = Math.floor(seat * crowdWidth / cheerRates.length)
+    const end = Math.floor((seat + 1) * crowdWidth / cheerRates.length)
+    for (let x = start; x < end; x++) {
+      const sourceX = Math.floor((x - start) * seatWidth / (end - start))
+      for (let y = 0; y < 44; y++) {
+        const pixel = pose.pixels[y * seatWidth + sourceX]
+        if (pixel) river.pixels[(55 + y) * river.width + left + x] = pixel
+      }
+    }
+  }
+}
+
 function drawNightBank(river) {
   const c = color, w = river.width, center = Math.floor(w / 2)
   river.rect(0, 0, w, BANK, c.sky)
@@ -202,14 +306,6 @@ function drawNightBank(river) {
   for (let y = 67; y <= 97; y += 11) {
     river.rect(0, y, w, 2, c.steel)
     river.rect(0, y + 2, w, 3, c.ink)
-  }
-  const crowdWidth = Math.min(audience.width, w)
-  const crowdX = Math.max(0, Math.floor((w - crowdWidth) / 2) - 30)
-  for (let y = 0; y < audience.height; y++) {
-    for (let x = 0; x < crowdWidth; x++) {
-      const pixel = audiencePixels[y * audience.width + Math.floor(x * audience.width / crowdWidth)]
-      if (pixel) river.pixels[(60 + y) * w + crowdX + x] = audiencePaletteStart + pixel - 1
-    }
   }
   river.rect(0, 99, w, 2, c.steel)
   river.rect(0, 104, w, 2, c.red)
@@ -369,6 +465,8 @@ export async function renderDuckRaceGif({ lanes, frames, finish = 12, replay = f
       for (let step = leg ? 1 : 0; step <= steps; step++) {
         const t = step / steps
         river.pixels.set(background)
+        const frame = leg * steps + step
+        drawAudience(river, frame, steps * legs + 1, runtime)
         const current = t === 0 ? from : to
         if (current.round) {
           const label = 'ROUND ' + current.round
@@ -393,7 +491,6 @@ export async function renderDuckRaceGif({ lanes, frames, finish = 12, replay = f
         }
         const first = leg === 0 && step === 0
         const last = leg === legs - 1 && step === steps
-        const frame = leg * steps + step
         const tick = runtime / ((steps * legs + 1) * 10)
         const delay = (Math.round((frame + 1) * tick) - Math.round(frame * tick)) * 10
         gif.writeFrame(river.pixels, river.width, river.height, {

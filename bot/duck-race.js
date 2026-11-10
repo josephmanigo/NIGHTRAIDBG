@@ -105,7 +105,9 @@ async function animatedBoard(race, frames, render, durationMs, replay = false, l
   const payload = board(race, replay)
   const name = `duckrace-${race.id}-${replay ? 'replay' : race.leg}.gif`
   const attachment = await render({ lanes: race.lanes, frames, replay, loop, durationMs, sampled: true })
-  payload.files = [{ attachment, name, description: replay ? 'Animated replay of this race, from the starting positions to the finish.' : 'Numbered rubber ducks swimming in their assigned lanes.' }]
+  payload.files = [{ attachment, name, description: replay
+    ? 'Race replay. Six NIGHTRAID fans cheer as the ducks swim from start to finish.'
+    : 'Six NIGHTRAID fans cheer above the water as numbered ducks race in their lanes.' }]
   payload.embeds[0].image = { url: `attachment://${name}` }
   return payload
 }
