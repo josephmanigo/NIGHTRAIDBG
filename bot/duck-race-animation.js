@@ -307,15 +307,15 @@ function drawSwimmer(river, track, nose, time, out) {
   }
 }
 
-export async function renderDuckRaceGif({ lanes, frames, finish = 12, replay = false, durationMs = 2500 }) {
+export async function renderDuckRaceGif({ lanes, frames, finish = 12, replay = false, durationMs = 2500, sampled = false }) {
   if (!lanes.length || !frames.length || !(finish > 0)
     || frames.some(frame => frame.positions.length !== lanes.length)) throw new RangeError('Invalid duck race frames')
   let density = 1
   let scene = raceScene(lanes)
   let legs = Math.max(1, frames.length - 1)
-  const runtime = replay ? Math.min(15_000, legs * 1500) : durationMs
+  const runtime = replay ? Math.min(15_000, sampled ? durationMs : legs * 1500) : durationMs
   const targetFrames = Math.max(2, Math.min(100, Math.round(runtime / 110), Math.floor(26_000_000 / scene.river.pixels.length)))
-  let steps = Math.max(1, Math.floor(targetFrames / legs))
+  let steps = sampled ? 1 : Math.max(1, Math.floor(targetFrames / legs))
   for (;;) {
     const { river, tracks } = scene
     const background = river.pixels.slice()
@@ -325,22 +325,33 @@ export async function renderDuckRaceGif({ lanes, frames, finish = 12, replay = f
       for (let step = leg ? 1 : 0; step <= steps; step++) {
         const t = step / steps
         river.pixels.set(background)
+        const current = t === 0 ? from : to
+        if (current.round) {
+          const label = 'ROUND ' + current.round + (current.lastOut != null ? '   OUT ' + (current.lastOut + 1) : '')
+          river.rect(3, 3, label.length * 12 + 6, 18, color.navy)
+          river.name(label, 6, 5, label.length)
+        }
         for (let lane = 0; lane < lanes.length; lane++) {
           const previous = from.positions[lane], next = to.positions[lane]
           if (next == null && (previous == null || t === 1)) continue
           const track = tracks[lane]
           const at = value => track.start + (track.stripe - track.start) * Math.min(1, Math.max(0, value / finish))
-          const fromX = from.winner === lane ? track.end : at(previous ?? next)
+          const fromCrossed = sampled ? from.crossed : from.winner
+          const toCrossed = sampled ? to.crossed : to.winner
+          const fromX = fromCrossed === lane ? track.stripe + 3 : at(previous ?? next)
           // Meet the stripe at the timed finish; the replay also shows the winner clearing it.
-          const toX = to.winner === lane ? (replay ? track.end : track.stripe + 1) : at(next ?? previous)
+          const toX = toCrossed === lane ? (sampled ? track.stripe + 3 : replay ? track.end : track.stripe + 1) : at(next ?? previous)
           const out = from.out?.[lane] || (t === 1 && to.out?.[lane])
-          drawSwimmer(river, track, fromX + (toX - fromX) * t, (leg + t) * 2 + lane / 4, out)
+          const strokeTime = sampled ? (leg + t) / legs * runtime / 1000 * 1.5 : (leg + t) * 2
+          drawSwimmer(river, track, fromX + (toX - fromX) * t, strokeTime + lane / 4, out)
         }
         const first = leg === 0 && step === 0
         const last = leg === legs - 1 && step === steps
         gif.writeFrame(river.pixels, river.width, river.height, {
           palette: first ? palette : undefined, repeat: replay ? 0 : -1,
-          delay: last && replay ? 1000 : Math.max(20, Math.round(runtime / (steps * legs))), colorDepth: 6,
+          delay: last ? (replay ? 600 : 20) : Math.max(20,
+            (Math.round((leg * steps + step + 1) * runtime / (steps * legs * 10))
+             - Math.round((leg * steps + step) * runtime / (steps * legs * 10))) * 10), colorDepth: 6,
         })
         if (gif.bytesView().length >= 8 * 1024 * 1024) break encode
         await yieldFrame()

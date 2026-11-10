@@ -3,9 +3,9 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { ApplicationCommandOptionType, ButtonStyle, ComponentType, Events, MessageFlags, PermissionFlagsBits } from 'discord.js'
 import { cleanPrize } from './guess-the-number.js'
 import { renderDuckRaceGif } from './duck-race-animation.js'
+import { startCourse, startPlaybackClock, currentDucks, removeFromCourse, courseFrames, courseResult } from './duck-race-course.js'
 
 const ROSTER_PREVIEW = 25
-const FINISH = 12
 const DEFAULT_DURATION_MS = 15_000
 const FINISH_LINE = 'finish_line'
 const LAST_STANDING = 'last_standing'
@@ -51,68 +51,6 @@ function durationLabel(ms) {
   return `${ms / 1000} second${ms === 1000 ? '' : 's'}`
 }
 
-function snapshot(race) {
-  return {
-    positions: race.lanes.map(duck => duck.position),
-    out: race.lanes.map(duck => duck.out === true),
-    winner: race.winner ? race.winner.bib - 1 : null,
-  }
-}
-
-function startRace(race, now) {
-  race.phase = 'racing'
-  race.lanes = race.ducks.slice()
-  race.lanes.forEach((duck, index) => { duck.bib = index + 1 })
-  race.frame = snapshot(race)
-  race.frames = [race.frame]
-  race.leg = 0
-  race.progress = 0
-  race.startedAt = now
-  race.endsAt = now + race.durationMs
-  race.stop = new AbortController()
-  race.stepMs = race.durationMs < 2500 ? race.durationMs : Math.min(race.durationMs / 3, Math.max(2500, Math.min(15_000, race.durationMs / 12)))
-}
-
-function advance(race, random, progress) {
-  const delta = progress - race.progress
-  let best = 0
-  for (const duck of race.ducks) {
-    duck.distance += delta * random(1, 4)
-    best = Math.max(best, duck.distance)
-  }
-  const distance = FINISH * progress * (race.mode === LAST_STANDING ? 0.9 : 1)
-  for (const duck of race.ducks) {
-    duck.position = Math.max(duck.position, distance * (0.4 + 0.6 * duck.distance / best))
-  }
-  race.progress = progress
-  if (race.mode === LAST_STANDING) {
-    // The opening fifth is a swimming lap for everyone. Eliminated ducks stay afloat at their last position.
-    const remaining = 1 + Math.ceil((race.lanes.length - 1) * Math.min(1, (1 - progress) / 0.8))
-    let drops = race.ducks.length - remaining
-    if (drops > 0) {
-      const count = race.ducks.length
-      race.ducks = race.ducks.filter((duck, index) => {
-        if (!drops || random(0, count - index) >= drops) return true
-        drops--
-        duck.out = true
-        race.lastOut = duck.userId
-        race.round++
-        return false
-      })
-    }
-  }
-  if (progress < 1) return
-  if (race.mode === LAST_STANDING) {
-    race.winner = race.ducks[0]
-  } else {
-    const leaders = race.ducks.filter(duck => duck.distance === best)
-    race.winner = leaders[random(0, leaders.length)]
-    race.tied = leaders.length > 1
-  }
-  race.winner.position = FINISH
-  race.phase = 'finishing'
-}
-
 function board(race, showResult = true) {
   let title = '🦆 Duck Race'
   let description
@@ -143,13 +81,11 @@ function board(race, showResult = true) {
         ? `🏆 <@${race.winner.userId}> is the last duck standing!`
         : `🏆 <@${race.winner.userId}> wins!`)
       if (race.tied) lines.push('Photo finish! A random draw broke the tie.')
-    } else if (race.winner) {
-      lines.push('🏁 Here comes the finish!')
     } else {
-      lines.push(race.mode === LAST_STANDING ? `**${race.ducks.length} still swimming**` : 'First duck across the checkered line wins.')
+      lines.push(race.mode === LAST_STANDING ? 'First duck across is out each round. The remaining ducks race again.' : 'First duck across the checkered line wins.')
     }
-    if (race.lastOut && (!race.winner || result)) lines.push(`Round ${race.round} · <@${race.lastOut}> is out. Gray ducks have been eliminated.`)
-    if (!result) lines.push(`Finish <t:${Math.ceil(race.endsAt / 1000)}:R>`)
+    if (result && race.lastOut) lines.push(`Round ${race.rounds} · <@${race.lastOut.userId}> crossed first and was eliminated.`)
+    if (!result && race.clockStarted) lines.push(`Finish <t:${Math.ceil(race.endsAt / 1000)}:R>`)
     if (race.lanes.length > ROSTER_PREVIEW) lines.push(`${race.lanes.length} entrants on one race board`)
     const lanes = race.lanes.slice(0, ROSTER_PREVIEW).map(duck => `**${duck.bib}** <@${duck.userId}>`)
     description = [...lines, '', lanes.join(' · ')].join('\n')
@@ -168,21 +104,22 @@ function board(race, showResult = true) {
 async function animatedBoard(race, frames, render, durationMs, replay = false) {
   const payload = board(race, replay)
   const name = `duckrace-${race.id}-${replay ? 'replay' : race.leg}.gif`
-  const attachment = await render({ lanes: race.lanes, frames, finish: FINISH, replay, durationMs })
+  const attachment = await render({ lanes: race.lanes, frames, replay, durationMs, sampled: true })
   payload.files = [{ attachment, name, description: replay ? 'Animated replay of this race, from the starting positions to the finish.' : 'Numbered rubber ducks swimming in their assigned lanes.' }]
   payload.embeds[0].image = { url: `attachment://${name}` }
   return payload
 }
 
-function manageRacers(interaction, race, action) {
+function manageRacers(interaction, race, action, now) {
   if (interaction.user.id !== race.hostId) return privateReply(interaction, 'Only the race host can kick a player.')
+  const entrants = currentDucks(race, now)
   if (action === 'kick') {
-    if (!race.ducks.length) return privateReply(interaction, 'No players have joined yet.')
-    const select = race.ducks.length > 25 ? {
+    if (!entrants.length) return privateReply(interaction, 'No players have joined yet.')
+    const select = entrants.length > 25 ? {
       type: ComponentType.UserSelect, placeholder: 'Search for a racer',
     } : {
       type: ComponentType.StringSelect, placeholder: 'Choose a racer',
-      options: race.ducks.map(duck => ({ label: duck.name, value: duck.userId, description: duck.username })),
+      options: entrants.map(duck => ({ label: duck.name, value: duck.userId, description: duck.username })),
     }
     return interaction.reply({
       flags: MessageFlags.Ephemeral, content: 'Choose the player to remove from this race.',
@@ -192,24 +129,17 @@ function manageRacers(interaction, race, action) {
     })
   }
   const id = interaction.values[0]
-  const index = race.ducks.findIndex(duck => duck.userId === id)
-  if (index === -1) return privateReply(interaction, 'That player is no longer in the race.')
-  const [removed] = race.ducks.splice(index, 1)
-  removed.position = null
+  const removed = entrants.find(duck => duck.userId === id)
+  if (!removed) return privateReply(interaction, 'That player is no longer in the race.')
+  if (race.phase === 'racing') {
+    removeFromCourse(race, removed, now)
+  } else {
+    race.ducks.splice(race.ducks.indexOf(removed), 1)
+    race.rosterChanged = true
+    race.wakeLobby?.()
+  }
   race.kicked.add(id)
   race.lastRemoved = id
-  race.rosterChanged = true
-  race.wakeLobby?.()
-  if (race.phase === 'racing') {
-    if (race.ducks.length === 0) {
-      race.phase = 'cancelled'
-      race.closedReason = 'The race closed because no ducks remain.'
-    } else if (race.mode === LAST_STANDING && race.ducks.length === 1) {
-      race.winner = race.ducks[0]
-      race.winner.position = FINISH
-      race.phase = 'finished'
-    }
-  }
   return interaction.update({ content: `Removed <@${id}> from this race.`, components: [], allowedMentions: { parse: [] } })
 }
 
@@ -232,7 +162,7 @@ export function createDuckRaceWorkflow({ random = randomInt, wait = sleep, now =
     if (durationMs === null) return privateReply(interaction, 'Enter a race time of at least one second, such as 30s, 2m or 1h.')
     const race = {
       id: interaction.id, hostId: user.id, ducks: [], phase: 'lobby',
-      durationMs, joined: new Set(), kicked: new Set(), round: 0,
+      durationMs, joined: new Set(), kicked: new Set(), leg: 0,
       mode: interaction.options.getString('mode') ?? FINISH_LINE,
       prize: cleanPrize(interaction.options.getString('prize')),
     }
@@ -256,57 +186,49 @@ export function createDuckRaceWorkflow({ random = randomInt, wait = sleep, now =
           if (closed) return
           continue
         }
-        const previous = race.frame
-        const elapsed = Math.max(0, now() - race.startedAt)
-        let nextMs = Math.min(race.durationMs, Math.max(race.progress * race.durationMs, (Math.floor(elapsed / race.stepMs) + 1) * race.stepMs))
-        // Keep host controls open until the final sprint, including in hour-long races.
-        if (race.durationMs >= 60_000 && nextMs === race.durationMs && elapsed < race.durationMs - 2000) nextMs -= 2000
-        const deadline = race.winner ? now() : race.startedAt + nextMs
-        const frames = [previous]
-        const before = race.progress
-        if (!race.winner) {
-          // A slow first upload or a short race still gets a visible opening swim before elimination.
-          if (before === 0 && nextMs / race.durationMs > 0.2) {
-            advance(race, random, 0.15)
-            frames.push(snapshot(race))
-            race.frames.push(frames.at(-1))
-          }
-          advance(race, random, nextMs / race.durationMs)
-        }
-        race.leg++
-        race.frame = snapshot(race)
-        frames.push(race.frame)
-        const finishing = Boolean(race.winner)
-        if (race.leg === 1 || finishing || Math.floor(before * 10) !== Math.floor(race.progress * 10)) race.frames.push(race.frame)
-        const leg = await animatedBoard(race, frames, render, Math.max(100, deadline - now()))
-        if (race.phase === 'cancelled' || (!finishing && race.winner)) continue
-        const posted = await message.edit(leg)
-        const remaining = deadline - now()
-        if (remaining > 0) {
-          try {
-            await wait(remaining, undefined, { signal: race.stop.signal })
-          } catch (reason) {
-            if (!race.stop.signal.aborted) throw reason
-          }
-        }
-        if (race.phase === 'cancelled') continue
-        if (finishing) {
+        const from = race.clockStarted ? Math.min(now(), race.endsAt) : race.startedAt
+        if (race.clockStarted && from >= race.endsAt) {
           race.phase = 'finished'
+          Object.assign(race, courseResult(race))
           try {
-            await message.edit(await animatedBoard(race, race.frames, render, undefined, true))
+            const replay = courseFrames(race, race.startedAt, race.endsAt, true)
+            await message.edit(await animatedBoard(race, replay, render, race.durationMs, true))
           } catch (reason) {
             errorReporter?.report('duck_race_replay', reason)
             const result = board(race)
             result.embeds[0].title = '🦆 Duck Race • Results'
             result.embeds[0].footer = { text: 'Full replay unavailable.' }
-            const lastLeg = posted?.attachments?.first()
-            if (lastLeg) {
-              result.attachments = [{ id: lastLeg.id }]
-              result.embeds[0].image = { url: `attachment://${lastLeg.name}` }
+            if (race.lastFile) {
+              result.attachments = [{ id: race.lastFile.id }]
+              result.embeds[0].image = { url: `attachment://${race.lastFile.name}` }
             }
             await message.edit(result)
           }
           return
+        }
+        const segmentMs = Math.min(race.endsAt - from, 30_000)
+        const signal = race.stop.signal
+        race.leg++
+        const frames = courseFrames(race, from, from + segmentMs)
+        const leg = await animatedBoard(race, frames, render, segmentMs)
+        if (signal.aborted) continue
+        const posted = await message.edit(leg)
+        race.lastFile = posted?.attachments?.first()
+        if (signal.aborted) continue
+        let deadline = from + segmentMs
+        if (!race.clockStarted) {
+          const publishedAt = now()
+          deadline += publishedAt - race.startedAt
+          startPlaybackClock(race, publishedAt)
+          race.clockStarted = true
+        }
+        const remaining = deadline - now()
+        if (remaining > 0) {
+          try {
+            await wait(remaining, undefined, { signal })
+          } catch (reason) {
+            if (!signal.aborted) throw reason
+          }
         }
       }
     } catch (reason) {
@@ -332,7 +254,8 @@ export function createDuckRaceWorkflow({ random = randomInt, wait = sleep, now =
       return privateReply(interaction, 'This race is closed. Run `/duckrace` for a new race.')
     }
     if ((isButton && action === 'kick') || (isSelect && action === 'remove')) {
-      return manageRacers(interaction, race, action)
+      if (race.clockStarted && now() >= race.endsAt) return privateReply(interaction, 'This race has finished.')
+      return manageRacers(interaction, race, action, race.clockStarted ? now() : race.startedAt)
     }
     if (!isButton || race.phase !== 'lobby') {
       return privateReply(interaction, 'This lobby is closed. Run `/duckrace` for a new race.')
@@ -342,7 +265,7 @@ export function createDuckRaceWorkflow({ random = randomInt, wait = sleep, now =
       if (race.kicked.has(userId)) return privateReply(interaction, 'The host removed you from this race.')
       if (race.joined.has(userId)) return privateReply(interaction, 'Your duck is already entered.')
       const username = interaction.user.username
-      race.ducks.push({ userId, name: interaction.member?.displayName ?? username, username, position: 0, distance: 0 })
+      race.ducks.push({ userId, name: interaction.member?.displayName ?? username, username })
       race.joined.add(userId)
       race.rosterChanged = true
       race.wakeLobby?.()
@@ -351,14 +274,14 @@ export function createDuckRaceWorkflow({ random = randomInt, wait = sleep, now =
     if (action !== 'start') return privateReply(interaction, 'Unknown race control.')
     if (interaction.user.id !== race.hostId) return privateReply(interaction, 'Only the host can start this race.')
     if (race.ducks.length < 2) return privateReply(interaction, 'At least two ducks must join first.')
-    startRace(race, now())
+    startCourse(race, now(), random)
     race.wakeLobby?.()
     return interaction.deferUpdate()
   }
 
   function endGame({ channelId, userId, isAdministrator }) {
     const race = races.get(channelId)
-    if (!race || !['lobby', 'racing', 'finishing'].includes(race.phase)) return { status: 'none' }
+    if (!race || !['lobby', 'racing'].includes(race.phase)) return { status: 'none' }
     if (race.hostId !== userId && !isAdministrator) return { status: 'unauthorized', hostId: race.hostId }
     race.phase = 'cancelled'
     race.closedReason = `Duck race cancelled by <@${userId}>.`
