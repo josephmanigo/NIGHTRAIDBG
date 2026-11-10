@@ -1180,28 +1180,31 @@ export function createSupabaseGameResultsStore(options = {}) {
     }
   }
 
-  async function exportBackupSnapshotStreamed() {
+  async function* exportBackupSnapshotStreamed() {
+    const pageSize = 8
     const tables = [
-      SUBMISSIONS_TABLE,
-      SCREENSHOTS_TABLE,
-      SHEET_WRITE_AUDITS_TABLE,
-      'game_result_history_snapshots',
-      'game_result_player_history',
-      MVP_REVIEWS_TABLE,
-      ADMIN_OPERATIONS_TABLE,
+      SUBMISSIONS_TABLE, SCREENSHOTS_TABLE, SHEET_WRITE_AUDITS_TABLE,
+      HISTORY_SNAPSHOTS_TABLE, 'game_result_player_history', MVP_REVIEWS_TABLE, ADMIN_OPERATIONS_TABLE,
     ]
-    const parts = []
-    for (const table of tables) {
-      const { data, error } = await client
-        .from(table)
-        .select('*')
-      if (error) {
-        throw new Error(safeDatabaseError(error, `Could not back up ${table}.`))
+    yield '{'
+    for (const [index, table] of tables.entries()) {
+      yield `${index ? ',' : ''}${JSON.stringify(table)}:[`
+      let lastId = null
+      for (;;) {
+        let query = client.from(table).select('*').order('id').limit(pageSize)
+        if (lastId !== null) query = query.gt('id', lastId)
+        const { data, error } = await query
+        if (error) throw new Error(safeDatabaseError(error, `Could not back up ${table}.`))
+        if (!data?.length) break
+        for (const row of data) {
+          yield `${lastId === null ? '' : ','}${JSON.stringify(row)}`
+          lastId = row.id
+        }
+        if (data.length < pageSize) break
       }
-      parts.push(JSON.stringify(table))
-      parts.push(JSON.stringify(data ?? []))
+      yield ']'
     }
-    return parts
+    yield '}'
   }
 
   return {

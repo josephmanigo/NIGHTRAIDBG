@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
-import { readFile, writeFile, mkdtemp } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { readFile, writeFile, mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { createGameResultsBackupService } from './game-results-backup.js'
+import { createSupabaseGameResultsStore } from './game-results-store.js'
 import {
   resolveGameResultsConfig,
   resolveGoogleServiceAccount,
@@ -252,6 +254,46 @@ test('creates an atomic database backup with a checksum', async () => {
   assert.equal(parsed.tables.submissions[0].id, 'one')
   assert.match(backup.checksum, /^[a-f0-9]{64}$/)
   assert.equal(service.latest().filename, backup.filename)
+})
+
+test('production backups page through rows, publish valid JSON and discard partial backups', async (t) => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'nightraid-paged-backup-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const rows = Array.from({ length: 19 }, (_, id) => ({ id, title: '🦆' }))
+  let fail = false
+  const client = {
+    from(table) {
+      let after = -1
+      let limit
+      return {
+        select() { return this },
+        order(column) { assert.equal(column, 'id'); return this },
+        limit(value) { limit = value; return this },
+        gt(column, value) { assert.equal(column, 'id'); after = value; return this },
+        then(resolve) {
+          if (fail && after >= 0) return resolve({ error: { message: 'interrupted' } })
+          const data = table === 'game_result_submissions' ? rows.slice(after + 1, after + 1 + limit) : []
+          resolve({ data })
+        },
+      }
+    },
+  }
+  const service = createGameResultsBackupService({
+    store: createSupabaseGameResultsStore({ client }),
+    backupDirectory: directory,
+    databasePath: path.join(directory, 'game_results.db'),
+    logger: { info() {} },
+  })
+  const backup = await service.backupNow('test')
+  const contents = await readFile(backup.filename)
+  const { tables } = JSON.parse(contents)
+  assert.equal(Object.keys(tables).length, 7)
+  assert.deepEqual(tables.game_result_submissions, rows)
+  assert.deepEqual(tables.game_result_screenshots, [])
+  assert.equal(backup.checksum, createHash('sha256').update(contents).digest('hex'))
+  fail = true
+  await assert.rejects(service.backupNow('test'), /interrupted/)
+  assert.deepEqual(await readdir(directory), [path.basename(backup.filename)])
 })
 
 test('health command is authorized, read-only, and reports database, formulas, and backups', async () => {
