@@ -19,7 +19,8 @@ export function startCourse(race, now, random) {
     duck.bib = i + 1
     duck.speed = random(1000, 2001)
   }
-  // Shuffle before sorting so equal speeds have a fair finish-line tiebreak.
+  // Drawing without replacement gives every survivor 1 / survivors chance of the
+  // fastest pace in its next knockout round. A finish-line tie uses the same fair draw.
   const order = race.lanes.slice()
   for (let i = 0; i < order.length - 1; i++) {
     const j = i + random(0, order.length - i)
@@ -27,7 +28,9 @@ export function startCourse(race, now, random) {
     order[i] = order[j]
     order[j] = temp
   }
-  order.sort((a, b) => b.speed - a.speed)
+  if (race.mode !== 'last_standing') order.sort((a, b) => b.speed - a.speed)
+  race.heatSeeds = Array.from({ length: race.mode === 'last_standing' ? order.length - 1 : 1 },
+    () => random(0, 0x100000000))
   race.plans = [makePlan(race, order, now)]
 }
 
@@ -78,6 +81,32 @@ export function courseResult(race) {
   return { winner: plan.order[0], tied: plan.order.length > 1 && plan.order[0].speed === plan.order[1].speed }
 }
 
+// Generate repeatable stroke profiles from the round's random seed so live
+// playback, a host kick and the replay all sample the same physical movement.
+function mix32(value) {
+  value = Math.imul(value ^ (value >>> 16), 0x21f0aaad)
+  value = Math.imul(value ^ (value >>> 15), 0x735a2d97)
+  return (value ^ (value >>> 15)) >>> 0
+}
+
+function strokeProfile(seed, bib) {
+  const bits = mix32(seed ^ Math.imul(bib, 0x9e3779b1))
+  return {
+    pace: 0.67 + 0.315 * (bits & 255) / 255,
+    early: 0.4 + ((bits >>> 8) & 255) / 128,
+    middle: 0.4 + ((bits >>> 16) & 255) / 128,
+    late: 0.4 + (bits >>> 24) / 128,
+  }
+}
+
+function lapDistance(fraction, profile) {
+  const stage = fraction * 3
+  const distance = Math.min(1, stage) * profile.early
+    + Math.min(1, Math.max(0, stage - 1)) * profile.middle
+    + Math.max(0, stage - 2) * profile.late
+  return distance / (profile.early + profile.middle + profile.late)
+}
+
 export function courseFrames(race, from, to, replay = false) {
   // Capture all lanes at each instant. Bound the temporal sample count for large fields.
   const duration = Math.max(1, to - from)
@@ -87,6 +116,8 @@ export function courseFrames(race, from, to, replay = false) {
   const knockout = race.mode === 'last_standing'
   let planIndex = 0
   let previousLap = -1
+  let profileRound = -1
+  let profiles
   for (let step = 0; step <= intervals; step++) {
     const time = from + duration * step / intervals
     while (planIndex + 1 < race.plans.length && race.plans[planIndex + 1].from <= time) {
@@ -109,14 +140,18 @@ export function courseFrames(race, from, to, replay = false) {
     const leader = plan.order[index]
     const leaderBib = leader.bib - 1
     const round = plan.completed + index + 1
-    const positions = race.lanes.map(duck => {
+    if (round !== profileRound) {
+      const seed = mix32(race.heatSeeds[round - 1] ^ round)
+      profiles = race.lanes.map(duck => strokeProfile(seed, duck.bib))
+      profileRound = round
+    }
+    const positions = race.lanes.map((duck, lane) => {
       const rank = plan.ranks.get(duck)
       if (rank == null || rank < index) return null
       // Each swimmer's speed stays positive throughout the lap. Its average pace
       // determines its crossing time, with a small stroke variation between ducks.
-      const ratio = rank === index ? 1 : Math.min(0.985, duck.speed / leader.speed)
-      const stroke = 0.18 * Math.sin(duck.bib * 1.7 + round)
-      return 12 * ratio * (fraction + stroke * Math.sin(2 * Math.PI * fraction) / (2 * Math.PI))
+      const ratio = rank === index ? 1 : knockout ? profiles[lane].pace : Math.min(0.985, duck.speed / leader.speed)
+      return 12 * ratio * lapDistance(fraction, profiles[lane])
     })
     const crossed = fraction >= 1 ? leaderBib : null
     const finished = time >= race.endsAt

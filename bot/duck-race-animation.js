@@ -307,7 +307,7 @@ function drawSwimmer(river, track, nose, time, out) {
   }
 }
 
-export async function renderDuckRaceGif({ lanes, frames, finish = 12, replay = false, durationMs = 2500, sampled = false }) {
+export async function renderDuckRaceGif({ lanes, frames, finish = 12, replay = false, loop = false, durationMs = 2500, sampled = false }) {
   if (!lanes.length || !frames.length || !(finish > 0)
     || frames.some(frame => frame.positions.length !== lanes.length)) throw new RangeError('Invalid duck race frames')
   let density = 1
@@ -347,11 +347,12 @@ export async function renderDuckRaceGif({ lanes, frames, finish = 12, replay = f
         }
         const first = leg === 0 && step === 0
         const last = leg === legs - 1 && step === steps
+        const frame = leg * steps + step
+        const tick = runtime / ((steps * legs + 1) * 10)
+        const delay = (Math.round((frame + 1) * tick) - Math.round(frame * tick)) * 10
         gif.writeFrame(river.pixels, river.width, river.height, {
-          palette: first ? palette : undefined, repeat: replay ? 0 : -1,
-          delay: last ? (replay ? 600 : 20) : Math.max(20,
-            (Math.round((leg * steps + step + 1) * runtime / (steps * legs * 10))
-             - Math.round((leg * steps + step) * runtime / (steps * legs * 10))) * 10), colorDepth: 6,
+          palette: first ? palette : undefined, repeat: replay || loop ? 0 : -1,
+          delay: last && replay && !loop ? 600 : Math.max(20, delay), colorDepth: 6,
         })
         if (gif.bytesView().length >= 8 * 1024 * 1024) break encode
         await yieldFrame()

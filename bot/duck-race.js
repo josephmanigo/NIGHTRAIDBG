@@ -101,10 +101,10 @@ function board(race, showResult = true) {
   return { embeds: [{ title, description, fields, color: 0x168598 }], components, attachments: [], allowedMentions: { parse: [] } }
 }
 
-async function animatedBoard(race, frames, render, durationMs, replay = false) {
+async function animatedBoard(race, frames, render, durationMs, replay = false, loop = false) {
   const payload = board(race, replay)
   const name = `duckrace-${race.id}-${replay ? 'replay' : race.leg}.gif`
-  const attachment = await render({ lanes: race.lanes, frames, replay, durationMs, sampled: true })
+  const attachment = await render({ lanes: race.lanes, frames, replay, loop, durationMs, sampled: true })
   payload.files = [{ attachment, name, description: replay ? 'Animated replay of this race, from the starting positions to the finish.' : 'Numbered rubber ducks swimming in their assigned lanes.' }]
   payload.embeds[0].image = { url: `attachment://${name}` }
   return payload
@@ -132,6 +132,7 @@ function manageRacers(interaction, race, action, now) {
   const removed = entrants.find(duck => duck.userId === id)
   if (!removed) return privateReply(interaction, 'That player is no longer in the race.')
   if (race.phase === 'racing') {
+    race.fullClip = null
     removeFromCourse(race, removed, now)
   } else {
     race.ducks.splice(race.ducks.indexOf(removed), 1)
@@ -191,8 +192,26 @@ export function createDuckRaceWorkflow({ random = randomInt, wait = sleep, now =
           race.phase = 'finished'
           Object.assign(race, courseResult(race))
           try {
-            const replay = courseFrames(race, race.startedAt, race.endsAt, true)
-            await message.edit(await animatedBoard(race, replay, render, race.durationMs, true))
+            if (race.fullClip) {
+              const result = board(race)
+              const { file, id } = race.fullClip
+              result.embeds[0].image = { url: `attachment://${file.name}` }
+              if (id) {
+                result.attachments = [{ id, filename: file.name }]
+                try {
+                  await message.edit(result)
+                  return
+                } catch (reason) {
+                  errorReporter?.report('duck_race_retain_animation', reason)
+                }
+              }
+              result.attachments = []
+              result.files = [file]
+              await message.edit(result)
+            } else {
+              const replay = courseFrames(race, race.startedAt, race.endsAt, true)
+              await message.edit(await animatedBoard(race, replay, render, race.durationMs, true))
+            }
           } catch (reason) {
             errorReporter?.report('duck_race_replay', reason)
             const result = board(race)
@@ -210,11 +229,17 @@ export function createDuckRaceWorkflow({ random = randomInt, wait = sleep, now =
         const signal = race.stop.signal
         race.leg++
         const frames = courseFrames(race, from, from + segmentMs)
-        const leg = await animatedBoard(race, frames, render, segmentMs)
+        const wholeRace = !race.clockStarted && race.plans.length === 1 && segmentMs === race.durationMs
+        const leg = await animatedBoard(race, frames, render, segmentMs, false, wholeRace)
         if (signal.aborted) continue
         const posted = await message.edit(leg)
         race.lastFile = posted?.attachments?.first()
         if (signal.aborted) continue
+        if (wholeRace) {
+          const cdn = posted?.embeds?.[0]?.image?.url ?? ''
+          const id = race.lastFile?.id ?? cdn.match(/^https:\/\/(?:cdn\.discordapp\.com|media\.discordapp\.net)\/attachments\/\d+\/(\d+)\//)?.[1]
+          race.fullClip = { file: leg.files[0], id }
+        }
         let deadline = from + segmentMs
         if (!race.clockStarted) {
           const publishedAt = now()

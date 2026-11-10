@@ -3,6 +3,7 @@ import test from 'node:test'
 import { setImmediate as flush } from 'node:timers/promises'
 import { createDuckRaceWorkflow, DUCK_RACE_COMMAND } from './duck-race.js'
 import { renderDuckRaceGif } from './duck-race-animation.js'
+import { startCourse, courseFrames } from './duck-race-course.js'
 import { createEndGameWorkflow } from './minigame-end.js'
 
 function harness(random = (min, max) => max - 1) {
@@ -102,10 +103,11 @@ test('members join by button only, the host starts the race, and one board shows
   assert.match(result.embeds[0].description, /\*\*1\*\* <@alice> · \*\*2\*\* <@bob>/)
   assert.match(messages.at(-2).embeds[0].description, /First duck across/)
   assert.doesNotMatch(messages.at(-2).embeds[0].description, /🏆/)
-  assert.equal(h.pictures.at(-1).replay, true)
+  assert.equal(h.pictures.length, 1)
+  assert.equal(h.pictures[0].loop, true)
   const frames = h.pictures.at(-1).frames
   assert.deepEqual(frames[0].positions, [0, 0])
-  assert.ok(frames.slice(1).every(frame => frame.positions[0] > frame.positions[1]))
+  assert.ok(frames.slice(1).every((frame, i) => frame.positions.every((p, lane) => p > frames[i].positions[lane])))
   assert.equal(frames.at(-1).positions[0], 12)
   assert.equal(h.pictures.at(-1).frames.at(-1).winner, 0)
   const animations = messages.filter(message => message.files)
@@ -115,7 +117,7 @@ test('members join by button only, the host starts the race, and one board shows
     assert.equal(message.embeds[0].image.url, `attachment://${message.files[0].name}`)
     assert.deepEqual(message.attachments, [])
   }
-  assert.equal(new Set(animations.map(m => m.files[0].name)).size, animations.length)
+  assert.equal(animations[1].files[0].attachment, animations[0].files[0].attachment)
 })
 
 test('a large lobby accepts everyone, allows host kicks, waits for its host, and renders the winning duck beyond lane twelve', async () => {
@@ -206,7 +208,7 @@ test('the host clock accepts seconds, minutes and hours, starts on the button, a
     await h.tick(1)
     await lobby.done
     assert.match(lobby.messages.at(-1).embeds[0].title, /Results/)
-    assert.ok(h.pictures.at(-1).replay)
+    assert.ok(h.pictures.at(-1).replay || h.pictures.at(-1).loop)
   }
 })
 
@@ -373,7 +375,7 @@ test('the real renderer emits a looping, multi-frame GIF that fits a Discord att
   assert.ok(bytes.length < 8 * 1024 * 1024)
 })
 
-test('a failed replay upload keeps the winning animation, winner, and prize on the result card', async () => {
+test('the result card reuses the already-published race animation, winner and prize', async () => {
   const h = harness()
   let result
   const finishingFile = { id: '9001', name: '' }
@@ -393,6 +395,31 @@ test('a failed replay upload keeps the winning animation, winner, and prize on t
   await game.done
   assert.match(result.embeds[0].description, /<@two> wins!/)
   assert.ok(result.embeds[0].fields.some(field => field.value === '`30 GCash`'))
-  assert.deepEqual(result.attachments, [{ id: '9001' }])
+  assert.deepEqual(result.attachments, [{ id: '9001', filename: finishingFile.name }])
   assert.equal(result.embeds[0].image.url, `attachment://${finishingFile.name}`)
+})
+
+test('all six three-duck elimination orders are equally reachable, independent of names and join order', () => {
+  const outcomes = new Set()
+  for (let first = 0; first < 3; first++) for (let second = 0; second < 2; second++) {
+    const race = { mode: 'last_standing', durationMs: 15_000, ducks: ['a', 'b', 'c'].map(userId => ({ userId })) }
+    startCourse(race, 0, (min, max) => max === 3 ? first : max === 2 ? second : min)
+    outcomes.add(race.plans[0].order.map(d => d.userId).join(''))
+  }
+  assert.deepEqual([...outcomes].sort(), ['abc', 'acb', 'bac', 'bca', 'cab', 'cba'])
+})
+
+test('survivors draw new relative paces in successive rounds and continuously swim forward', () => {
+  const race = { mode: 'last_standing', durationMs: 15_000, ducks: Array.from({ length: 13 }, (_, i) => ({ userId: String(i) })) }
+  let seed = 123
+  startCourse(race, 0, (min, max) => { seed = seed * 48271 % 2147483647; return min + seed % (max - min) })
+  const frames = courseFrames(race, 0, 15_000)
+  const relativeOrders = []
+  const lastThree = race.plans[0].order.slice(-3).map(duck => duck.bib - 1)
+  for (let round = 1; round <= 9; round++) {
+    const lap = frames.filter(frame => frame.round === round)
+    const mid = lap[Math.floor(lap.length / 2)].positions
+    relativeOrders.push(lastThree.slice().sort((a, b) => mid[b] - mid[a]).join(','))
+  }
+  assert.ok(new Set(relativeOrders).size >= 3)
 })
